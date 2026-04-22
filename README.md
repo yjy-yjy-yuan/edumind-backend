@@ -162,6 +162,89 @@ python scripts/validate_system_requirements.py
 |------|---------|
 | FastAPI 后端 | 2004 |
 | Mobile Frontend Vite | 5173 |
+
+## Git Hooks
+
+本项目使用 [pre-commit](https://pre-commit.com) 框架管理 Git hooks。
+
+### 安装
+
+```bash
+# 安装依赖并设置 hooks
+pip install pre-commit detect-secrets
+bash scripts/setup_git_hooks.sh
+
+# 或者直接使用 pre-commit
+pip install pre-commit detect-secrets
+pre-commit install
+pre-commit install --hook-type commit-msg
+pre-commit install --hook-type pre-push
+detect-secrets scan --baseline .secrets.baseline --exclude '\.env$' --exclude 'requirements.*\.txt$'
+```
+
+### 钩子说明
+
+| 钩子 | 触发时机 | 功能 |
+|------|---------|------|
+| `pre-commit` | 每次 `git commit` | 格式化 (black, isort)、语法检查、敏感信息扫描 |
+| `commit-msg` | 每次 `git commit` | 验证提交信息符合 Conventional Commits 规范 |
+| `pre-push` | 每次 `git push` | 类型检查 (mypy) |
+
+### Conventional Commits 格式
+
+```
+type(scope): description
+```
+
+**允许的类型：**
+
+| 类型 | 说明 |
+|------|------|
+| `feat` | 新功能 |
+| `fix` | Bug 修复 |
+| `docs` | 文档变更 |
+| `style` | 代码风格（格式化，无逻辑变更） |
+| `refactor` | 重构 |
+| `test` | 测试相关 |
+| `chore` | 维护任务 |
+| `perf` | 性能优化 |
+| `ci` | CI/CD 变更 |
+| `build` | 构建系统变更 |
+| `revert` | 回退变更 |
+
+**示例：**
+
+```bash
+feat(auth): add login endpoint
+fix: resolve video upload bug
+docs: update API documentation
+chore: update dependencies
+```
+
+### 跳过 Hooks
+
+```bash
+# 跳过提交 hooks
+git commit --no-verify -m "message"
+
+# 跳过推送 hooks
+git push --no-verify
+```
+
+### 手动运行
+
+```bash
+# 运行所有 pre-commit hooks
+pre-commit run --all-files
+
+# 运行特定 hook
+pre-commit run isort --all-files
+pre-commit run black --all-files
+
+# 更新 hook 版本
+pre-commit autoupdate
+```
+
 ## 开发说明
 
 - 修改接口时，同时检查根目录 README 和 `docs/` 中是否需要同步更新。

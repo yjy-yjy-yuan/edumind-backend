@@ -1,4 +1,6 @@
-# Backend FastAPI CLAUDE.md
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 FastAPI + SQLAlchemy 2.0 + ProcessPoolExecutor 后端服务
 
@@ -9,41 +11,75 @@ FastAPI + SQLAlchemy 2.0 + ProcessPoolExecutor 后端服务
 python run.py
 uvicorn app.main:app --reload --port 2004
 
-# 验证
+# 验证 (当前仓库首选验证链路)
 python ../scripts/validate_backend_smoke.py
 mkdir -p ../.pycache-hook && PYTHONPYCACHEPREFIX="$PWD/../.pycache-hook" python -m compileall app scripts ../scripts/hooks ../scripts/validate_backend_smoke.py
+python scripts/validate_system_requirements.py
 
 # 数据库迁移
 alembic revision --autogenerate -m "描述"
 alembic upgrade head
 
 # 代码格式化
-pre-commit run --all-files
 black app/ tests/
 isort app/ tests/
+
+# 数据库初始化
+python scripts/init_db.py --create
+
+# 语义搜索迁移
+python scripts/migrations_semantic_search.py
+
+# Compounding 导出
+python scripts/export_compounding_trajectories.py
+
+# 健壮性维护
+python scripts/robust_maintenance.py
 ```
 
-## Core Files
+## Architecture Overview
 
-| 文件 | 说明 |
-|------|------|
-| `app/main.py` | FastAPI 应用入口，路由注册 |
-| `app/core/config.py` | Pydantic Settings 配置 |
-| `app/core/database.py` | SQLAlchemy 2.0 连接和 get_db 依赖 |
-| `app/core/executor.py` | ProcessPoolExecutor 后台任务 |
-| `app/routers/*.py` | API 路由 (video, subtitle, note, qa, chat, auth) |
-| `app/models/*.py` | SQLAlchemy 2.0 模型 (Mapped[] 类型注解) |
-| `app/schemas/*.py` | Pydantic 请求/响应模型 |
-| `app/tasks/video_processing.py` | 视频处理后台任务 |
-| `app/utils/*.py` | 工具函数 (chat, qa, semantic) |
+```
+app/
+├── main.py              # FastAPI 应用入口，lifespan 管理，中间件注册
+├── core/                # 核心基础设施
+│   ├── config.py        # Pydantic Settings 配置单例
+│   ├── database.py      # SQLAlchemy 2.0 连接，get_db 依赖
+│   └── executor.py      # ProcessPoolExecutor 后台任务调度
+├── routers/             # HTTP 路由层
+├── schemas/             # Pydantic 请求/响应模型
+├── models/              # SQLAlchemy 2.0 ORM 模型 (Mapped[] 类型注解)
+├── services/            # 业务逻辑层
+│   ├── search/          # 语义搜索服务 (embedder, chunker, store, similarity_fusion)
+│   ├── analytics/       # 集中式遥测 (兼容入口在 app/analytics/)
+│   └── ollama_runtime.py, whisper_runtime.py  # 运行时封装
+├── tasks/               # 后台任务 (video_processing, vector_indexing, video_download)
+├── agents/              # 智能体编排
+│   ├── governance/      # 治理审计
+│   ├── pipelines/       # 学习流编排
+│   └── budget.py        # Token 预算管理
+├── analytics/           # 集中式遥测管道 (pipeline, alerting, adapters)
+├── compounding/         # 增量价值导出 (export_service, formats, quality, sanitization)
+├── utils/               # 通用工具 (auth_deps, auth_token, chat_system, semantic_utils)
+└── repositories/        # 数据访问层 (similarity_audit_log_repository)
+```
+
+### Key Architectural Patterns
+
+1. **分层架构**: Routers → Services → Repositories/Models
+2. **依赖注入**: 使用 `Depends(get_db)` 注入数据库会话
+3. **异步优先**: 路由使用 `async def`，后台任务通过 ProcessPoolExecutor 执行
+4. **流式响应**: AI 问答/聊天使用 `StreamingResponse`
+5. **运行时封装**: Whisper/Ollama 通过 Runtime 类管理生命周期
+6. **集中式遥测**: `app.analytics.pipeline.get_telemetry().emit()` 统一事件发布
+7. **语义搜索**: 双后端工厂模式 (gemini/local) + ChromaDB 持久化
 
 ## Code Style
 
-- **IMPORTANT**: 行宽 120 字符
-- **IMPORTANT**: 使用 black + isort 格式化
-- 异步路由使用 `async def`
-- 类型注解: Pydantic + SQLAlchemy `Mapped[]`
-- Import 顺序: stdlib → third-party → local
+- **行宽**: 120 字符
+- **格式化**: black + isort
+- **类型注解**: Pydantic v2 + SQLAlchemy 2.0 `Mapped[]`
+- **Import 顺序**: stdlib → third-party → local
 
 ```python
 # 路由示例
@@ -59,19 +95,48 @@ async def get_video(video_id: int, db: Session = Depends(get_db)):
 
 | 路由前缀 | 说明 |
 |---------|------|
-| `/api/videos` | 视频上传、处理、列表、流式传输 |
+| `/api/videos` | 视频上传、处理、列表、流式传输、URL 导入 |
 | `/api/subtitles` | 字幕提取、语义合并、导出 |
 | `/api/notes` | 笔记 CRUD、时间戳、批量操作 |
-| `/api/qa` | AI 问答 (流式响应) |
+| `/api/qa` | AI 问答 (流式响应，支持 qwen/deepseek) |
 | `/api/chat` | 聊天系统 (流式响应) |
-| `/api/auth` | 用户注册、登录、信息更新 |
-## Testing
+| `/api/auth` | 用户注册、登录、信息更新、头像上传 |
+| `/api/recommendations` | 视频推荐 (home/continue/review/related 场景，支持站外候选) |
+| `/api/design` | 设计助手代理 (Sleek 集成) |
+| `/api/agent` | 学习流智能体编排 |
+| `/api/search` | 语义搜索 (视频/字幕语义召回) |
 
-```bash
-# 当前仓库要求修改程序时不要使用 pytest 做验证
-python ../scripts/validate_backend_smoke.py
-mkdir -p ../.pycache-hook && PYTHONPYCACHEPREFIX="$PWD/../.pycache-hook" python -m compileall app scripts ../scripts/hooks ../scripts/validate_backend_smoke.py
+## Background Tasks
+
+**IMPORTANT**: 使用 ProcessPoolExecutor 替代 Celery
+
+```python
+from app.core.executor import submit_task
+from app.tasks.video_processing import process_video_task
+
+# 提交后台任务
+submit_task(process_video_task, video_id, language, model)
+
+# 任务内创建独立数据库连接 (ProcessPoolExecutor 限制)
+def process_video_task(video_id: int, language: str, model: str):
+    engine = create_engine(settings.DATABASE_URL)
+    SessionLocal = sessionmaker(bind=engine)
+    db = SessionLocal()
+    # ...
 ```
+
+## Configuration
+
+配置通过 `app/core/config.py` 的 `Settings` 类管理，支持 `.env` 文件。
+
+关键配置项:
+- `DATABASE_URL`: MySQL 连接字符串
+- `OLLAMA_BASE_URL`, `OLLAMA_MODEL`: 本地 LLM 配置
+- `OPENAI_API_KEY`, `QWEN_API_KEY`, `DEEPSEEK_API_KEY`: 外部 LLM 配置
+- `SLEEK_API_KEY`, `SLEEK_API_BASE`: 设计助手配置
+- `SEARCH_ENABLED`, `SEARCH_BACKEND`: 语义搜索开关和后端
+- `AGENT_GOVERNANCE_AUDIT_ENABLED`: 智能体治理审计
+- `RECOMMENDATION_*`: 推荐系统配置
 
 ## Development Environment
 
@@ -81,7 +146,7 @@ conda activate ai-edvision
 
 # 端口
 # Backend: 2004
-# Frontend: 328
+# Frontend: 328 / 5173
 ```
 
 ## Key Differences from Flask
@@ -95,28 +160,98 @@ conda activate ai-edvision
 | `Response(generate())` | `StreamingResponse(generate())` |
 | `Video.query.get(id)` | `db.query(Video).filter(Video.id == id).first()` |
 
-## Background Tasks
+## Testing
 
-**IMPORTANT**: 使用 ProcessPoolExecutor 替代 Celery
+当前仓库规则: 修改程序时不要使用 pytest 做验证，改用以下链路:
 
-```python
-from app.core.executor import submit_task
-from app.tasks.video_processing import process_video_task
-
-# 提交后台任务
-submit_task(process_video_task, video_id, language, model)
-
-# 任务内创建独立数据库连接
-def process_video_task(video_id: int, language: str, model: str):
-    engine = create_engine(settings.DATABASE_URL)
-    SessionLocal = sessionmaker(bind=engine)
-    db = SessionLocal()
-    # ...
+```bash
+python ../scripts/validate_backend_smoke.py
+mkdir -p ../.pycache-hook && PYTHONPYCACHEPREFIX="$PWD/../.pycache-hook" python -m compileall app scripts ../scripts/hooks ../scripts/validate_backend_smoke.py
+python scripts/validate_system_requirements.py
 ```
+
+`pytest` 保留在 `tests/` 目录用于历史回归测试，包含:
+- `tests/unit/`: service、task、runtime、工具函数等单元测试
+- `tests/api/`: FastAPI 路由与响应行为测试
+- `tests/smoke/`: 启动与最小链路验证
+- `tests/integration/`: 跨模块集成测试
 
 ## Warnings
 
 - **YOU MUST** 在任务函数内创建新的数据库连接 (ProcessPoolExecutor 限制)
 - **YOU MUST** 使用 `Depends(get_db)` 注入数据库会话
-- **IMPORTANT**: 流式响应使用 `StreamingResponse`，不要用 `Response`
-- **IMPORTANT**: 验证错误返回 422，不是 400
+- **流式响应**: 使用 `StreamingResponse`，不要用 `Response`
+- **验证错误**: 返回 422，不是 400
+- **敏感信息**: 永远不要提交 `.env` 文件或 API 密钥到代码
+- **Schema 变更**: 添加迁移文件并记录回填步骤
+
+## Analytics & Telemetry
+
+使用集中式遥测管道:
+
+```python
+from app.analytics.pipeline import get_telemetry
+from app.analytics.schema import AnalyticsEvent, AnalyticsStatus
+
+get_telemetry().emit(
+    AnalyticsEvent(
+        event_type="video_upload_completed",
+        trace_id=trace_id,
+        module="video",
+        status=AnalyticsStatus.OK.value,
+        latency_ms=elapsed_ms,
+        metadata={"video_id": video.id, "user_id": user.id},
+    )
+)
+```
+
+配置项: `ANALYTICS_LOG_LEVEL`, `ANALYTICS_ALERT_MAX_FAILURE_RATE`, `ANALYTICS_ALERT_LATENCY_TIMEOUT_MS`
+
+## Semantic Search
+
+架构: 双后端工厂 + ChromaDB 持久化
+- `gemini`: 使用 Google Generative AI 的 embedding
+- `local`: 本地 sentence-transformers 模型
+
+关键配置:
+- `SEARCH_ENABLED`: 功能开关
+- `SEARCH_BACKEND`: gemini/local
+- `SEARCH_CHROMA_DB_DIR`: ChromaDB 持久化路径
+- `SEARCH_AUTO_INDEX_NEW_VIDEOS`: 自动索引新视频
+- `SEARCH_INDEX_STARTUP_MODE`: 索引启动时机 (after_video_completed/inline_after_subtitle)
+
+## Recommendation System
+
+支持场景: home, continue, review, related
+- 站内候选: 基于相似度和用户历史
+- 站外候选: 可配置的外部 HTTP 抓取
+- 自动入库: `RECOMMENDATION_AUTO_IMPORT_EXTERNAL` 对登录用户自动导入站外推荐
+
+配置项:
+- `RECOMMENDATION_MAX_CANDIDATES_SCAN`: 候选扫描上限
+- `RECOMMENDATION_INCLUDE_EXTERNAL_DEFAULT`: 默认是否包含站外
+- `RECOMMENDATION_SIMILARITY_MIN_SCORE`: 相似度下限
+- `RECOMMENDATION_RETURN_MIN/MAX_ITEMS`: 返回条数窗口
+
+## Agent System
+
+智能体编排位于 `app/agents/`:
+- `LearningFlowAgent`: 学习流编排
+- `GovernanceService`: 治理审计
+- `BudgetService`: Token 预算管理
+
+配置:
+- `AGENT_LEARNING_FLOW_TOKEN_BUDGET`: Token 预算上限
+- `AGENT_GOVERNANCE_AUDIT_ENABLED`: 治理审计开关
+
+## Compounding
+
+增量价值导出位于 `app/compounding/`:
+- `export_service.py`: 导出服务
+- `formats.py`: 格式规范
+- `quality.py`: 质量检查
+- `sanitization.py`: PII 脱敏
+
+配置:
+- `COMPOUNDING_USER_ID_HASH_SALT`: 用户 ID 哈希盐
+- `COMPOUNDING_*_MAX_CHARS`: 各字段最大长度

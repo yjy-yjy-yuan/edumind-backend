@@ -1,0 +1,139 @@
+# Pre-commit hooks for EduMind Backend
+# See https://pre-commit.com for more information
+
+default_language_version:
+  python: python3
+
+repos:
+  # ============================================================
+  # Local hooks
+  # ============================================================
+  - repo: local
+    hooks:
+      - id: commit-msg
+        name: commit-msg (conventional commits)
+        entry: bash .githooks/commit-msg
+        language: system
+        stages: [commit-msg]
+        pass_filenames: false
+
+  # ============================================================
+  # Formatters & Linters (Fast checks - pre-commit)
+  # ============================================================
+
+  # Sort Python imports
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        name: isort (Python import sorting)
+        args: ["--profile", "black", "--filter-files"]
+
+  # Format Python code
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        name: black (Python code formatter)
+        args: ["--line-length", "120"]
+        language_version: python3
+
+  # Check for obvious Python syntax errors
+  - repo: https://github.com/pycqa/pyflakes
+    rev: 3.2.0
+    hooks:
+      - id: pyflakes
+        name: pyflakes (Python static analysis)
+
+  # Check Python AST validity
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-ast
+        name: check ast (Python AST validity)
+
+  # Check for unused variables/types
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-unused-configs
+        name: check unused configs
+
+  # Remove trailing whitespace
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        name: trailing whitespace
+        args: ["--markdown-linebreak-ext=md"]
+        exclude: '\.md$'
+
+  # Ensure files end with newline
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+        name: end of file fixer
+
+  # Check for merge conflict markers
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-merge-conflict
+        name: check merge conflict
+        exclude: '^migrations/'
+
+  # Detect private key files
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: detect-private-key
+        name: detect private key
+
+  # Check YAML syntax
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+        name: check yaml
+
+  # Check TOML syntax
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-toml
+        name: check toml
+
+  # ============================================================
+  # Security checks
+  # ============================================================
+
+  # Scan for secrets in code
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        name: detect secrets
+        args: ["--baseline", ".secrets.baseline"]
+        exclude: '(\.env|\.secrets\.baseline|requirements.*\.txt)'
+
+  # ============================================================
+  # Pre-push hooks (slower checks)
+  # ============================================================
+
+  # Type checking with mypy
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.14.1
+    hooks:
+      - id: mypy
+        name: mypy (Python type checking)
+        args: ["--ignore-missing-imports", "--no-error-summary"]
+        pass_filenames: false
+        entry: python -m mypy app
+        stages: [push]
+        additional_dependencies:
+          - sqlalchemy>=2.0.0
+
+ci:
+  autoupdate_schedule: monthly
+  autoupdate_commit_msg: "chore: update pre-commit hooks"
