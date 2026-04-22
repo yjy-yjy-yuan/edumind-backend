@@ -7,8 +7,8 @@ MODEL_SOURCE="${1:-${GGUF_PATH:-${OLLAMA_MODEL_SOURCE:-}}}"
 
 if [[ -z "${MODEL_SOURCE}" ]]; then
   echo "用法:"
-  echo "  bash backend_fastapi/scripts/import_qwen35_gguf_to_ollama.sh /absolute/path/to/model.gguf"
-  echo "  bash backend_fastapi/scripts/import_qwen35_gguf_to_ollama.sh hf.co/owner/repo:tag"
+  echo "  bash scripts/import_qwen35_gguf_to_ollama.sh /absolute/path/to/model.gguf"
+  echo "  bash scripts/import_qwen35_gguf_to_ollama.sh hf.co/owner/repo:tag"
   echo "可选环境变量:"
   echo "  OLLAMA_MODEL_NAME=qwen-3.5:9b"
   echo "  OLLAMA_MODEL_SOURCE=hf.co/owner/repo:tag"

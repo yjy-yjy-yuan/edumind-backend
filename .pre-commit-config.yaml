@@ -1,0 +1,95 @@
+# Pre-commit hooks for EduMind Backend (offline-friendly local toolchain)
+
+default_language_version:
+  python: python3
+default_stages: [pre-commit]
+
+repos:
+  - repo: local
+    hooks:
+      - id: commit-msg
+        name: commit-msg (conventional commits)
+        entry: bash .githooks/commit-msg
+        language: system
+        stages: [commit-msg]
+
+      - id: isort
+        name: isort (Python import sorting)
+        entry: .venv/bin/isort --profile black --filter-files
+        language: system
+        types: [python]
+
+      - id: black
+        name: black (Python code formatter)
+        entry: .venv/bin/black --line-length 120
+        language: system
+        types: [python]
+
+      - id: check-ast
+        name: check ast (Python AST validity)
+        entry: .venv/bin/check-ast
+        language: system
+        types: [python]
+
+      - id: trailing-whitespace
+        name: trailing whitespace
+        entry: .venv/bin/trailing-whitespace-fixer --markdown-linebreak-ext=md
+        language: system
+        files: ''
+        exclude: '\.md$'
+
+      - id: end-of-file-fixer
+        name: end of file fixer
+        entry: .venv/bin/end-of-file-fixer
+        language: system
+        files: ''
+
+      - id: check-merge-conflict
+        name: check merge conflict
+        entry: .venv/bin/check-merge-conflict
+        language: system
+        files: ''
+        exclude: '^migrations/'
+
+      - id: detect-private-key
+        name: detect private key
+        entry: .venv/bin/detect-private-key
+        language: system
+        files: ''
+
+      - id: check-yaml
+        name: check yaml
+        entry: .venv/bin/check-yaml
+        language: system
+        types: [yaml]
+
+      - id: check-toml
+        name: check toml
+        entry: .venv/bin/check-toml
+        language: system
+        files: '\\.toml$'
+
+      - id: detect-secrets
+        name: detect secrets
+        entry: .venv/bin/detect-secrets-hook --baseline .secrets.baseline
+        language: system
+        files: ''
+        exclude: '(\\.env|\\.secrets\\.baseline|requirements.*\\.txt)'
+
+      - id: mypy
+        name: mypy (Python type checking)
+        entry: .venv/bin/python -m mypy app/utils/auth_token.py app/utils/auth_deps.py app/schemas --ignore-missing-imports --no-error-summary --follow-imports=skip
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: pytest-unit
+        name: pytest (unit tests)
+        entry: .venv/bin/pytest tests/unit/test_auth_token.py tests/unit/test_agent_budget.py tests/unit/test_agent_governance_gateway.py tests/unit/test_analytics_schema.py tests/unit/test_compounding_export.py -q
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+ci:
+  autoupdate_schedule: monthly
+  autoupdate_commit_msg: "chore: update pre-commit hooks"

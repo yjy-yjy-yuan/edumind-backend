@@ -16,6 +16,7 @@ from app.services.search.search import SemanticSearchBackendUnavailableError
 from app.services.search.search import semantic_search_videos
 from app.services.search.search_log import is_global_semantic_search_request
 from app.services.search.search_log import maybe_record_global_semantic_search
+from app.utils.auth_deps import resolve_user_from_request
 from fastapi import APIRouter
 from fastapi import Depends
 from fastapi import HTTPException
@@ -28,23 +29,33 @@ router = APIRouter(prefix="/api/search", tags=["search"])
 
 def get_current_user_id(request: Request, db: Session = Depends(get_db)) -> int:
     """
-    获取当前用户 ID
+    获取当前用户 ID。
 
-    优先级:
-    1. 请求头中的 X-User-ID
-    2. 会话中的 user_id（需要集成认证系统）
-    3. 默认用户 1（开发环境）
+    优先级：
+    1. Authorization: Bearer <token>（推荐）
+    2. 兼容旧链路的 X-User-ID
+    3. 默认用户 1（仅开发兜底，保持历史兼容）
     """
-    # 尝试从请求头获取
-    user_id = request.headers.get("X-User-ID")
-    if user_id:
+    raw_user_id = request.headers.get("X-User-ID")
+    user_id = None
+    if raw_user_id:
         try:
-            return int(user_id)
+            user_id = int(raw_user_id)
         except (ValueError, TypeError):
-            pass
+            user_id = None
 
-    # TODO: 集成实际认证系统（如 JWT、会话等）
-    # 当前返回默认用户 1（开发/测试用）
+    authorization = request.headers.get("Authorization")
+    current_user = resolve_user_from_request(db, user_id, authorization)
+    if current_user is not None:
+        return int(current_user.id)
+
+    # Bearer 明确传入但无法解析/校验时，不允许再默默回退，避免越权。
+    if authorization and authorization.strip().lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="请先登录后再使用语义搜索")
+
+    if user_id is not None:
+        return user_id
+
     logger.warning("Using default user_id=1 (no authentication header found)")
     return 1
 

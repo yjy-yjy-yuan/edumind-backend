@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.agents.governance.context import ensure_in_governance_context
 from app.models.note import Note
 from app.models.note import NoteTimestamp
 from app.services.video_content_service import fallback_summary
@@ -19,6 +20,7 @@ def _estimate_tokens(text: str) -> int:
 
 def tool_lf_generate_summary_fallback(db: Session, params: dict[str, Any]) -> dict[str, Any]:
     """基于片段种子生成短摘要（本地 fallback，无外部 API）。"""
+    ensure_in_governance_context()
     _ = db
     summary_seed = str(params.get("summary_seed") or "").strip()
     title = str(params.get("title") or "").strip()
@@ -34,6 +36,7 @@ def tool_lf_generate_summary_fallback(db: Session, params: dict[str, Any]) -> di
 
 def tool_lf_persist_note(db: Session, params: dict[str, Any]) -> dict[str, Any]:
     """持久化笔记（写库）。"""
+    ensure_in_governance_context()
     video_id = int(params["video_id"])
     title = str(params.get("title") or "")[:500]
     content = str(params.get("content") or "")[:50000]
@@ -57,6 +60,7 @@ def tool_lf_persist_note(db: Session, params: dict[str, Any]) -> dict[str, Any]:
 
 def tool_lf_create_timestamp(db: Session, params: dict[str, Any]) -> dict[str, Any]:
     """为笔记绑定时间戳（写库）。"""
+    ensure_in_governance_context()
     note_id = int(params["note_id"])
     time_seconds = float(params["time_seconds"])
     subtitle_text = params.get("subtitle_text")

@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.services.video_content_service import SUPPORTED_SUMMARY_STYLES
 from sqlalchemy.orm import Session
 
+from .context import governance_execution_context
 from . import tools_learning_flow
 
 logger = logging.getLogger(__name__)
@@ -159,7 +160,8 @@ def execute_tool(
     )
 
     try:
-        result = handler(db, params)
+        with governance_execution_context():
+            result = handler(db, params)
     except Exception as exc:
         _emit_audit(
             trace_id=trace_id,

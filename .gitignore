@@ -13,6 +13,7 @@ env/
 .vscode/
 *.swp
 *.swo
+.DS_Store
 
 # Environment files (contain secrets)
 .env
@@ -36,6 +37,12 @@ temp/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# pre-commit
+.venv-hook/
+
+# secrets baseline (regenerate per project)
+.secrets.baseline
 
 # Distribution
 dist/

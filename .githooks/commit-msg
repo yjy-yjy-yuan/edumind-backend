@@ -1,0 +1,72 @@
+#!/bin/bash
+# Pre-commit hook: commit-msg for conventional commits validation
+# This hook validates commit messages follow the format: type(scope): description
+#
+# Allowed types:
+#   feat:     New feature
+#   fix:      Bug fix
+#   docs:     Documentation changes
+#   style:    Code style changes (formatting, no logic change)
+#   refactor: Code refactoring
+#   test:     Adding or updating tests
+#   chore:    Maintenance tasks
+#   perf:     Performance improvements
+#   ci:       CI/CD changes
+#   build:    Build system changes
+#   revert:   Revert changes
+#
+# Usage: This file should be placed at .git/hooks/commit-msg or use pre-commit
+
+# Skip in CI
+if [ "$CI" = "true" ] || [ "$GITHUB_ACTIONS" = "true" ]; then
+    exit 0
+fi
+
+COMMIT_MSG_FILE="$1"
+COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
+
+# Skip if commit is merge or squash
+if echo "$COMMIT_MSG" | grep -qE "^Merge|^Squash"; then
+    exit 0
+fi
+
+# Conventional commit regex
+# Format: type(scope): description
+# Examples:
+#   feat: add new endpoint
+#   feat(auth): add login endpoint
+#   fix: resolve login bug
+#   docs: update README
+#   chore: update dependencies
+PATTERN="^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\([a-zA-Z0-9_-]+\))?!?: .+"
+
+if ! echo "$COMMIT_MSG" | grep -qE "$PATTERN"; then
+    echo ""
+    echo "ERROR: Commit message does not follow conventional commits format."
+    echo ""
+    echo "Required format: type(scope): description"
+    echo ""
+    echo "Allowed types:"
+    echo "  feat:     New feature"
+    echo "  fix:      Bug fix"
+    echo "  docs:     Documentation changes"
+    echo "  style:    Code style (formatting, no logic)"
+    echo "  refactor: Code refactoring"
+    echo "  test:     Adding/updating tests"
+    echo "  chore:    Maintenance tasks"
+    echo "  perf:     Performance improvements"
+    echo "  ci:       CI/CD changes"
+    echo "  build:    Build system changes"
+    echo "  revert:   Revert changes"
+    echo ""
+    echo "Examples:"
+    echo "  feat(auth): add login endpoint"
+    echo "  fix: resolve video upload bug"
+    echo "  docs: update README"
+    echo ""
+    echo "You can skip this with: git commit --no-verify -m 'message'"
+    echo ""
+    exit 1
+fi
+
+exit 0
