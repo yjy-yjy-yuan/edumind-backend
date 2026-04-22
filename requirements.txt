@@ -1,0 +1,51 @@
+# FastAPI 核心
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# 数据库
+sqlalchemy==2.0.25
+alembic==1.13.1
+pymysql==1.1.0
+cryptography>=42.0.0
+
+# 验证和配置
+pydantic==2.5.3
+pydantic-settings==2.1.0
+email-validator>=2.1.0
+Werkzeug>=3.0.0
+
+# AI/ML (保持不变)
+openai-whisper==20240930
+torch>=2.0.0
+sentence-transformers==3.4.1
+faiss-cpu==1.8.0
+
+# 语义搜索 (SentrySearch 集成)
+chromadb>=0.4.0
+numpy<2
+google-generativeai>=0.3.0
+transformers>=4.36.0
+Pillow>=10.0.0
+
+# 工具
+python-dotenv==1.0.0
+yt-dlp>=2024.3.10
+opencv-python>=4.9.0.80
+pydub==0.25.1
+jieba==0.42.1
+scikit-learn>=1.4.0
+
+# HTTP 客户端
+httpx==0.26.0
+requests>=2.31.0
+
+# 测试
+pytest>=8.2.0
+pytest-asyncio>=0.24.0
+pytest-cov==4.1.0
+
+# 可选: Celery (生产环境)
+# celery==5.4.0
+# redis==5.0.1
+pysqlite3-binary
