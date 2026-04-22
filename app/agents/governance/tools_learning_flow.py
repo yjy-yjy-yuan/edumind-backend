@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.agents.governance.context import ensure_in_governance_context
-from app.models.note import Note
-from app.models.note import NoteTimestamp
-from app.services.video_content_service import fallback_summary
-from app.services.video_content_service import fallback_tags
-from app.services.video_content_service import normalize_summary_style
 from sqlalchemy.orm import Session
+
+from app.agents.exceptions import GovernanceError
+from app.agents.governance.context import ensure_in_governance_context
+from app.models.note import Note, NoteTimestamp
+from app.services.video_content_service import (
+    fallback_summary,
+    fallback_tags,
+    normalize_summary_style,
+)
+from app.services.vinci_adapter_service import VinciAdapterError, VinciAdapterService
 
 
 def _estimate_tokens(text: str) -> int:
@@ -55,7 +59,10 @@ def tool_lf_persist_note(db: Session, params: dict[str, Any]) -> dict[str, Any]:
     db.add(note)
     db.commit()
     db.refresh(note)
-    return {"note_id": note.id, "tokens_estimated": _estimate_tokens(title) + _estimate_tokens(content)}
+    return {
+        "note_id": note.id,
+        "tokens_estimated": _estimate_tokens(title) + _estimate_tokens(content),
+    }
 
 
 def tool_lf_create_timestamp(db: Session, params: dict[str, Any]) -> dict[str, Any]:
@@ -74,4 +81,37 @@ def tool_lf_create_timestamp(db: Session, params: dict[str, Any]) -> dict[str, A
     db.add(ts)
     db.commit()
     db.refresh(ts)
-    return {"timestamp_id": ts.id, "time_seconds": ts.time_seconds, "tokens_estimated": 8}
+    return {
+        "timestamp_id": ts.id,
+        "time_seconds": ts.time_seconds,
+        "tokens_estimated": 8,
+    }
+
+
+def tool_lf_vinci_chat(db: Session, params: dict[str, Any]) -> dict[str, Any]:
+    """通过治理网关调用 Vinci 适配层（不可绕过）。"""
+    ensure_in_governance_context()
+    _ = db
+    prompt = str(params.get("prompt") or "").strip()
+    session_id = str(params.get("session_id") or "").strip()
+    trace_id = str(params.get("trace_id") or "").strip()
+    history = params.get("history")
+    safe_history = history if isinstance(history, list) else []
+
+    service = VinciAdapterService()
+    try:
+        response = service.request_chat(
+            prompt=prompt,
+            history=safe_history,
+            session_id=session_id,
+            trace_id=trace_id,
+        )
+    except VinciAdapterError as exc:
+        raise GovernanceError(f"vinci_call_failed:{exc.error_code}") from exc
+
+    payload = dict(response or {})
+    payload.setdefault("session_id", session_id)
+    payload.setdefault("trace_id", trace_id)
+    payload.setdefault("history", safe_history)
+    payload["tokens_estimated"] = _estimate_tokens(prompt) + _estimate_tokens(str(payload.get("answer") or ""))
+    return payload

@@ -66,12 +66,13 @@ python run.py
 - `app/services/vinci_adapter_service.py`：返回契约标准化、错误映射、降级路径、结构化遥测
 - `app/core/config.py` 与 `.env.example`：Vinci 配置项对齐
 - `tests/unit/test_vinci_adapter_service.py`：5 个核心契约测试
+- `app/agents/governance/gateway.py` + `app/agents/governance/tools_learning_flow.py`：M1-3 治理接入（白名单、参数校验、审计、绕过阻断）
 
 当前文档：[`docs/VINCI_INTEGRATION_M1.md`](docs/VINCI_INTEGRATION_M1.md)。
 
 注意：
 
-- M1-3（治理网关强制接入）与 M1-4（监控指标与 Runbook）尚未落地，见文档中的后续计划。
+- M1-3 已完成；M1-4（监控指标与 Runbook）尚未落地，见文档中的后续计划。
 
 ## 语义搜索说明
 
@@ -160,3 +161,4 @@ git push --no-verify
 - 对齐语义搜索鉴权逻辑（Bearer 优先，兼容 `X-User-ID`）。
 - 对齐 hook 文档与实际配置（pre-push 包含 mypy + unit tests）。
 - 新增 Vinci M1 接入文档并对齐配置/测试入口（`docs/VINCI_INTEGRATION_M1.md`）。
+- 同步 Vinci M1-3 治理接入文档（白名单、参数校验、审计与绕过阻断）。

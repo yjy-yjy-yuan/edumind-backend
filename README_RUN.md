@@ -89,6 +89,7 @@ pre-commit run --hook-stage pre-push --all-files
 
 ```bash
 pytest tests/unit/test_vinci_adapter_service.py -v
+pytest tests/unit/test_agent_governance_gateway.py -v
 ```
 
 ## 10. 常见问题

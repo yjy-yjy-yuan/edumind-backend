@@ -1,6 +1,6 @@
 # Vinci Integration M1（EduMind Backend）
 
-本文档记录 EduMind 后端在 M1 阶段对 Vinci 微服务的接入结果，覆盖 M1-1（测试先行）与 M1-2（最小实现）。
+本文档记录 EduMind 后端在 M1 阶段对 Vinci 微服务的接入结果，覆盖 M1-1（测试先行）、M1-2（最小实现）与 M1-3（治理接入）。
 
 ## 1. 目标与范围
 
@@ -12,7 +12,6 @@
 
 本阶段未覆盖：
 
-- M1-3：治理网关强制接入（白名单、参数校验、不可绕过）
 - M1-4：聚合监控指标（成功率/错误率/超时率/P95）与运维 Runbook
 
 ## 2. 代码与文件落点
@@ -28,6 +27,13 @@
   - 增加 Vinci 配置项
 - `tests/unit/test_vinci_adapter_service.py`
   - 覆盖 5 个核心场景（先红后绿）
+- `app/agents/governance/gateway.py`
+  - 将 `lf_vinci_chat` 纳入工具白名单与参数校验
+  - 审计日志复用统一 `agent_tool_*` 事件
+- `app/agents/governance/tools_learning_flow.py`
+  - 新增 `tool_lf_vinci_chat`（仅可在治理上下文内调用）
+- `tests/unit/test_agent_governance_gateway.py`
+  - 新增 Vinci 治理测试（白名单、参数校验、审计、绕过阻断）
 
 ## 3. 配置项（M1）
 
@@ -91,6 +97,12 @@ M1 契约测试（TDD）：
 pytest tests/unit/test_vinci_adapter_service.py -v
 ```
 
+M1-3 治理接入测试：
+
+```bash
+pytest tests/unit/test_agent_governance_gateway.py -v
+```
+
 与治理/遥测基线联合回归：
 
 ```bash
@@ -108,6 +120,6 @@ pre-commit run --hook-stage pre-push --all-files
 
 ## 7. 已知限制与后续计划
 
-- 当前仅完成服务层适配，尚未把 Vinci 调用接入现有治理网关强制执行路径（M1-3）。
+- 当前已完成 `lf_vinci_chat` 的治理白名单、参数校验、审计日志与绕过阻断。
 - 当前遥测已打点但未形成 Ops 聚合指标与告警阈值文档（M1-4）。
-- 下一步建议先补 M1-3 的“先测后实现”，确保任何 Vinci 调用都无法绕过治理。
+- 下一步建议执行 M1-4，补齐指标、告警阈值与最小 Runbook。
