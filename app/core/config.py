@@ -3,10 +3,7 @@
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import List
-from typing import Optional
-from typing import Set
-from typing import Union
+from typing import List, Optional, Set, Union
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
@@ -66,6 +63,16 @@ class Settings(BaseSettings):
     SLEEK_POLL_INITIAL_INTERVAL_SECONDS: int = 2
     SLEEK_POLL_BACKOFF_AFTER_SECONDS: int = 10
     SLEEK_POLL_BACKOFF_INTERVAL_SECONDS: int = 5
+
+    # Vinci 微服务接入配置（独立部署，不与主后端共环境）
+    VINCI_ENABLED: bool = False
+    VINCI_BASE_URL: str = "http://127.0.0.1:8010"
+    VINCI_API_KEY: str = ""
+    VINCI_CHAT_PATH: str = "/api/v1/chat"
+    VINCI_STREAM_PATH: str = "/api/v1/chat/stream"
+    VINCI_REQUEST_TIMEOUT_SECONDS: float = 30.0
+    VINCI_CONNECT_TIMEOUT_SECONDS: float = 8.0
+    VINCI_STREAM_TIMEOUT_SECONDS: float = 120.0
 
     # Ollama 配置
     OLLAMA_BASE_URL: str = "http://localhost:11434/api"
