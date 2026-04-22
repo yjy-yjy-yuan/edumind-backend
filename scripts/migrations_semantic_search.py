@@ -2,7 +2,7 @@
 
 执行方式：
 1. 使用 Alembic（推荐）：
-   cd backend_fastapi
+   cd edumind-backend
    alembic revision --autogenerate -m "Add semantic search support"
    alembic upgrade head
 

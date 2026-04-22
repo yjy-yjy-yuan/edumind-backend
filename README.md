@@ -1,6 +1,8 @@
 # EduMind Backend (FastAPI)
 
-`backend_fastapi/` 是当前仓库的主后端。认证、视频、字幕、笔记、问答等新接口应优先落在这里。
+`edumind-backend/` 是 EduMind 的独立后端仓库。
+
+后端负责：认证、视频上传与处理、字幕、问答、笔记、推荐、语义搜索、智能体治理与遥测。
 
 ## 技术栈
 
@@ -9,7 +11,7 @@
 | Web | FastAPI + Uvicorn |
 | ORM | SQLAlchemy 2.0 |
 | 数据校验 | Pydantic v2 |
-| 后台任务 | 可配置执行器（本地默认 ThreadPoolExecutor） |
+| 后台任务 | 可配置执行器（开发默认 ThreadPool，生产建议 ProcessPool） |
 | AI | Whisper、Ollama / 外部模型服务 |
 
 ## 快速开始
@@ -17,7 +19,6 @@
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-cd backend_fastapi
 pip install -r requirements.txt
 cp .env.example .env
 python run.py
@@ -28,16 +29,7 @@ python run.py
 - `http://127.0.0.1:2004/health`
 - `http://127.0.0.1:2004/docs`
 
-端口和主机由 `.env` 中的 `HOST`、`PORT` 控制，默认值定义在 `app/core/config.py`。
-如果你调整了前端端口，也要同步更新 `.env` 的 `CORS_ORIGINS`。
-
-其中 `/health` 当前会返回：
-
-- `database`
-- `whisper`
-- `ollama`
-
-其中 `ollama` 会进一步给出 `available`、`model`、`model_present` 和 `models`，便于你直接确认本机后端是否已经感知到 Ollama 运行时，以及当前配置目标模型是否真的已经导入。
+`/health` 会返回 `database`、`whisper`、`ollama` 状态，其中 `ollama` 包含 `available`、`model`、`model_present`、`models`。
 
 ## 目录结构
 
@@ -49,204 +41,104 @@ python run.py
 | `app/routers/` | 路由定义 |
 | `app/schemas/` | 请求/响应模型 |
 | `app/services/` | 业务服务 |
-| `app/tasks/` | 耗时任务 |
+| `app/tasks/` | 后台任务 |
 | `app/utils/` | 通用工具 |
-| `scripts/` | 辅助脚本 |
-| `tests/` | FastAPI 专属测试根目录 |
+| `scripts/` | 运维/迁移/验证脚本 |
+| `tests/` | 后端测试根目录 |
 
-## 依赖服务
+## 关键能力
 
-按功能启用以下服务：
+- 用户认证（邮箱/手机号 + 强密码）
+- 视频上传、URL 导入、后台处理
+- 字幕抽取与语义聚合
+- QA 问答与聊天流式响应
+- 推荐系统（含站内/站外候选）
+- 语义搜索（索引、检索、状态查询）
+- 智能体治理、预算控制、集中遥测、轨迹导出
 
-- MySQL
-- Redis
-- FFmpeg
-- Ollama
+## 语义搜索说明
 
-部分接口不依赖全部服务，最小联调时可只启动当前链路所需组件。
+主要入口：
 
-说明：
+- `app/routers/search.py`
+- `app/services/search/`
+- `app/models/vector_index.py`
+- `app/tasks/vector_indexing.py`
 
-- `ios-app/` 内的本地离线转录走 Apple `Speech` 端侧识别，不走 Ollama
-- `backend_fastapi/` 中的 Ollama 仅用于本地摘要、标题、标签、语义整理等兼容回退链路
-- `POST /api/videos/sync-offline-transcript` 会继续把 iOS 离线结果写入现有 MySQL `videos`、`subtitles`，并支持显式 `tags` 或 `auto_generate_tags`
-- 当前默认 `OLLAMA_MODEL` 已切到 `qwen-3.5:9b`，对应你本地导入的 Qwen 3.5 9B GGUF 别名
-- `backend_fastapi/scripts/import_qwen35_gguf_to_ollama.sh` 同时支持本地 `.gguf` 导入和 `hf.co/...` 直接拉取
+当前用户识别策略：
 
-## 用户认证约定
+1. `Authorization: Bearer <token>`（推荐）
+2. 兼容旧链路 `X-User-ID`
+3. 无认证时默认回退 `user_id=1`（仅开发兜底）
 
-- 注册接口：邮箱或手机号至少一项必填，密码必须满足强密码规则。
-- 登录接口：仅接受邮箱/手机号 + 密码。
-- 数据落点：继续写入现有 `users` 表，不新增认证平行表。
-- 资料更新接口现已支持登录后修改用户名，并直接写回 `users.username`。
-- 头像上传接口会把文件保存到 `backend_fastapi/uploads/avatars/`，并将访问路径写入现有 `users.avatar` 字段，不新增附件表。
-- 执行 `python scripts/init_db.py --create` 时，会自动为已有 `users` 表补齐手机号、密码重复检测指纹和登录次数字段。
+> 注意：若显式携带 Bearer 但 token 无效，接口会返回 `401`，不会再静默回退。
 
-## 设计助手代理
+部署与限制详见 [`SEMANTIC_SEARCH_DEPLOYMENT.md`](SEMANTIC_SEARCH_DEPLOYMENT.md)。
 
-当前已把 `agent-skills` 对应的 Sleek 能力接入为 EduMind 后端代理，而不是让移动端直接请求第三方：
-
-- 配置项：`SLEEK_API_KEY`、`SLEEK_API_BASE`
-- 路由前缀：`/api/design/*`
-- 设计结果：支持项目列表、项目创建、聊天生成、运行状态查询、组件 HTML 拉取、截图预览
-
-建议在 Sleek 控制台创建最小权限 key，并至少授予：
-
-- `projects:read`
-- `projects:write`
-- `components:read`
-- `chats:read`
-- `chats:write`
-- `screenshots`
-
-这些接口当前要求 EduMind 用户已登录，前端会自动带上现有 Bearer token。
-
-## 验证与历史测试
+## 验证链路（默认）
 
 ```bash
-python3 -m venv .venv
-. .venv/bin/activate
-python ../scripts/validate_backend_smoke.py
-mkdir -p ../.pycache-hook
-PYTHONPYCACHEPREFIX="$PWD/../.pycache-hook" python -m compileall app scripts ../scripts/hooks ../scripts/validate_backend_smoke.py
+python scripts/validate_backend_smoke.py
+mkdir -p .pycache-hook
+PYTHONPYCACHEPREFIX="$PWD/.pycache-hook" python -m compileall app scripts
 python scripts/validate_system_requirements.py
 ```
 
 说明：
 
-- `backend_fastapi/tests/` 仍保留历史回归测试目录和 pytest 风格组织方式。
-- 当前仓库规则要求修改程序时不要用 `pytest` 作为本次验证手段，因此默认验证链路改为 `validate_backend_smoke.py + compileall`。
-- `validate_system_requirements.py` 用于审计 7 项系统要求（effective / efficient / safe / robust / monitorable / updatable / compounding）是否达标。
-- 集中式遥测的实现主路径为 `app/analytics/`，同时提供兼容入口 `app/services/analytics/` 便于运维和集成检查脚本统一识别。
+- 日常改动首选上述验证链路。
+- `pytest` 历史测试目录仍保留在 `tests/`，用于回归与 hook 的 pre-push 检查。
 
-历史测试目录约定：
+## Git Hooks
 
-- `tests/unit/`：service、task、runtime、工具函数等单元测试
-- `tests/api/`：FastAPI 路由与响应行为测试
-- `tests/smoke/`：启动与最小链路验证
-- `tests/integration/`：跨模块集成测试
+本仓库使用 `pre-commit` 管理 hooks。
 
-新增后端测试请统一放进 `backend_fastapi/tests/`，不要散落到 `app/` 或仓库根目录。更详细的放置规则见 [backend_fastapi/tests/README.md](/Users/yuan/final-work/EduMind/backend_fastapi/tests/README.md)。
+### 安装
 
-## 语义搜索后端
+```bash
+pip install pre-commit detect-secrets
+bash scripts/setup_git_hooks.sh
+```
 
-当前 `backend_fastapi/` 已经接入一版语义搜索后端主链路，入口主要包括：
+或手动：
 
-- `app/routers/search.py`
-- `app/schemas/search.py`
-- `app/models/vector_index.py`
-- `app/services/search/`
-- `app/tasks/vector_indexing.py`
+```bash
+pre-commit install
+pre-commit install --hook-type commit-msg
+pre-commit install --hook-type pre-push
+detect-secrets scan --baseline .secrets.baseline --exclude-files '\\.env$'
+```
 
-当前已支持：
+### Hook 覆盖范围
 
-- 对 `mp4` / `mov` 做重叠切片
-- 按视频时长自动选择切片参数，短视频更细、长视频更粗
-- `gemini` / `local` 双后端工厂
-- `local` 后端可直接对字幕文本分块做本地向量索引与查询
-- ChromaDB 持久化集合
-- 手动触发索引、查询索引状态、执行语义搜索
-- 视频处理完成后按配置自动提交索引任务
-- 搜索结果回填字幕预览文本 `preview_text`
+| Hook | 时机 | 检查项 |
+|------|------|------|
+| `pre-commit` | `git commit` 前 | isort / black / AST / YAML/TOML / secrets |
+| `commit-msg` | `git commit` 时 | Conventional Commits |
+| `pre-push` | `git push` 前 | `mypy`（核心类型边界）+ 精选稳定单元测试集 |
 
-当前限制：
+### 手动运行
 
-- 搜索用户识别当前优先取 `X-User-ID` 请求头，否则回退默认用户
-- 当前更偏向字幕语义召回；若没有字幕文件，本地 `local` 后端不会退化成可用的视频视觉嵌入
+```bash
+pre-commit run --all-files
+pre-commit run --hook-stage pre-push --all-files
+```
 
-部署步骤、数据库字段和当前已知限制见 [backend_fastapi/SEMANTIC_SEARCH_DEPLOYMENT.md](/Users/yuan/final-work/EduMind/backend_fastapi/SEMANTIC_SEARCH_DEPLOYMENT.md)。
+### 跳过（仅紧急场景）
+
+```bash
+git commit --no-verify -m "message"
+git push --no-verify
+```
 
 ## 端口约定
 
 | 服务 | 默认端口 |
 |------|---------|
-| FastAPI 后端 | 2004 |
-| Mobile Frontend Vite | 5173 |
+| Backend API | 2004 |
 
-## Git Hooks
+## 最近修正文档（2026-04-22）
 
-本项目使用 [pre-commit](https://pre-commit.com) 框架管理 Git hooks。
-
-### 安装
-
-```bash
-# 安装依赖并设置 hooks
-pip install pre-commit detect-secrets
-bash scripts/setup_git_hooks.sh
-
-# 或者直接使用 pre-commit
-pip install pre-commit detect-secrets
-pre-commit install
-pre-commit install --hook-type commit-msg
-pre-commit install --hook-type pre-push
-detect-secrets scan --baseline .secrets.baseline --exclude '\.env$' --exclude 'requirements.*\.txt$'
-```
-
-### 钩子说明
-
-| 钩子 | 触发时机 | 功能 |
-|------|---------|------|
-| `pre-commit` | 每次 `git commit` | 格式化 (black, isort)、语法检查、敏感信息扫描 |
-| `commit-msg` | 每次 `git commit` | 验证提交信息符合 Conventional Commits 规范 |
-| `pre-push` | 每次 `git push` | 类型检查 (mypy) |
-
-### Conventional Commits 格式
-
-```
-type(scope): description
-```
-
-**允许的类型：**
-
-| 类型 | 说明 |
-|------|------|
-| `feat` | 新功能 |
-| `fix` | Bug 修复 |
-| `docs` | 文档变更 |
-| `style` | 代码风格（格式化，无逻辑变更） |
-| `refactor` | 重构 |
-| `test` | 测试相关 |
-| `chore` | 维护任务 |
-| `perf` | 性能优化 |
-| `ci` | CI/CD 变更 |
-| `build` | 构建系统变更 |
-| `revert` | 回退变更 |
-
-**示例：**
-
-```bash
-feat(auth): add login endpoint
-fix: resolve video upload bug
-docs: update API documentation
-chore: update dependencies
-```
-
-### 跳过 Hooks
-
-```bash
-# 跳过提交 hooks
-git commit --no-verify -m "message"
-
-# 跳过推送 hooks
-git push --no-verify
-```
-
-### 手动运行
-
-```bash
-# 运行所有 pre-commit hooks
-pre-commit run --all-files
-
-# 运行特定 hook
-pre-commit run isort --all-files
-pre-commit run black --all-files
-
-# 更新 hook 版本
-pre-commit autoupdate
-```
-
-## 开发说明
-
-- 修改接口时，同时检查根目录 README 和 `docs/` 中是否需要同步更新。
-- 如果接口会被移动端调用，注意 `mobile-frontend/` 的字段兼容性。
-- 旧版 `backend/` 中存在历史实现，迁移时优先保证 FastAPI 行为一致，而不是继续扩展 Flask 分支。
+- 对齐“独立后端仓库”定位，移除旧 `backend_fastapi/` 路径说明。
+- 对齐语义搜索鉴权逻辑（Bearer 优先，兼容 `X-User-ID`）。
+- 对齐 hook 文档与实际配置（pre-push 包含 mypy + unit tests）。

@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-# 项目根：backend_fastapi/scripts -> backend_fastapi
+# 项目根：edumind-backend/scripts -> edumind-backend
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.compounding.export_service import export_compounding_day
@@ -36,7 +36,7 @@ def main() -> int:
         "--output-dir",
         type=Path,
         default=Path("exports/compounding"),
-        help="输出目录（相对 backend_fastapi cwd）",
+        help="输出目录（相对 edumind-backend cwd）",
     )
     parser.add_argument("--sources", default="search,similarity", help="逗号分隔: search,similarity")
     parser.add_argument("--formats", default="jsonl,csv", help="逗号分隔: jsonl,csv")

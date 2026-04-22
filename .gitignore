@@ -13,6 +13,7 @@ env/
 .vscode/
 *.swp
 *.swo
+.DS_Store
 
 # Environment files (contain secrets)
 .env

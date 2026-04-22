@@ -16,6 +16,7 @@ email-validator>=2.1.0
 Werkzeug>=3.0.0
 
 # AI/ML (保持不变)
+openai>=1.0.0
 openai-whisper==20240930
 torch>=2.0.0
 sentence-transformers==3.4.1
@@ -52,4 +53,6 @@ detect-secrets>=1.4.0
 # 可选: Celery (生产环境)
 # celery==5.4.0
 # redis==5.0.1
-pysqlite3-binary
+
+# 可选: pysqlite3 (仅在系统 Python 未编译 SQLite 时需要，macOS 不需要)
+# pysqlite3-binary

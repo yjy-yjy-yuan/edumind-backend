@@ -35,9 +35,9 @@ if [ ! -f ".secrets.baseline" ]; then
     echo ""
     echo "Generating secrets baseline..."
     detect-secrets scan --baseline .secrets.baseline \
-        --exclude '\.env$' \
-        --exclude 'requirements.*\.txt$' \
-        --exclude '\.secrets\.baseline$'
+        --exclude-files '\.env$' \
+        --exclude-files 'requirements.*\.txt$' \
+        --exclude-files '\.secrets\.baseline$'
 fi
 
 # Install pre-commit hooks
@@ -47,10 +47,25 @@ pre-commit install
 pre-commit install --hook-type commit-msg
 pre-commit install --hook-type pre-push
 
-# Update hooks if pre-commit config changed
+# Try to update hooks (may fail due to network issues)
 echo ""
-echo "Installing hook updates..."
-pre-commit autoupdate
+echo "Attempting to update hooks..."
+if command -v timeout >/dev/null 2>&1; then
+    UPDATE_CMD=(timeout 30s pre-commit autoupdate)
+elif command -v gtimeout >/dev/null 2>&1; then
+    UPDATE_CMD=(gtimeout 30s pre-commit autoupdate)
+else
+    UPDATE_CMD=()
+fi
+
+if [ ${#UPDATE_CMD[@]} -eq 0 ]; then
+    echo "Warning: timeout/gtimeout not found, skip autoupdate to avoid network hang."
+elif "${UPDATE_CMD[@]}" 2>/dev/null; then
+    echo "Hooks updated successfully!"
+else
+    echo "Warning: Could not update hooks (network issue). This is OK."
+    echo "Hooks are installed and will work. Run 'pre-commit autoupdate' later when network is available."
+fi
 
 echo ""
 echo "=========================================="
@@ -60,7 +75,7 @@ echo ""
 echo "Available hooks:"
 echo "  - pre-commit:  Fast checks (formatting, linting, secrets)"
 echo "  - commit-msg:   Conventional commits validation"
-echo "  - pre-push:     Type checking (mypy)"
+echo "  - pre-push:     Core mypy checks + stable unit-test bundle"
 echo ""
 echo "To skip hooks temporarily:"
 echo "  git commit --no-verify -m 'message'"
@@ -68,7 +83,7 @@ echo "  git push --no-verify"
 echo ""
 echo "To run hooks manually:"
 echo "  pre-commit run --all-files"
-echo "  pre-commit run --all-files --hook-stage push"
+echo "  pre-commit run --all-files --hook-stage pre-push"
 echo ""
 echo "To update hooks:"
 echo "  pre-commit autoupdate"

@@ -2,7 +2,7 @@
 
 更新日期：2026-04-10
 
-本文档记录 `backend_fastapi/` 中已经落地的语义搜索后端能力、当前限制和最小部署步骤。它描述的是当前仓库状态，不再把计划项写成“已完成”。
+本文档记录当前 `edumind-backend/` 仓库中已经落地的语义搜索后端能力、当前限制和最小部署步骤。它描述的是当前仓库状态，不再把计划项写成“已完成”。
 
 ## 当前已落地
 
@@ -43,10 +43,10 @@
 ### 数据库：`semantic_search_logs`
 
 - 推荐路径：
-  - 现有 MySQL 库增量部署：优先执行 `backend_fastapi/migrations/add_semantic_search_logs.sql`
-  - 本地开发或新库初始化：可使用 `python backend_fastapi/scripts/init_db.py --create`
+  - 现有 MySQL 库增量部署：优先执行 `migrations/add_semantic_search_logs.sql`
+  - 本地开发或新库初始化：可使用 `python scripts/init_db.py --create`
   - 仅在明确允许自动建表时，才依赖 `AUTO_CREATE_TABLES=true`
-- `scripts/migrations_semantic_search.py` 主要覆盖早期向量索引相关结构；`semantic_search_logs` 这张表请以 `backend_fastapi/migrations/add_semantic_search_logs.sql` 为准。
+- `scripts/migrations_semantic_search.py` 主要覆盖早期向量索引相关结构；`semantic_search_logs` 这张表请以 `migrations/add_semantic_search_logs.sql` 为准。
 - 若库中**尚未执行**建表（迁移脚本或 `init_db.py --create` 未跑），则属于**部署动作未完成**，不是代码缺陷：全局搜索仍会返回结果，但审计落库失败；进程内表现为「首次全局搜索一条 WARNING、之后同类失败为 DEBUG」，直至表真正创建。完整修复请执行上述 SQL 或 `init_db.py --create`。
 
 ## 索引覆盖与数据预期（诊断结论）
@@ -61,7 +61,7 @@
 
 下面这些点已经在代码或文档中明确为限制，不应再按“已完成”验收：
 
-- 认证尚未完全接入搜索路由；当前用户解析优先取请求头 `X-User-ID`，否则回退到默认用户 `1`。
+- 搜索链路已经接入 Bearer token 用户识别，同时兼容 `X-User-ID`；无认证请求仍会回退默认用户 `1` 作为开发兜底。
 - 当前默认打通方案更偏向字幕语义搜索，并不是生产级视频视觉 embedding 方案。
 - 本地 `local` 后端以字幕为主：当视频文件缺失但字幕可用时，会降级为“字幕索引”；若字幕不可用，则该视频无法参与本地语义搜索。
 - 当前本地链路对字幕识别质量仍然敏感；若字幕 OCR/ASR 本身有错字或口语化噪声，融合重排只能缓解结果排序，不能替代字幕清洗或别名归一。
@@ -70,7 +70,7 @@
 
 ## 需要的配置
 
-在 `backend_fastapi/.env` 中补齐语义搜索配置：
+在仓库根目录 `.env` 中补齐语义搜索配置：
 
 ```bash
 SEARCH_ENABLED=true
@@ -105,7 +105,7 @@ SEARCH_AUTO_INDEX_NEW_VIDEOS=true
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-pip install -r backend_fastapi/requirements.txt
+pip install -r requirements.txt
 ```
 
 ### 2. 创建数据库字段
@@ -115,20 +115,20 @@ pip install -r backend_fastapi/requirements.txt
 - `vector_indexes` 表
 - `videos.has_semantic_index`
 - `videos.vector_index_id`
-- 全局检索审计：`semantic_search_logs`（见 `backend_fastapi/migrations/add_semantic_search_logs.sql`
-  或 `python backend_fastapi/scripts/init_db.py --create`）
-- 若现有 `videos` 表尚无 `user_id`，还需要执行 `backend_fastapi/migrations/add_user_id_to_videos.sql`
+- 全局检索审计：`semantic_search_logs`（见 `migrations/add_semantic_search_logs.sql`
+  或 `python scripts/init_db.py --create`）
+- 若现有 `videos` 表尚无 `user_id`，还需要执行 `migrations/add_user_id_to_videos.sql`
 
 ### 3. 准备 ChromaDB 目录
 
 ```bash
-mkdir -p backend_fastapi/data/chroma
+mkdir -p data/chroma
 ```
 
 ### 4. 启动后端
 
 ```bash
-python backend_fastapi/run.py
+python run.py
 ```
 
 ### 5. 验证
@@ -136,7 +136,7 @@ python backend_fastapi/run.py
 ```bash
 . .venv/bin/activate
 python scripts/validate_backend_smoke.py
-python -m compileall backend_fastapi/app backend_fastapi/scripts scripts/hooks scripts/validate_backend_smoke.py
+python -m compileall app scripts
 ```
 
 ## 当前接口

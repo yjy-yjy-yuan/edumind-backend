@@ -1,10 +1,8 @@
-# EduMind 后端运行指南
+# EduMind Backend 运行指南
 
-这份文档描述如何从零启动 `backend_fastapi/`。
+这份文档描述如何从零启动当前独立后端仓库 `edumind-backend/`。
 
 ## 1. 创建环境
-
-按当前仓库约定，统一使用项目根目录下的 `.venv`。
 
 ```bash
 python3 -m venv .venv
@@ -14,7 +12,6 @@ python3 -m venv .venv
 ## 2. 安装依赖
 
 ```bash
-cd backend_fastapi
 pip install -r requirements.txt
 ```
 
@@ -24,79 +21,59 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-按实际环境修改 `.env` 中的数据库、模型服务和密钥配置。
-如果需要改后端端口，请同步调整 `PORT`，并把 `CORS_ORIGINS` 加上前端实际端口。
+按实际环境填写数据库、模型服务和密钥配置。若修改端口，请同步调整 `PORT` 与 `CORS_ORIGINS`。
 
-## 4. 启动依赖服务
-
-按需要启动：
+## 4. 启动依赖服务（按需）
 
 ```bash
 brew services start mysql
 ollama serve
 ```
 
-如果某些功能暂时不用，可以只启动当前接口链路需要的依赖。
-
-如果你要把本地 GGUF 模型接入当前项目，请先导入到 Ollama。
-支持两种方式：本地 `.gguf` 文件，或直接使用 `hf.co/...` 模型引用。
+## 5. 可选：导入本地 GGUF 到 Ollama
 
 ```bash
-. .venv/bin/activate
-bash backend_fastapi/scripts/import_qwen35_gguf_to_ollama.sh /absolute/path/to/Qwen3.5-9B-Claude-4.6-Opus-Reasoning-Distilled-v2-GGUF.gguf
+bash scripts/import_qwen35_gguf_to_ollama.sh /absolute/path/to/model.gguf
+# 或
+bash scripts/import_qwen35_gguf_to_ollama.sh hf.co/owner/repo:tag
 ```
 
-```bash
-. .venv/bin/activate
-bash backend_fastapi/scripts/import_qwen35_gguf_to_ollama.sh hf.co/Jackrong/Qwen3.5-9B-Claude-4.6-Opus-Reasoning-Distilled-GGUF:Q4_K_M
-```
+说明：这一步是后端本地 LLM 回退能力（摘要/标签/语义整理），不是 iOS 端 ASR 引擎切换。
 
-说明：
-
-- 这一步导入的是“后端本地 LLM 回退模型”，用于摘要、标题、语义整理等能力
-- iOS 本地离线视频转录仍然使用 Apple `Speech` 端侧识别，不会因为这里切换 GGUF 而自动变成新的 ASR 引擎
-
-## 5. 启动后端
+## 6. 启动后端
 
 ```bash
-cd backend_fastapi
-. .venv/bin/activate
 python run.py
 ```
 
-启动成功后默认监听：
+启动成功后默认：
 
 - `http://127.0.0.1:2004`
 - `http://127.0.0.1:2004/docs`
 
-## 6. 验证服务
+## 7. 基础验证
 
 ```bash
-curl http://localhost:2004/health
+curl http://127.0.0.1:2004/health
 ```
 
-## 7. 配合前端运行
-
-当前仓库只保留 `mobile-frontend/`：
+## 8. 本仓库推荐验证链路
 
 ```bash
-cd mobile-frontend
-npm install
-npm run dev
-```
-
-## 8. 运行验证
-
-```bash
-. .venv/bin/activate
 python scripts/validate_backend_smoke.py
 mkdir -p .pycache-hook
-PYTHONPYCACHEPREFIX="$PWD/.pycache-hook" python -m compileall backend_fastapi/app backend_fastapi/scripts scripts/hooks scripts/validate_backend_smoke.py
+PYTHONPYCACHEPREFIX="$PWD/.pycache-hook" python -m compileall app scripts
+python scripts/validate_system_requirements.py
 ```
 
-如需查看历史回归测试组织方式，可参考 [backend_fastapi/tests/README.md](/Users/yuan/final-work/EduMind/backend_fastapi/tests/README.md)。当前仓库规则要求修改程序时不要用 `pytest` 作为本次验证手段。
+## 9. Git hooks 验证（提交/推送前）
 
-## 9. 常见问题
+```bash
+pre-commit run --all-files
+pre-commit run --hook-stage pre-push --all-files
+```
+
+## 10. 常见问题
 
 ### 端口占用
 
