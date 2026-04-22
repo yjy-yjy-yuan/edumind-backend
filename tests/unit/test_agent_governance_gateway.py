@@ -3,6 +3,7 @@
 import pytest
 from app.agents.exceptions import GovernanceError
 from app.agents.governance.gateway import execute_tool
+from app.agents.governance.tools_learning_flow import tool_lf_generate_summary_fallback
 
 
 def test_execute_tool_rejects_unknown_tool(db):
@@ -43,3 +44,8 @@ def test_execute_tool_rejects_invalid_summary_style(db):
             db=db,
             trace_id="t5",
         )
+
+
+def test_tools_reject_direct_invocation_outside_gateway(db):
+    with pytest.raises(GovernanceError, match="governance_bypass_blocked"):
+        tool_lf_generate_summary_fallback(db, {"summary_seed": "x"})

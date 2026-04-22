@@ -109,12 +109,15 @@ python3 -m venv .venv
 python ../scripts/validate_backend_smoke.py
 mkdir -p ../.pycache-hook
 PYTHONPYCACHEPREFIX="$PWD/../.pycache-hook" python -m compileall app scripts ../scripts/hooks ../scripts/validate_backend_smoke.py
+python scripts/validate_system_requirements.py
 ```
 
 说明：
 
 - `backend_fastapi/tests/` 仍保留历史回归测试目录和 pytest 风格组织方式。
 - 当前仓库规则要求修改程序时不要用 `pytest` 作为本次验证手段，因此默认验证链路改为 `validate_backend_smoke.py + compileall`。
+- `validate_system_requirements.py` 用于审计 7 项系统要求（effective / efficient / safe / robust / monitorable / updatable / compounding）是否达标。
+- 集中式遥测的实现主路径为 `app/analytics/`，同时提供兼容入口 `app/services/analytics/` 便于运维和集成检查脚本统一识别。
 
 历史测试目录约定：
 

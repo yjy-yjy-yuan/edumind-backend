@@ -48,6 +48,8 @@ def check_efficient():
 
 def check_safe():
     g = read("app/agents/governance/gateway.py")
+    ctx = read("app/agents/governance/context.py")
+    tools = read("app/agents/governance/tools_learning_flow.py")
     ok = all(
         token in g
         for token in [
@@ -56,11 +58,15 @@ def check_safe():
             "tool_not_allowed",
             "GovernanceError",
             "def execute_tool(",
+            "governance_execution_context",
         ]
-    )
+    ) and all(
+        token in ctx for token in ["ContextVar", "ensure_in_governance_context", "governance_bypass_blocked"]
+    ) and "ensure_in_governance_context()" in tools
     return ok, {
         "governance_gateway": "app/agents/governance/gateway.py",
-        "whitelist_and_validation": ok,
+        "whitelist_and_validation": "_TOOL_HANDLERS" in g and "_validate_params" in g,
+        "bypass_block_guard": "ensure_in_governance_context()" in tools,
     }
 
 
@@ -84,10 +90,19 @@ def check_robust():
 
 def check_monitorable():
     pipeline = has("app/analytics/pipeline.py")
+    services_pipeline = has("app/services/analytics/pipeline.py")
+    services_schema = has("app/services/analytics/schema.py")
     search_logging = read("app/services/search/search_logging.py")
-    ok = pipeline and "emit_search_legacy_event" in search_logging and "get_telemetry" in search_logging
+    ok = (
+        pipeline
+        and services_pipeline
+        and services_schema
+        and "emit_search_legacy_event" in search_logging
+        and "get_telemetry" in search_logging
+    )
     return ok, {
         "analytics_pipeline": pipeline,
+        "services_analytics_facade": services_pipeline and services_schema,
         "search_logging_adapter": "emit_search_legacy_event" in search_logging,
     }
 
