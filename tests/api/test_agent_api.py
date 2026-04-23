@@ -1,3 +1,6 @@
+import json
+import logging
+
 import pytest
 
 from app.agents.exceptions import GovernanceError
@@ -226,3 +229,56 @@ def test_execute_agent_with_vinci_tool_not_whitelisted_returns_400_and_blocks_wr
     assert response.status_code == 400
     assert "tool_not_allowed:lf_vinci_chat" in response.json()["detail"]
     assert after == before
+
+
+@pytest.mark.api
+def test_execute_agent_with_vinci_tool_not_whitelisted_emits_denied_audit_event(
+    client, db, sample_video, monkeypatch, caplog
+):
+    """拒绝 Vinci 调用时必须产生日志审计事件，便于运维追踪。"""
+    sample_video.status = VideoStatus.COMPLETED
+    sample_video.summary = "导数课程摘要"
+    db.add(
+        Subtitle(
+            video_id=sample_video.id,
+            start_time=70.0,
+            end_time=85.0,
+            text="导数是函数变化率的局部刻画。",
+            source="asr",
+            language="zh",
+        )
+    )
+    db.commit()
+    monkeypatch.setattr(settings, "VINCI_ENABLED", True)
+    monkeypatch.delitem(gateway._TOOL_HANDLERS, "lf_vinci_chat", raising=False)
+    caplog.set_level(logging.INFO, logger="app.analytics.telemetry")
+
+    response = client.post(
+        "/api/agent/execute",
+        json={
+            "video_id": sample_video.id,
+            "page_context": "video_detail",
+            "current_time_seconds": 72,
+            "subtitle_text": "导数是函数变化率的局部刻画。",
+            "recent_qa_messages": [{"role": "user", "content": "什么是导数"}],
+            "user_input": "请结合 Vinci 生成学习笔记",
+        },
+    )
+    assert response.status_code == 400
+
+    events = []
+    for record in caplog.records:
+        if record.name != "app.analytics.telemetry":
+            continue
+        try:
+            events.append(json.loads(record.message))
+        except Exception:
+            continue
+    denied = [event for event in events if event.get("event_type") == "agent_tool_denied"]
+    assert denied, "缺少 agent_tool_denied 审计事件"
+    latest = denied[-1]
+    assert latest.get("status") == "error"
+    metadata = latest.get("metadata") or {}
+    assert metadata.get("tool") == "lf_vinci_chat"
+    assert metadata.get("reason") == "not_whitelisted"
+    assert metadata.get("pipeline") == "learning_flow"
