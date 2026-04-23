@@ -36,6 +36,12 @@
 3. P95 连续 5 分钟 > 12s 报警。
 4. `degraded_count` 在 10 分钟窗口超过 20 次时报警（提示上游不稳定）。
 
+实际平台接入（Grafana/Loki）：
+
+- 规则模板文件：`docs/monitoring/grafana_loki_vinci_alert_rules.yaml`
+- 覆盖：错误率、超时率、降级突增三类告警
+- 接入方式：将模板导入 Grafana Alerting（Unified Alerting），并按你们环境替换 `datasourceUid` 与标签过滤条件。
+
 ## 3. 故障现象
 
 - 用户请求返回降级文案（`VINCI_UNAVAILABLE`）显著增多。

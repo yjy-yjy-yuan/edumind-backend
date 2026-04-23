@@ -5,22 +5,23 @@ import os
 from contextlib import asynccontextmanager
 from time import perf_counter
 
-from app.core.config import settings
-from app.core.database import SessionLocal
-from app.core.database import engine
-from app.models.base import Base
-from app.models.recommendation_ops_event import RecommendationOpsEvent  # noqa: F401
-from app.models.semantic_search_log import SemanticSearchLog  # noqa: F401
-from app.models.video import Video
-from app.models.video import VideoStatus
-from app.services.ollama_runtime import get_ollama_runtime_status
-from app.services.similarity_service_container import init_persistence_service
-from app.services.whisper_runtime import get_whisper_runtime_status
-from app.services.whisper_runtime import shutdown_whisper_runtime
-from app.services.whisper_runtime import start_whisper_background_preload
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+
+from app.core.config import settings
+from app.core.database import SessionLocal, engine
+from app.models.base import Base
+from app.models.recommendation_ops_event import RecommendationOpsEvent  # noqa: F401
+from app.models.semantic_search_log import SemanticSearchLog  # noqa: F401
+from app.models.video import Video, VideoStatus
+from app.services.ollama_runtime import get_ollama_runtime_status
+from app.services.similarity_service_container import init_persistence_service
+from app.services.whisper_runtime import (
+    get_whisper_runtime_status,
+    shutdown_whisper_runtime,
+    start_whisper_background_preload,
+)
 
 # 配置日志
 LOG_LEVEL = logging.DEBUG if settings.DEBUG else logging.INFO
@@ -152,16 +153,19 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 
 # 注册路由
-from app.routers import agent
-from app.routers import auth
-from app.routers import chat
-from app.routers import design
-from app.routers import note
-from app.routers import qa
-from app.routers import recommendation
-from app.routers import search
-from app.routers import subtitle
-from app.routers import video
+from app.routers import (
+    agent,
+    auth,
+    chat,
+    design,
+    note,
+    ops,
+    qa,
+    recommendation,
+    search,
+    subtitle,
+    video,
+)
 
 app.include_router(video.router, prefix="/api/videos", tags=["视频管理"])
 app.include_router(subtitle.router, prefix="/api/subtitles", tags=["字幕管理"])
@@ -170,6 +174,7 @@ app.include_router(qa.router, prefix="/api/qa", tags=["问答系统"])
 app.include_router(chat.router, prefix="/api/chat", tags=["聊天系统"])
 app.include_router(design.router, prefix="/api/design", tags=["设计助手"])
 app.include_router(auth.router, prefix="/api/auth", tags=["用户认证"])
+app.include_router(ops.router, prefix="/api/ops", tags=["运维观测"])
 app.include_router(recommendation.router, prefix="/api/recommendations", tags=["视频推荐"])
 app.include_router(search.router, tags=["语义搜索"])
 app.include_router(agent.router, prefix="/api/agent", tags=["学习流智能体"])

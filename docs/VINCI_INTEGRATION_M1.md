@@ -39,8 +39,12 @@
   - 新增 P95 告警阈值
 - `app/analytics/pipeline.py`
   - 暴露 `module_metrics(module)` 供运维读取窗口快照
+- `app/routers/ops.py`
+  - 新增 `/api/ops/vinci/metrics` 输出 `module_metrics("vinci")`
 - `tests/unit/test_analytics_alerting.py`、`tests/unit/test_analytics_pipeline.py`
   - 覆盖 M1-4 指标与阈值告警测试
+- `tests/api/test_vinci_ops_api.py`
+  - 覆盖 Vinci 运维观测接口鉴权与返回契约
 
 ## 3. 配置项（M1）
 
@@ -109,6 +113,12 @@ M1-3 治理接入测试：
 
 ```bash
 pytest tests/unit/test_agent_governance_gateway.py -v
+```
+
+Vinci 运维观测接口测试：
+
+```bash
+pytest tests/api/test_vinci_ops_api.py -v
 ```
 
 与治理/遥测基线联合回归：

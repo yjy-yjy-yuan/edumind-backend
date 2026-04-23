@@ -57,6 +57,7 @@ python run.py
 - 语义搜索（索引、检索、状态查询）
 - 智能体治理、预算控制、集中遥测、轨迹导出
 - Vinci 微服务适配层（HTTP/SSE、统一错误码、降级与 trace_id 透传）
+- Vinci 运维观测接口（`/api/ops/vinci/metrics`）
 
 ## Vinci 接入（M1）
 
