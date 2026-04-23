@@ -44,6 +44,7 @@
 - 规则模板文件：`docs/monitoring/grafana_loki_vinci_alert_rules.yaml`
 - 覆盖：错误率、超时率、P95 延迟、降级突增四类告警
 - 接入方式：将模板导入 Grafana Alerting（Unified Alerting），并按你们环境替换 `datasourceUid` 与标签过滤条件。
+- 实接入验收记录：`docs/monitoring/VINCI_ALERTING_ACCEPTANCE_M3.md`
 
 ## 3. 故障现象
 
@@ -100,4 +101,13 @@
 pytest tests/unit/test_vinci_adapter_service.py -v
 pytest tests/unit/test_agent_governance_gateway.py -v
 pytest tests/unit/test_analytics_alerting.py tests/unit/test_analytics_pipeline.py -v
+```
+
+Grafana/Loki 本地验收（规则导入 + 触发演练）：
+
+```bash
+docker compose -f docs/monitoring/local/docker-compose.grafana-loki.yaml up -d
+curl -u admin:admin http://localhost:3000/api/health
+curl -u admin:admin http://localhost:3000/api/v1/provisioning/alert-rules
+curl -u admin:admin http://localhost:3000/api/prometheus/grafana/api/v1/rules
 ```

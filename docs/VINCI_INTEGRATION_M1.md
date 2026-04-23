@@ -21,7 +21,8 @@
 
 本阶段未覆盖：
 
-- 告警平台落地联动（Prometheus/Grafana/日志告警生产环境接线）
+- 生产告警平台接线（Prometheus/Grafana/日志告警与企业通知渠道联动）
+- 已完成本地实接入验收，见 `docs/monitoring/VINCI_ALERTING_ACCEPTANCE_M3.md`
 
 ## 2. 代码与文件落点
 
@@ -65,6 +66,14 @@
   - 覆盖 M1-4 指标与阈值告警测试
 - `tests/api/test_vinci_ops_api.py`
   - 覆盖 Vinci 运维观测接口鉴权与返回契约
+- `docs/monitoring/local/docker-compose.grafana-loki.yaml`
+  - 本地 Grafana/Loki 实接入验收编排文件
+- `docs/monitoring/local/grafana/provisioning/datasources/loki.yaml`
+  - Grafana Loki 数据源 provisioning 模板
+- `docs/monitoring/VINCI_ALERTING_ACCEPTANCE_M3.md`
+  - M3 告警平台实接入验收记录（时间、阈值、生效结果、回滚步骤）
+- `docs/monitoring/evidence/m3/`
+  - 验收日志、API 证据与截图归档
 
 ## 3. 配置项（M1）
 
@@ -180,5 +189,6 @@ pre-commit run --hook-stage pre-push --all-files
 
 - 当前已完成 `lf_vinci_chat` 的治理白名单、参数校验、审计日志与绕过阻断（含适配层与工具层双重阻断）。
 - 当前已具备窗口级指标快照与 P95 告警能力；详细运维流程见 [`docs/VINCI_RUNBOOK.md`](VINCI_RUNBOOK.md)。
+- 当前已完成本地 Grafana/Loki 告警实接入验收（规则导入、触发演练、证据留存），见 `docs/monitoring/VINCI_ALERTING_ACCEPTANCE_M3.md`。
 - 当前已提供 `/api/ops/vinci/metrics` 作为进程内快照接口。
 - 下一步建议将 Runbook 阈值接入真实告警平台，补齐跨实例集中观测与告警闭环。

@@ -1,0 +1,23 @@
+services:
+  loki:
+    image: grafana/loki:2.9.8
+    container_name: edumind-loki
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+
+  grafana:
+    image: grafana/grafana:11.1.4
+    container_name: edumind-grafana
+    depends_on:
+      - loki
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_UNIFIED_ALERTING_ENABLED=true
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ../grafana_loki_vinci_alert_rules.yaml:/etc/grafana/provisioning/alerting/vinci_alert_rules.yaml:ro

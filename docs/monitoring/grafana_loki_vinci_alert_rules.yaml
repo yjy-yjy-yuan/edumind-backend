@@ -10,6 +10,9 @@ groups:
         condition: C
         data:
           - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
             datasourceUid: loki
             model:
               expr: |
@@ -17,6 +20,9 @@ groups:
               intervalMs: 60000
               maxDataPoints: 43200
           - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
             datasourceUid: loki
             model:
               expr: |
@@ -24,9 +30,12 @@ groups:
               intervalMs: 60000
               maxDataPoints: 43200
           - refId: C
+            relativeTimeRange:
+              from: 0
+              to: 0
             datasourceUid: __expr__
             model:
-              expression: (A / B) > 0.15
+              expression: ($A / $B) > 0.15
               type: math
         noDataState: NoData
         execErrState: Error
@@ -42,19 +51,28 @@ groups:
         condition: C
         data:
           - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
             datasourceUid: loki
             model:
               expr: |
                 sum(rate({app="edumind-backend"} |= "app.analytics.telemetry" |= "\"module\": \"vinci\"" |= "\"status\": \"timeout\"" [5m]))
           - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
             datasourceUid: loki
             model:
               expr: |
                 sum(rate({app="edumind-backend"} |= "app.analytics.telemetry" |= "\"module\": \"vinci\"" [5m]))
           - refId: C
+            relativeTimeRange:
+              from: 0
+              to: 0
             datasourceUid: __expr__
             model:
-              expression: (A / B) > 0.10
+              expression: ($A / $B) > 0.10
               type: math
         noDataState: NoData
         execErrState: Error
@@ -70,14 +88,20 @@ groups:
         condition: B
         data:
           - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
             datasourceUid: loki
             model:
               expr: |
                 quantile_over_time(0.95, {app="edumind-backend"} |= "app.analytics.telemetry" |= "\"module\": \"vinci\"" | json | unwrap latency_ms [5m])
           - refId: B
+            relativeTimeRange:
+              from: 0
+              to: 0
             datasourceUid: __expr__
             model:
-              expression: A > 12000
+              expression: $A > 12000
               type: math
         noDataState: NoData
         execErrState: Error
@@ -90,13 +114,35 @@ groups:
           severity: warning
       - uid: vinci-degraded-burst
         title: Vinci Degraded Burst
-        condition: A
+        condition: C
         data:
           - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
             datasourceUid: loki
             model:
               expr: |
-                sum(count_over_time({app="edumind-backend"} |= "app.analytics.telemetry" |= "\"module\": \"vinci\"" |= "\"status\": \"degraded\"" [10m])) > 20
+                sum(count_over_time({app="edumind-backend"} |= "app.analytics.telemetry" |= "\"module\": \"vinci\"" |= "\"status\": \"degraded\"" [10m]))
+          - refId: B
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              type: reduce
+          - refId: C
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              expression: $B > 20
+              type: math
         noDataState: NoData
         execErrState: Error
         for: 0m
