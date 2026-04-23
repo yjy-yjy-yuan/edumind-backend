@@ -210,3 +210,10 @@ pre-commit run --hook-stage pre-push --all-files
   - `/api/agent/execute` 治理拒绝返回“可恢复错误对象”（保留原始 `detail` + `error_code/message/suggestion/recoverable`）。
   - `/api/qa/ask` 流式输出统一 `answer` 结束事件（`stage=completed`、`progress=100`、`message=回答已完成`）。
   - 前端契约校验覆盖“仅通过后端代理调用，不直连 Vinci”。
+
+## 9. M5 交付收口文档
+
+- 架构与时序：`docs/VINCI_M5_ARCHITECTURE_AND_SEQUENCES.md`
+- 接口契约与错误码：`docs/VINCI_M5_API_CONTRACT_ERROR_CODES.md`
+- 验证报告：`docs/VINCI_M5_VERIFICATION_REPORT.md`
+- 里程碑提交清单：`docs/VINCI_M5_MILESTONE_COMMITS.md`

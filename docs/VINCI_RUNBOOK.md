@@ -95,6 +95,21 @@
    - `tests/unit/test_analytics_alerting.py`
    全部通过。
 
+## 6.1 回滚触发条件（建议）
+
+满足任一条件建议立即触发回滚或降级开关：
+
+1. 连续 10 分钟 `error_rate > 20%` 且无回落趋势。
+2. 连续 10 分钟 `timeout_rate > 15%` 且 `vinci_circuit_opened` 高频触发。
+3. 连续 10 分钟 `p95_latency_ms > 20s`，明显影响主流程时延。
+4. `degraded_count` 在 10 分钟窗口持续 > 50 且用户可感知失败激增。
+5. 发现治理绕过风险（存在未经过 `execute_tool` 的 Vinci 调用路径）。
+
+建议回滚优先级：
+
+- 一级：先将 `VINCI_ENABLED=false`，确保主流程继续可用。
+- 二级：回滚到上一稳定版本并执行最小回归测试。
+
 ## 7. 验证命令（变更后）
 
 ```bash
@@ -137,3 +152,11 @@ python scripts/run_vinci_alerting_acceptance_prep.py \
 export GRAFANA_USER="your_user"
 export GRAFANA_PASSWORD="your_password"
 ```
+
+## 8. 上线风险清单（M5 收口）
+
+1. **上游依赖波动风险**：Vinci 不可用或高时延会触发降级，需确保降级文案与产品预期一致。
+2. **阈值配置风险**：熔断阈值过敏可能导致过早降级，阈值过宽可能导致错误扩散。
+3. **观测盲区风险**：若日志采集链路异常，将影响告警及时性。
+4. **治理策略漂移风险**：白名单/参数边界变更需同步测试与文档，避免线上误拒绝。
+5. **发布窗口风险**：上线后前 30 分钟需重点观察 `/api/ops/vinci/metrics` 与告警状态。
