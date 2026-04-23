@@ -7,26 +7,30 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy.orm import Session
+
 from app.agents.budget import TokenBudget
 from app.agents.exceptions import GovernanceError
 from app.agents.governance.gateway import execute_tool
-from app.agents.prompts.versions import LEARNING_FLOW_PROMPT_VERSION
-from app.agents.prompts.versions import ORCHESTRATION_PIPELINE_VERSION
+from app.agents.prompts.versions import (
+    LEARNING_FLOW_PROMPT_VERSION,
+    ORCHESTRATION_PIPELINE_VERSION,
+)
 from app.core.config import settings
 from app.models.note import Note
 from app.models.video import Video
-from app.services.learning_flow_agent import AgentContext
-from app.services.learning_flow_agent import _build_note_content
-from app.services.learning_flow_agent import _build_note_title
-from app.services.learning_flow_agent import _build_thought_tags
-from app.services.learning_flow_agent import _infer_note_category
-from app.services.learning_flow_agent import _subtitle_excerpt_for_time
-from app.services.learning_flow_agent import build_plan
-from app.services.learning_flow_agent import infer_intent
-from app.services.learning_flow_agent import normalize_user_input
-from app.services.video_content_service import fallback_tags
-from app.services.video_content_service import normalize_summary_style
-from sqlalchemy.orm import Session
+from app.services.learning_flow_agent import (
+    AgentContext,
+    _build_note_content,
+    _build_note_title,
+    _build_thought_tags,
+    _infer_note_category,
+    _subtitle_excerpt_for_time,
+    build_plan,
+    infer_intent,
+    normalize_user_input,
+)
+from app.services.video_content_service import fallback_tags, normalize_summary_style
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +38,14 @@ logger = logging.getLogger(__name__)
 def _validator_confirm_note(db: Session, note_id: int, video_id: int) -> bool:
     row = db.query(Note).filter(Note.id == note_id, Note.video_id == video_id).first()
     return row is not None
+
+
+def _should_enable_vinci_summary(ctx: AgentContext) -> bool:
+    if not bool(getattr(settings, "VINCI_ENABLED", False)):
+        return False
+    if ctx.recent_qa_messages:
+        return True
+    return "vinci" in normalize_user_input(ctx.user_input).lower()
 
 
 def run_learning_flow_pipeline(db: Session, *, request) -> dict[str, Any]:
@@ -89,7 +101,59 @@ def run_learning_flow_pipeline(db: Session, *, request) -> dict[str, Any]:
     summary_seed = subtitle_excerpt or ctx.subtitle_text.strip() or video.summary or video.title or ""
 
     summary_text = ""
-    if summary_seed.strip():
+    if summary_seed.strip() and _should_enable_vinci_summary(ctx):
+        try:
+            vinci_res = execute_tool(
+                "lf_vinci_chat",
+                {
+                    "prompt": (
+                        f"用户问题：{ctx.user_input}\n"
+                        f"上下文片段：{summary_seed}\n"
+                        "请给出精炼学习摘要，保留核心概念与关键结论。"
+                    ),
+                    "session_id": f"lf_{video.id}_{trace_id[:12]}",
+                    "history": list(ctx.recent_qa_messages or []),
+                },
+                db=db,
+                trace_id=trace_id,
+            )
+            budget.charge(
+                "executor_vinci_chat",
+                max(int(vinci_res.get("tokens_estimated") or 0), 60),
+            )
+            if bool(vinci_res.get("degraded")):
+                actions.append("vinci_degraded_fallback")
+                action_records.append(
+                    {
+                        "type": "vinci_degraded_fallback",
+                        "message": "Vinci 降级，已自动回退本地摘要工具",
+                        "data": {"error_code": vinci_res.get("error_code")},
+                    }
+                )
+            else:
+                summary_text = str(vinci_res.get("answer") or "").strip()
+                if summary_text:
+                    actions.append("vinci_summary_generated")
+                    action_records.append(
+                        {
+                            "type": "vinci_summary_generated",
+                            "message": "已通过 Vinci 生成学习摘要",
+                            "data": {
+                                "session_id": vinci_res.get("session_id"),
+                                "history_count": len(vinci_res.get("history") or []),
+                            },
+                        }
+                    )
+        except GovernanceError:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "vinci summary failed, fallback to local summary | trace_id=%s | error=%s",
+                trace_id,
+                exc,
+            )
+
+    if summary_seed.strip() and not summary_text:
         try:
             sum_res = execute_tool(
                 "lf_generate_summary_fallback",
@@ -139,7 +203,13 @@ def run_learning_flow_pipeline(db: Session, *, request) -> dict[str, Any]:
         est = int(note_res.get("tokens_estimated") or 0)
         budget.charge("executor_persist_note", max(est, 40))
         actions.append("note_created")
-        action_records.append({"type": "note_created", "message": "已创建笔记", "data": {"note_id": note_id}})
+        action_records.append(
+            {
+                "type": "note_created",
+                "message": "已创建笔记",
+                "data": {"note_id": note_id},
+            }
+        )
     except GovernanceError:
         raise
     except Exception as exc:

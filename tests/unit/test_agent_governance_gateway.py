@@ -76,6 +76,29 @@ def test_execute_tool_vinci_chat_rejects_invalid_history_type(db):
         )
 
 
+def test_execute_tool_vinci_chat_param_invalid_emits_audit(db, caplog):
+    caplog.set_level(logging.INFO, logger="app.analytics.telemetry")
+    with pytest.raises(GovernanceError, match="invalid_history"):
+        execute_tool(
+            "lf_vinci_chat",
+            {"prompt": "hello", "session_id": "s2", "history": "not_a_list"},
+            db=db,
+            trace_id="tv2-audit",
+        )
+
+    payloads = []
+    for record in caplog.records:
+        if record.name != "app.analytics.telemetry":
+            continue
+        try:
+            payloads.append(json.loads(record.message))
+        except Exception:
+            continue
+    invalid = [p for p in payloads if p.get("event_type") == "agent_tool_param_invalid"]
+    assert invalid
+    assert invalid[-1]["metadata"].get("tool") == "lf_vinci_chat"
+
+
 def test_execute_tool_vinci_chat_emits_completed_audit(db, monkeypatch, caplog):
     def _fake_vinci_chat(db_session, params):
         _ = db_session
