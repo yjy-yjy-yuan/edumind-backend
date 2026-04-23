@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import importlib
+import json
+import logging
 from typing import Any
 
 import pytest
 
 from app.agents.exceptions import GovernanceError
 from app.agents.governance.context import governance_execution_context
+from app.analytics.pipeline import get_telemetry, reset_telemetry_for_tests
 
 
 def _load_module(module_name: str, scenario: str):
@@ -31,14 +34,14 @@ def _load_attr(module: Any, attr_name: str, scenario: str):
     return value
 
 
-def _build_adapter(client: Any, scenario: str):
+def _build_adapter(client: Any, scenario: str, **kwargs):
     module = _load_module("app.services.vinci_adapter_service", scenario)
     adapter_cls = _load_attr(module, "VinciAdapterService", scenario)
     try:
-        return adapter_cls(client=client)
+        return adapter_cls(client=client, **kwargs)
     except TypeError:
         pytest.fail(
-            f"{scenario}: `VinciAdapterService` 需支持 `client=` 注入，便于治理与测试隔离。",
+            f"{scenario}: `VinciAdapterService` 需支持注入参数（如 `client=`、熔断配置），便于治理与测试隔离。",
             pytrace=False,
         )
 
@@ -269,3 +272,248 @@ def test_vinci_unavailable_returns_degraded_response():
     assert payload["trace_id"] == "trace-degrade-1"
     assert isinstance(payload["history"], list)
     assert str(payload.get("answer") or "").strip()
+
+
+@pytest.mark.unit
+def test_vinci_circuit_breaker_opens_and_short_circuits_until_recovery_window():
+    """场景 6：连续失败触发熔断，窗口内快速失败。"""
+    scenario = "熔断开启与窗口阻断"
+    timeout_error_cls = _load_client_error_cls("VinciTimeoutError", scenario)
+    adapter_error_cls = _load_adapter_error_cls(scenario)
+
+    class TimeoutClient:
+        def __init__(self):
+            self.calls = 0
+
+        def request_chat(
+            self,
+            *,
+            prompt: str,
+            history: list[dict[str, Any]],
+            session_id: str,
+            trace_id: str,
+        ):
+            _ = (prompt, history, session_id, trace_id)
+            self.calls += 1
+            raise timeout_error_cls("vinci timeout")
+
+    clock = {"now": 1000.0}
+
+    def _clock():
+        return float(clock["now"])
+
+    client = TimeoutClient()
+    adapter = _build_adapter(
+        client,
+        scenario,
+        circuit_failure_threshold=2,
+        circuit_recovery_seconds=30.0,
+        clock=_clock,
+    )
+
+    with governance_execution_context():
+        with pytest.raises(adapter_error_cls) as first_exc:
+            adapter.request_chat(
+                prompt="p1",
+                history=[],
+                session_id="sess-cb-1",
+                trace_id="trace-cb-1",
+            )
+        assert first_exc.value.error_code == "VINCI_TIMEOUT"
+        with pytest.raises(adapter_error_cls) as second_exc:
+            adapter.request_chat(
+                prompt="p2",
+                history=[],
+                session_id="sess-cb-1",
+                trace_id="trace-cb-2",
+            )
+        assert second_exc.value.error_code == "VINCI_TIMEOUT"
+        degraded = adapter.request_chat(
+            prompt="p3",
+            history=[],
+            session_id="sess-cb-1",
+            trace_id="trace-cb-3",
+        )
+
+    assert degraded["degraded"] is True
+    assert degraded["error_code"] == "VINCI_CIRCUIT_OPEN"
+    assert client.calls == 2
+
+    clock["now"] += 31.0
+    with governance_execution_context():
+        with pytest.raises(adapter_error_cls) as third_exc:
+            adapter.request_chat(
+                prompt="p4",
+                history=[],
+                session_id="sess-cb-1",
+                trace_id="trace-cb-4",
+            )
+        assert third_exc.value.error_code == "VINCI_TIMEOUT"
+        degraded_again = adapter.request_chat(
+            prompt="p5",
+            history=[],
+            session_id="sess-cb-1",
+            trace_id="trace-cb-5",
+        )
+    assert degraded_again["error_code"] == "VINCI_CIRCUIT_OPEN"
+    assert client.calls == 3
+
+
+@pytest.mark.unit
+def test_vinci_circuit_breaker_recovers_after_window_with_probe_success(caplog):
+    """场景 7：熔断恢复窗口到期后探测成功，熔断关闭。"""
+    scenario = "熔断恢复"
+    timeout_error_cls = _load_client_error_cls("VinciTimeoutError", scenario)
+    adapter_error_cls = _load_adapter_error_cls(scenario)
+
+    class RecoverClient:
+        def __init__(self):
+            self.calls = 0
+
+        def request_chat(
+            self,
+            *,
+            prompt: str,
+            history: list[dict[str, Any]],
+            session_id: str,
+            trace_id: str,
+        ):
+            _ = (prompt, history, session_id, trace_id)
+            self.calls += 1
+            if self.calls == 1:
+                raise timeout_error_cls("first timeout")
+            return {"answer": "recovered-ok", "history": history}
+
+    clock = {"now": 2000.0}
+
+    def _clock():
+        return float(clock["now"])
+
+    caplog.set_level(logging.INFO, logger="app.analytics.telemetry")
+    client = RecoverClient()
+    adapter = _build_adapter(
+        client,
+        scenario,
+        circuit_failure_threshold=1,
+        circuit_recovery_seconds=10.0,
+        clock=_clock,
+    )
+
+    with governance_execution_context():
+        with pytest.raises(adapter_error_cls) as first_exc:
+            adapter.request_chat(
+                prompt="first",
+                history=[],
+                session_id="sess-cb-r",
+                trace_id="trace-cb-r1",
+            )
+        assert first_exc.value.error_code == "VINCI_TIMEOUT"
+        degraded = adapter.request_chat(
+            prompt="second",
+            history=[],
+            session_id="sess-cb-r",
+            trace_id="trace-cb-r2",
+        )
+    assert degraded["error_code"] == "VINCI_CIRCUIT_OPEN"
+    assert client.calls == 1
+
+    clock["now"] += 11.0
+    with governance_execution_context():
+        recovered = adapter.request_chat(
+            prompt="third",
+            history=[],
+            session_id="sess-cb-r",
+            trace_id="trace-cb-r3",
+        )
+    assert recovered["degraded"] is False
+    assert recovered["answer"] == "recovered-ok"
+    assert client.calls == 2
+
+    payloads = []
+    for record in caplog.records:
+        if record.name != "app.analytics.telemetry":
+            continue
+        try:
+            payloads.append(json.loads(record.message))
+        except Exception:
+            continue
+    opened = [p for p in payloads if p.get("event_type") == "vinci_circuit_opened"]
+    recovered_events = [p for p in payloads if p.get("event_type") == "vinci_circuit_recovered"]
+    assert opened
+    assert recovered_events
+
+
+@pytest.mark.unit
+def test_vinci_metrics_cover_success_error_timeout_and_degraded_counts():
+    """场景 8：Vinci 指标覆盖 success/error/timeout/degraded 与 P95。"""
+    scenario = "指标埋点覆盖"
+    timeout_error_cls = _load_client_error_cls("VinciTimeoutError", scenario)
+    http_error_cls = _load_client_error_cls("VinciHTTPError", scenario)
+    unavailable_error_cls = _load_client_error_cls("VinciUnavailableError", scenario)
+    adapter_error_cls = _load_adapter_error_cls(scenario)
+
+    class MixedClient:
+        def __init__(self):
+            self.calls = 0
+
+        def request_chat(
+            self,
+            *,
+            prompt: str,
+            history: list[dict[str, Any]],
+            session_id: str,
+            trace_id: str,
+        ):
+            _ = (prompt, history, session_id, trace_id)
+            self.calls += 1
+            if self.calls == 1:
+                return {"answer": "ok", "history": history}
+            if self.calls == 2:
+                raise _build_http_error(http_error_cls, 503)
+            if self.calls == 3:
+                raise timeout_error_cls("timeout")
+            raise unavailable_error_cls("unavailable")
+
+    reset_telemetry_for_tests()
+    adapter = _build_adapter(MixedClient(), scenario, circuit_failure_threshold=99)
+
+    with governance_execution_context():
+        ok_payload = adapter.request_chat(
+            prompt="s1",
+            history=[],
+            session_id="sess-metrics",
+            trace_id="trace-metrics-1",
+        )
+        with pytest.raises(adapter_error_cls) as err_exc:
+            adapter.request_chat(
+                prompt="s2",
+                history=[],
+                session_id="sess-metrics",
+                trace_id="trace-metrics-2",
+            )
+        assert err_exc.value.error_code == "VINCI_UPSTREAM_503"
+        with pytest.raises(adapter_error_cls) as timeout_exc:
+            adapter.request_chat(
+                prompt="s3",
+                history=[],
+                session_id="sess-metrics",
+                trace_id="trace-metrics-3",
+            )
+        assert timeout_exc.value.error_code == "VINCI_TIMEOUT"
+        degraded = adapter.request_chat(
+            prompt="s4",
+            history=[],
+            session_id="sess-metrics",
+            trace_id="trace-metrics-4",
+        )
+
+    assert ok_payload["degraded"] is False
+    assert degraded["degraded"] is True
+    assert degraded["error_code"] == "VINCI_UNAVAILABLE"
+
+    metrics = get_telemetry().module_metrics("vinci")
+    assert metrics["success_count"] >= 1
+    assert metrics["error_count"] >= 1
+    assert metrics["timeout_count"] >= 1
+    assert metrics["degraded_count"] >= 1
+    assert metrics["p95_latency_ms"] is not None

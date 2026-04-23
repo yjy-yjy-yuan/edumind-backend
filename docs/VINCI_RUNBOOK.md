@@ -28,6 +28,8 @@
 - `ANALYTICS_ALERT_MAX_P95_LATENCY_MS=12000`
 - `ANALYTICS_ALERT_LATENCY_TIMEOUT_MS=30000`
 - `ANALYTICS_ALERT_MIN_INTERVAL_SEC=60`
+- `VINCI_CIRCUIT_BREAKER_FAILURE_THRESHOLD=3`
+- `VINCI_CIRCUIT_BREAKER_RECOVERY_SECONDS=30`
 
 建议告警策略：
 
@@ -35,6 +37,7 @@
 2. 超时率连续 5 分钟 > 10% 报警。
 3. P95 连续 5 分钟 > 12s 报警。
 4. `degraded_count` 在 10 分钟窗口超过 20 次时报警（提示上游不稳定）。
+5. 若 `vinci_circuit_opened` 持续触发，优先检查上游可用性并评估阈值是否过于激进。
 
 实际平台接入（Grafana/Loki）：
 
@@ -46,6 +49,7 @@
 
 - 用户请求返回降级文案（`VINCI_UNAVAILABLE`）显著增多。
 - 日志出现 `vinci_request_timeout` 或 `vinci_request_error` 密集事件。
+- 日志出现 `vinci_circuit_opened`，短时间内大量 `VINCI_CIRCUIT_OPEN` 降级响应。
 - SSE 流异常中断，仅出现 `error` + `done` 事件。
 - P95 延迟突增，且超时率提升。
 
@@ -63,6 +67,7 @@
 4. 查看治理与遥测日志：
    - `agent_tool_failed`（治理失败）
    - `vinci_request_error` / `vinci_request_timeout` / `vinci_request_degraded`
+   - `vinci_circuit_opened` / `vinci_circuit_recovered`
 5. 检查上游资源：
    - Vinci 服务 CPU/内存/连接数
    - 上游模型服务是否超时

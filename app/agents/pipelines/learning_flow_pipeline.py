@@ -144,8 +144,25 @@ def run_learning_flow_pipeline(db: Session, *, request) -> dict[str, Any]:
                             },
                         }
                     )
-        except GovernanceError:
-            raise
+        except GovernanceError as exc:
+            err = str(exc or "").strip()
+            if err.startswith("vinci_call_failed:"):
+                error_code = err.split(":", 1)[1] or "VINCI_CALL_FAILED"
+                actions.append("vinci_degraded_fallback")
+                action_records.append(
+                    {
+                        "type": "vinci_degraded_fallback",
+                        "message": "Vinci 异常，已自动回退本地摘要工具",
+                        "data": {"error_code": error_code},
+                    }
+                )
+                logger.warning(
+                    "vinci governance failure, fallback to local summary | trace_id=%s | error=%s",
+                    trace_id,
+                    err,
+                )
+            else:
+                raise
         except Exception as exc:
             logger.warning(
                 "vinci summary failed, fallback to local summary | trace_id=%s | error=%s",

@@ -73,6 +73,8 @@ class Settings(BaseSettings):
     VINCI_REQUEST_TIMEOUT_SECONDS: float = 30.0
     VINCI_CONNECT_TIMEOUT_SECONDS: float = 8.0
     VINCI_STREAM_TIMEOUT_SECONDS: float = 120.0
+    VINCI_CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 3
+    VINCI_CIRCUIT_BREAKER_RECOVERY_SECONDS: float = 30.0
 
     # Ollama 配置
     OLLAMA_BASE_URL: str = "http://localhost:11434/api"

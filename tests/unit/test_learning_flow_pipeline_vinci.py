@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.agents.exceptions import GovernanceError
 from app.agents.governance import gateway
 from app.agents.governance.context import ensure_in_governance_context
 from app.agents.pipelines.learning_flow_pipeline import run_learning_flow_pipeline
@@ -63,3 +64,47 @@ def test_learning_flow_pipeline_vinci_call_must_go_through_governance_gateway(db
 
     assert "lf_vinci_chat" in called_tools
     assert payload["result"]["summary"].startswith("Vinci 摘要：")
+
+
+def test_learning_flow_pipeline_continues_when_vinci_timeout_with_fallback(db, sample_video, monkeypatch):
+    """Vinci 超时时主流程应降级继续，回退本地摘要并完成笔记写入。"""
+    sample_video.status = VideoStatus.COMPLETED
+    sample_video.summary = "函数极值与导数判别法"
+    db.add(
+        Subtitle(
+            video_id=sample_video.id,
+            start_time=10.0,
+            end_time=25.0,
+            text="利用导数符号变化可以判断函数极值。",
+            source="asr",
+            language="zh",
+        )
+    )
+    db.commit()
+
+    monkeypatch.setattr(settings, "VINCI_ENABLED", True)
+
+    def _timeout_vinci_chat(db_session, params):
+        _ = (db_session, params)
+        raise GovernanceError("vinci_call_failed:VINCI_TIMEOUT")
+
+    monkeypatch.setitem(gateway._TOOL_HANDLERS, "lf_vinci_chat", _timeout_vinci_chat)
+
+    payload = run_learning_flow_pipeline(
+        db,
+        request=AgentExecuteRequest(
+            video_id=sample_video.id,
+            page_context="video_detail",
+            current_time_seconds=12.0,
+            subtitle_text="利用导数符号变化可以判断函数极值",
+            recent_qa_messages=[{"role": "user", "content": "怎么判断极值"}],
+            user_input="请用 Vinci 总结后帮我生成笔记",
+        ),
+    )
+
+    actions = payload["actions"]
+    assert "vinci_degraded_fallback" in actions
+    assert "summary_generated" in actions
+    assert "note_created" in actions
+    assert payload["result"]["note_id"]
+    assert str(payload["result"]["summary"] or "").strip()

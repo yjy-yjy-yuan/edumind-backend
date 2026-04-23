@@ -1,4 +1,4 @@
-# Vinci Integration M1-M2（EduMind Backend）
+# Vinci Integration M1-M3（EduMind Backend）
 
 本文档记录 EduMind 后端在 M1-M2 阶段对 Vinci 微服务的接入结果，覆盖：
 
@@ -8,6 +8,7 @@
 - M1-4（可观测与运维）
 - M2-1/M2-2（接入既有 agent 编排主干）
 - M2-3（治理防绕过加固）
+- M3（可观测与稳定性：熔断、恢复窗口、主流程可继续）
 
 ## 1. 目标与范围
 
@@ -32,14 +33,15 @@
   - 统一错误码映射与降级响应
   - 输出 `app.analytics.telemetry` 结构化事件
   - `request_chat/stream_chat` 强制治理上下文校验，阻断绕过调用
+  - 新增进程内熔断器（失败阈值 + 恢复窗口 + 探测恢复）
 - `app/agents/pipelines/learning_flow_pipeline.py`
   - 在 Executor 阶段接入 `lf_vinci_chat`（经治理网关）
   - 保持 Planner/Executor/Validator 主干不变
-  - Vinci 失败/降级时回退 `lf_generate_summary_fallback`
+  - Vinci 失败/降级时回退 `lf_generate_summary_fallback`，主流程可继续
 - `app/core/config.py` 与 `.env.example`
   - 增加 Vinci 配置项
 - `tests/unit/test_vinci_adapter_service.py`
-  - 覆盖 6 个核心场景（含适配层绕过阻断）
+  - 覆盖 9 个核心场景（含熔断开启/恢复窗口/指标覆盖）
 - `app/agents/governance/gateway.py`
   - 将 `lf_vinci_chat` 纳入工具白名单与参数校验
   - 审计日志复用统一 `agent_tool_*` 事件
@@ -76,6 +78,8 @@
 | `VINCI_REQUEST_TIMEOUT_SECONDS` | `30` | 非流式请求超时 |
 | `VINCI_CONNECT_TIMEOUT_SECONDS` | `8` | 建连超时 |
 | `VINCI_STREAM_TIMEOUT_SECONDS` | `120` | SSE 流超时 |
+| `VINCI_CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `3` | 连续失败达到阈值后打开熔断 |
+| `VINCI_CIRCUIT_BREAKER_RECOVERY_SECONDS` | `30` | 熔断恢复窗口（秒） |
 | `ANALYTICS_ALERT_MAX_P95_LATENCY_MS` | `12000` | P95 告警阈值（毫秒） |
 
 ## 4. 统一契约与错误映射
@@ -108,6 +112,7 @@
 | 超时 | `VINCI_TIMEOUT` | 抛出 `VinciAdapterError` |
 | 非 2xx | `VINCI_UPSTREAM_<status>` | 抛出 `VinciAdapterError`，携带 `upstream_status_code` |
 | 服务不可用 | `VINCI_UNAVAILABLE` | 返回降级 payload（`degraded=true`） |
+| 熔断窗口内 | `VINCI_CIRCUIT_OPEN` | 快速降级返回（不再调用上游） |
 
 ## 5. 遥测与 trace_id
 
@@ -115,6 +120,7 @@
 
 - 请求：`vinci_request_started` / `vinci_request_completed`
 - 异常：`vinci_request_timeout` / `vinci_request_error` / `vinci_request_degraded`
+- 熔断：`vinci_circuit_opened` / `vinci_circuit_recovered`
 - 流式：`vinci_stream_started` / `vinci_stream_timeout` / `vinci_stream_error` / `vinci_stream_degraded` / `vinci_stream_closed`
 
 状态使用统一枚举：`started / ok / error / timeout / degraded`。
@@ -125,6 +131,13 @@ M1 契约测试（TDD）：
 
 ```bash
 pytest tests/unit/test_vinci_adapter_service.py -v
+```
+
+M3 稳定性测试（熔断/恢复窗口/主流程降级继续）：
+
+```bash
+pytest tests/unit/test_vinci_adapter_service.py \
+       tests/unit/test_learning_flow_pipeline_vinci.py -v
 ```
 
 治理接入与防绕过测试：
