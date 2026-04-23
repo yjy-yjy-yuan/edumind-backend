@@ -106,3 +106,34 @@ npm run build
 - M5 交付收口项已补齐。
 - 当前分支满足上线前“最小完备交付标准”（文档 + 验证 + 回滚路径）。
 - 补强项（PromptEngine / SkillRegistry / Trajectory / ResumableTask / Alembic）已纳入本分支并通过对应回归测试。
+
+## 5. 2026-04-23 熔断稳定性补丁回归
+
+背景：
+
+- 发现 `VinciAdapterService` 在无 `base_url` 的注入场景下，熔断状态键可能跨测试实例串扰。
+- 修复为按 adapter 实例隔离熔断状态键，避免跨用例污染。
+
+执行命令与结果：
+
+```bash
+pytest tests/unit/test_vinci_adapter_service.py -v
+pytest tests/unit/test_agent_governance_gateway.py -v
+pytest tests/unit/test_learning_flow_pipeline_vinci.py -v
+pytest tests/unit/test_analytics_pipeline.py tests/unit/test_analytics_alerting.py -v
+pytest tests/smoke -v
+python3 scripts/validate_system_requirements.py
+```
+
+结果：
+
+- `test_vinci_adapter_service.py`: 9 passed
+- `test_agent_governance_gateway.py`: 11 passed
+- `test_learning_flow_pipeline_vinci.py`: 2 passed
+- `test_analytics_pipeline.py + test_analytics_alerting.py`: 9 passed
+- `tests/smoke`: 6 passed
+- `validate_system_requirements.py`: `all_ok=true`
+
+备注：
+
+- 仓库内不存在 `scripts/validate_backend_smoke.py`，已使用 `pytest tests/smoke -v` 作为烟雾验证替代。

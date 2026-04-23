@@ -17,6 +17,7 @@
 | M3 验收证据归档 | `c6e5e3f` | docs: add M3 alerting acceptance evidence and sync vinci docs |
 | M3 预发布准备脚本 | `daffcca` | feat: add vinci alerting acceptance prep tooling |
 | M4 联调收口 | `46c0d34` | feat(m4): align vinci integration contracts and interop docs |
+| M3 稳定性补丁回归 | 待本次提交生成 | fix(vinci): isolate circuit breaker state per adapter instance and sync docs |
 
 ## 2. M5 提交建议（本轮）
 

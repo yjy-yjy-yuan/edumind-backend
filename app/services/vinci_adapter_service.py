@@ -101,8 +101,9 @@ class VinciAdapterService:
         if client_base_url:
             self._circuit_key = client_base_url
         else:
-            # 测试注入 client 往往不含 base_url，用对象 id 避免跨用例状态串扰。
-            self._circuit_key = f"inmemory-client:{id(self.client)}"
+            # 测试注入 client 往往不含 base_url，按 adapter 实例隔离熔断状态，
+            # 避免 Python 复用对象 id 导致跨用例串扰。
+            self._circuit_key = f"inmemory-adapter:{id(self)}"
 
     @classmethod
     def _get_or_create_circuit(cls, key: str) -> _CircuitBreakerState:

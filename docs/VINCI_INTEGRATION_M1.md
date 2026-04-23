@@ -35,6 +35,7 @@
   - 输出 `app.analytics.telemetry` 结构化事件
   - `request_chat/stream_chat` 强制治理上下文校验，阻断绕过调用
   - 新增进程内熔断器（失败阈值 + 恢复窗口 + 探测恢复）
+  - 熔断状态按 adapter 实例隔离（无 base_url 的测试注入场景避免跨用例状态串扰）
 - `app/agents/pipelines/learning_flow_pipeline.py`
   - 在 Executor 阶段接入 `lf_vinci_chat`（经治理网关）
   - 保持 Planner/Executor/Validator 主干不变
@@ -194,6 +195,8 @@ pytest tests/unit/test_vinci_alerting_acceptance.py -v
 pre-commit run --all-files
 pre-commit run --hook-stage pre-push --all-files
 ```
+
+说明：仓库当前无 `scripts/validate_backend_smoke.py`，烟雾验证以 `pytest tests/smoke -v` 为准。
 
 ## 7. 已知限制与后续计划
 
