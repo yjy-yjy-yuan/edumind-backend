@@ -186,3 +186,43 @@ def test_execute_agent_with_vinci_keeps_response_contract(client, db, sample_vid
         assert field in payload
     # 新增 Vinci 行为应可观测
     assert "vinci_summary_generated" in payload["actions"]
+
+
+@pytest.mark.api
+def test_execute_agent_with_vinci_tool_not_whitelisted_returns_400_and_blocks_write(
+    client, db, sample_video, monkeypatch
+):
+    """Vinci 未在治理白名单时必须拒绝，且不能产生写库副作用。"""
+    sample_video.status = VideoStatus.COMPLETED
+    sample_video.summary = "导数课程摘要"
+    db.add(
+        Subtitle(
+            video_id=sample_video.id,
+            start_time=50.0,
+            end_time=60.0,
+            text="导数用于描述变化率。",
+            source="asr",
+            language="zh",
+        )
+    )
+    db.commit()
+    monkeypatch.setattr(settings, "VINCI_ENABLED", True)
+    monkeypatch.delitem(gateway._TOOL_HANDLERS, "lf_vinci_chat", raising=False)
+
+    before = db.query(Note).filter(Note.video_id == sample_video.id).count()
+    response = client.post(
+        "/api/agent/execute",
+        json={
+            "video_id": sample_video.id,
+            "page_context": "video_detail",
+            "current_time_seconds": 55,
+            "subtitle_text": "导数用于描述变化率。",
+            "recent_qa_messages": [{"role": "user", "content": "导数是什么"}],
+            "user_input": "请结合 Vinci 生成学习笔记",
+        },
+    )
+    after = db.query(Note).filter(Note.video_id == sample_video.id).count()
+
+    assert response.status_code == 400
+    assert "tool_not_allowed:lf_vinci_chat" in response.json()["detail"]
+    assert after == before

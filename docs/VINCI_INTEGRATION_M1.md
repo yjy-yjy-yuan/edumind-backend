@@ -1,6 +1,13 @@
-# Vinci Integration M1（EduMind Backend）
+# Vinci Integration M1-M2（EduMind Backend）
 
-本文档记录 EduMind 后端在 M1 阶段对 Vinci 微服务的接入结果，覆盖 M1-1（测试先行）、M1-2（最小实现）、M1-3（治理接入）与 M1-4（可观测与运维）。
+本文档记录 EduMind 后端在 M1-M2 阶段对 Vinci 微服务的接入结果，覆盖：
+
+- M1-1（测试先行）
+- M1-2（最小实现）
+- M1-3（治理接入）
+- M1-4（可观测与运维）
+- M2-1/M2-2（接入既有 agent 编排主干）
+- M2-3（治理防绕过加固）
 
 ## 1. 目标与范围
 
@@ -8,11 +15,12 @@
 
 - 通过适配层把 EduMind 后端与 Vinci（HTTP/SSE）打通
 - 保持 Vinci 独立部署，不与主后端强耦合运行环境
+- 将 Vinci 能力接入既有 Planner/Executor/Validator 主干
 - 统一 trace_id、错误码、降级路径与结构化遥测
 
 本阶段未覆盖：
 
-- 独立的 Vinci 运维 API（当前以 telemetry 聚合和 runbook 为主）
+- 告警平台落地联动（Prometheus/Grafana/日志告警生产环境接线）
 
 ## 2. 代码与文件落点
 
@@ -23,10 +31,15 @@
   - 对上游返回做契约标准化
   - 统一错误码映射与降级响应
   - 输出 `app.analytics.telemetry` 结构化事件
+  - `request_chat/stream_chat` 强制治理上下文校验，阻断绕过调用
+- `app/agents/pipelines/learning_flow_pipeline.py`
+  - 在 Executor 阶段接入 `lf_vinci_chat`（经治理网关）
+  - 保持 Planner/Executor/Validator 主干不变
+  - Vinci 失败/降级时回退 `lf_generate_summary_fallback`
 - `app/core/config.py` 与 `.env.example`
   - 增加 Vinci 配置项
 - `tests/unit/test_vinci_adapter_service.py`
-  - 覆盖 5 个核心场景（先红后绿）
+  - 覆盖 6 个核心场景（含适配层绕过阻断）
 - `app/agents/governance/gateway.py`
   - 将 `lf_vinci_chat` 纳入工具白名单与参数校验
   - 审计日志复用统一 `agent_tool_*` 事件
@@ -34,6 +47,11 @@
   - 新增 `tool_lf_vinci_chat`（仅可在治理上下文内调用）
 - `tests/unit/test_agent_governance_gateway.py`
   - 新增 Vinci 治理测试（白名单、参数校验、审计、绕过阻断）
+- `tests/unit/test_learning_flow_pipeline_vinci.py`
+  - 覆盖“pipeline 中 Vinci 必经 governance gateway”
+- `tests/api/test_agent_api.py`
+  - 覆盖 Vinci 接入后响应契约兼容
+  - 覆盖 Vinci 工具不在白名单时 API 400 拒绝且阻断写库
 - `app/analytics/alerting.py`
   - 新增模块指标快照（成功/错误/超时/P95/降级计数）
   - 新增 P95 告警阈值
@@ -50,7 +68,7 @@
 
 | 配置项 | 默认值 | 说明 |
 |---|---|---|
-| `VINCI_ENABLED` | `false` | Vinci 功能总开关（当前仅配置，后续路由接线使用） |
+| `VINCI_ENABLED` | `false` | Vinci 功能总开关（开启后由 learning_flow pipeline 在治理链路内触发） |
 | `VINCI_BASE_URL` | `http://127.0.0.1:8010` | Vinci 服务根地址 |
 | `VINCI_API_KEY` | 空 | 可选 Bearer Key |
 | `VINCI_CHAT_PATH` | `/api/v1/chat` | 非流式接口路径 |
@@ -109,10 +127,11 @@ M1 契约测试（TDD）：
 pytest tests/unit/test_vinci_adapter_service.py -v
 ```
 
-M1-3 治理接入测试：
+治理接入与防绕过测试：
 
 ```bash
 pytest tests/unit/test_agent_governance_gateway.py -v
+pytest tests/unit/test_learning_flow_pipeline_vinci.py -v
 ```
 
 Vinci 运维观测接口测试：
@@ -121,12 +140,20 @@ Vinci 运维观测接口测试：
 pytest tests/api/test_vinci_ops_api.py -v
 ```
 
+Vinci 接入后 agent API 契约与治理拒绝回归：
+
+```bash
+pytest tests/api/test_agent_api.py -v
+```
+
 与治理/遥测基线联合回归：
 
 ```bash
 pytest tests/unit/test_vinci_adapter_service.py \
        tests/unit/test_agent_governance_gateway.py \
-       tests/unit/test_analytics_pipeline.py -v
+       tests/unit/test_learning_flow_pipeline_vinci.py \
+       tests/unit/test_analytics_pipeline.py \
+       tests/api/test_agent_api.py -v
 ```
 
 提交前 Hook 验证：
@@ -138,6 +165,7 @@ pre-commit run --hook-stage pre-push --all-files
 
 ## 7. 已知限制与后续计划
 
-- 当前已完成 `lf_vinci_chat` 的治理白名单、参数校验、审计日志与绕过阻断。
+- 当前已完成 `lf_vinci_chat` 的治理白名单、参数校验、审计日志与绕过阻断（含适配层与工具层双重阻断）。
 - 当前已具备窗口级指标快照与 P95 告警能力；详细运维流程见 [`docs/VINCI_RUNBOOK.md`](VINCI_RUNBOOK.md)。
-- 下一步建议补充独立 Vinci 运维 API 或 dashboard 对接，便于跨实例集中观测。
+- 当前已提供 `/api/ops/vinci/metrics` 作为进程内快照接口。
+- 下一步建议将 Runbook 阈值接入真实告警平台，补齐跨实例集中观测与告警闭环。
