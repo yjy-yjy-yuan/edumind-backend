@@ -14,6 +14,7 @@ from app.services.learning_flow_agent import execute_learning_flow_agent
 
 logger = logging.getLogger(__name__)
 
+
 router = APIRouter()
 
 
@@ -31,7 +32,7 @@ def _build_governance_error_payload(raw_detail: str) -> dict:
 @router.post("/execute", response_model=AgentPlanResponse)
 async def execute_agent(request: AgentExecuteRequest, db: Session = Depends(get_db)):
     try:
-        payload = execute_learning_flow_agent(db, request=request)
+        payload = execute_learning_flow_agent(db, request=request, user_id=request.user_id)
         return payload
     except GovernanceError as exc:
         raise HTTPException(status_code=400, detail=_build_governance_error_payload(str(exc))) from exc

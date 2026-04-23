@@ -16,9 +16,19 @@ python ../scripts/validate_backend_smoke.py
 mkdir -p ../.pycache-hook && PYTHONPYCACHEPREFIX="$PWD/../.pycache-hook" python -m compileall app scripts ../scripts/hooks ../scripts/validate_backend_smoke.py
 python scripts/validate_system_requirements.py
 
-# 数据库迁移
+# 数据库迁移（Alembic）
 alembic revision --autogenerate -m "描述"
 alembic upgrade head
+
+# 回滚
+alembic downgrade -1
+
+# 手动执行迁移（含 SQL 输出）
+alembic upgrade head --sql
+
+# 初始化 Alembic（新建项目时）
+alembic init alembic
+# 然后编辑 alembic.ini 指向 app.core.config.settings.DATABASE_URL
 
 # 代码格式化
 black app/ tests/

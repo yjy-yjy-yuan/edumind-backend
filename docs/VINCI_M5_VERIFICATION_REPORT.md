@@ -63,6 +63,21 @@
 
 结果：`51 passed`
 
+### 2.3.2 Agent 模块补强回归（PromptEngine/SkillRegistry/Trajectory/Resumable）
+
+```bash
+.venv/bin/pytest \
+  tests/unit/test_agent_new_modules.py \
+  tests/unit/test_learning_flow_pipeline_vinci.py \
+  tests/unit/test_agent_governance_gateway.py \
+  tests/unit/test_vinci_adapter_service.py \
+  tests/api/test_agent_api.py \
+  tests/api/test_vinci_ops_api.py \
+  tests/smoke/test_app_startup.py -q
+```
+
+结果：`72 passed`
+
 ### 2.4 Frontend（补充）
 
 ```bash
@@ -90,3 +105,4 @@ npm run build
 
 - M5 交付收口项已补齐。
 - 当前分支满足上线前“最小完备交付标准”（文档 + 验证 + 回滚路径）。
+- 补强项（PromptEngine / SkillRegistry / Trajectory / ResumableTask / Alembic）已纳入本分支并通过对应回归测试。

@@ -12,6 +12,22 @@
 - 过时/不实：部分路径与类名已变化（如 `learning_flow_agent.py`、`BudgetService`、`GovernanceService`），以及“无降级/无白名单/无 compounding”的描述与当前代码不符。
 - 最终判定：**不应直接作为当前版本验收依据**，应替换为本修订版。
 
+### 1.1 本轮补强同步（2026-04-23）
+
+本轮已补齐以下工程能力并完成回归验证：
+
+- `PromptEngine`：三层组装与 token 感知截断（`app/agents/prompt_engine.py`）
+- `SkillRegistry`：版本化技能与灰度路由（`app/agents/skill_registry.py`）
+- `AgentTrajectoryRecorder`：JSONL/DB 双后端轨迹记录（`app/agents/trajectory.py`）
+- `ResumableTask`：阶段级断点续传状态机（`app/tasks/resumable_state_machine.py`）
+- 新增模型与迁移：
+  - `app/models/agent_trajectory.py`
+  - `app/models/task_checkpoint.py`
+  - `alembic/versions/001_agent_tables.py`
+- 关键回归：
+  - `.venv/bin/pytest tests/unit/test_agent_new_modules.py ... tests/smoke/test_app_startup.py -q`
+  - 结果：`72 passed`
+
 ---
 
 ## 二、逐项纠偏（原报告 vs 当前代码）
