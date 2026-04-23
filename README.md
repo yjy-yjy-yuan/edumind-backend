@@ -72,7 +72,8 @@ python run.py
 
 注意：
 
-- M1-3 已完成；M1-4（监控指标与 Runbook）尚未落地，见文档中的后续计划。
+- M1-3/M1-4 已完成（治理接入 + 指标与 Runbook）。
+- 运行处置指南见 [`docs/VINCI_RUNBOOK.md`](docs/VINCI_RUNBOOK.md)。
 
 ## 语义搜索说明
 
@@ -162,3 +163,4 @@ git push --no-verify
 - 对齐 hook 文档与实际配置（pre-push 包含 mypy + unit tests）。
 - 新增 Vinci M1 接入文档并对齐配置/测试入口（`docs/VINCI_INTEGRATION_M1.md`）。
 - 同步 Vinci M1-3 治理接入文档（白名单、参数校验、审计与绕过阻断）。
+- 新增 Vinci M1-4 可观测与运维文档（指标、阈值建议、Runbook）。

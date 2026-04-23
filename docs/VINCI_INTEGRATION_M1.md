@@ -1,6 +1,6 @@
 # Vinci Integration M1（EduMind Backend）
 
-本文档记录 EduMind 后端在 M1 阶段对 Vinci 微服务的接入结果，覆盖 M1-1（测试先行）、M1-2（最小实现）与 M1-3（治理接入）。
+本文档记录 EduMind 后端在 M1 阶段对 Vinci 微服务的接入结果，覆盖 M1-1（测试先行）、M1-2（最小实现）、M1-3（治理接入）与 M1-4（可观测与运维）。
 
 ## 1. 目标与范围
 
@@ -12,7 +12,7 @@
 
 本阶段未覆盖：
 
-- M1-4：聚合监控指标（成功率/错误率/超时率/P95）与运维 Runbook
+- 独立的 Vinci 运维 API（当前以 telemetry 聚合和 runbook 为主）
 
 ## 2. 代码与文件落点
 
@@ -34,6 +34,13 @@
   - 新增 `tool_lf_vinci_chat`（仅可在治理上下文内调用）
 - `tests/unit/test_agent_governance_gateway.py`
   - 新增 Vinci 治理测试（白名单、参数校验、审计、绕过阻断）
+- `app/analytics/alerting.py`
+  - 新增模块指标快照（成功/错误/超时/P95/降级计数）
+  - 新增 P95 告警阈值
+- `app/analytics/pipeline.py`
+  - 暴露 `module_metrics(module)` 供运维读取窗口快照
+- `tests/unit/test_analytics_alerting.py`、`tests/unit/test_analytics_pipeline.py`
+  - 覆盖 M1-4 指标与阈值告警测试
 
 ## 3. 配置项（M1）
 
@@ -47,6 +54,7 @@
 | `VINCI_REQUEST_TIMEOUT_SECONDS` | `30` | 非流式请求超时 |
 | `VINCI_CONNECT_TIMEOUT_SECONDS` | `8` | 建连超时 |
 | `VINCI_STREAM_TIMEOUT_SECONDS` | `120` | SSE 流超时 |
+| `ANALYTICS_ALERT_MAX_P95_LATENCY_MS` | `12000` | P95 告警阈值（毫秒） |
 
 ## 4. 统一契约与错误映射
 
@@ -121,5 +129,5 @@ pre-commit run --hook-stage pre-push --all-files
 ## 7. 已知限制与后续计划
 
 - 当前已完成 `lf_vinci_chat` 的治理白名单、参数校验、审计日志与绕过阻断。
-- 当前遥测已打点但未形成 Ops 聚合指标与告警阈值文档（M1-4）。
-- 下一步建议执行 M1-4，补齐指标、告警阈值与最小 Runbook。
+- 当前已具备窗口级指标快照与 P95 告警能力；详细运维流程见 [`docs/VINCI_RUNBOOK.md`](VINCI_RUNBOOK.md)。
+- 下一步建议补充独立 Vinci 运维 API 或 dashboard 对接，便于跨实例集中观测。

@@ -157,6 +157,7 @@ class Settings(BaseSettings):
     ANALYTICS_ALERT_MAX_FAILURE_RATE: float = 0.15
     ANALYTICS_ALERT_MAX_TIMEOUT_RATE: float = 0.10
     ANALYTICS_ALERT_LATENCY_TIMEOUT_MS: float = 30_000.0
+    ANALYTICS_ALERT_MAX_P95_LATENCY_MS: float = 12_000.0
     ANALYTICS_ALERT_DRIFT_REL_THRESHOLD: float = 0.10
     # 同一告警键（如 failure_rate:search）的最小重复输出间隔（秒），抑制高流量下刷屏
     ANALYTICS_ALERT_MIN_INTERVAL_SEC: float = 60.0
