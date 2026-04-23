@@ -26,7 +26,7 @@ groups:
           - refId: C
             datasourceUid: __expr__
             model:
-              expression: A / B
+              expression: (A / B) > 0.15
               type: math
         noDataState: NoData
         execErrState: Error
@@ -54,13 +54,36 @@ groups:
           - refId: C
             datasourceUid: __expr__
             model:
-              expression: A / B
+              expression: (A / B) > 0.10
               type: math
         noDataState: NoData
         execErrState: Error
         for: 5m
         annotations:
           summary: Vinci timeout rate > 10%
+          runbook_url: https://github.com/yjy-yjy-yuan/edumind-backend/blob/main/docs/VINCI_RUNBOOK.md
+        labels:
+          service: vinci
+          severity: warning
+      - uid: vinci-p95-latency-high
+        title: Vinci P95 Latency High
+        condition: B
+        data:
+          - refId: A
+            datasourceUid: loki
+            model:
+              expr: |
+                quantile_over_time(0.95, {app="edumind-backend"} |= "app.analytics.telemetry" |= "\"module\": \"vinci\"" | json | unwrap latency_ms [5m])
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              expression: A > 12000
+              type: math
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: Vinci p95 latency > 12s
           runbook_url: https://github.com/yjy-yjy-yuan/edumind-backend/blob/main/docs/VINCI_RUNBOOK.md
         labels:
           service: vinci
@@ -73,12 +96,12 @@ groups:
             datasourceUid: loki
             model:
               expr: |
-                sum(count_over_time({app="edumind-backend"} |= "app.analytics.telemetry" |= "\"module\": \"vinci\"" |= "\"status\": \"degraded\"" [10m]))
+                sum(count_over_time({app="edumind-backend"} |= "app.analytics.telemetry" |= "\"module\": \"vinci\"" |= "\"status\": \"degraded\"" [10m])) > 20
         noDataState: NoData
         execErrState: Error
         for: 0m
         annotations:
-          summary: Vinci degraded events exceed burst threshold
+          summary: Vinci degraded count > 20 in 10m
           runbook_url: https://github.com/yjy-yjy-yuan/edumind-backend/blob/main/docs/VINCI_RUNBOOK.md
         labels:
           service: vinci

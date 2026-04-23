@@ -39,7 +39,7 @@
 实际平台接入（Grafana/Loki）：
 
 - 规则模板文件：`docs/monitoring/grafana_loki_vinci_alert_rules.yaml`
-- 覆盖：错误率、超时率、降级突增三类告警
+- 覆盖：错误率、超时率、P95 延迟、降级突增四类告警
 - 接入方式：将模板导入 Grafana Alerting（Unified Alerting），并按你们环境替换 `datasourceUid` 与标签过滤条件。
 
 ## 3. 故障现象
