@@ -1,0 +1,113 @@
+{
+  "streams": [
+    {
+      "stream": {
+        "app": "edumind-backend",
+        "module": "vinci",
+        "source": "vinci-alert-drill"
+      },
+      "values": [
+        [
+          "1776928769728511000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-01\"}"
+        ],
+        [
+          "1776928769728513000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-02\"}"
+        ],
+        [
+          "1776928769728514000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-03\"}"
+        ],
+        [
+          "1776928769728515000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-04\"}"
+        ],
+        [
+          "1776928769728516000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-05\"}"
+        ],
+        [
+          "1776928769728517000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-06\"}"
+        ],
+        [
+          "1776928769728517000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-07\"}"
+        ],
+        [
+          "1776928769728518000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-08\"}"
+        ],
+        [
+          "1776928769728519000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-09\"}"
+        ],
+        [
+          "1776928769728520000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-10\"}"
+        ],
+        [
+          "1776928769728521000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-11\"}"
+        ],
+        [
+          "1776928769728521000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-12\"}"
+        ],
+        [
+          "1776928769728522000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-13\"}"
+        ],
+        [
+          "1776928769728523000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-14\"}"
+        ],
+        [
+          "1776928769728523000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-15\"}"
+        ],
+        [
+          "1776928769728524000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-16\"}"
+        ],
+        [
+          "1776928769728525000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-17\"}"
+        ],
+        [
+          "1776928769728525000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-18\"}"
+        ],
+        [
+          "1776928769728526000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-19\"}"
+        ],
+        [
+          "1776928769728527000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-20\"}"
+        ],
+        [
+          "1776928769728527000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-21\"}"
+        ],
+        [
+          "1776928769728528000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-22\"}"
+        ],
+        [
+          "1776928769728529000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-23\"}"
+        ],
+        [
+          "1776928769728529000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-24\"}"
+        ],
+        [
+          "1776928769728530000",
+          "app.analytics.telemetry {\"module\": \"vinci\", \"status\": \"degraded\", \"latency_ms\": 15000, \"trace_id\": \"vinci-preprod-drill-25\"}"
+        ]
+      ]
+    }
+  ]
+}

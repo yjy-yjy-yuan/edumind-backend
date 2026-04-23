@@ -74,6 +74,10 @@
   - M3 告警平台实接入验收记录（时间、阈值、生效结果、回滚步骤）
 - `docs/monitoring/evidence/m3/`
   - 验收日志、API 证据与截图归档
+- `app/utils/vinci_alerting_acceptance.py`
+  - 预发布/生产验收配置校验、降级演练 payload 与验收命令模板生成
+- `scripts/run_vinci_alerting_acceptance_prep.py`
+  - 一键生成 preprod/prod 演练 payload 与命令清单（不直接执行远端调用）
 
 ## 3. 配置项（M1）
 
@@ -176,6 +180,12 @@ pytest tests/unit/test_vinci_adapter_service.py \
        tests/unit/test_learning_flow_pipeline_vinci.py \
        tests/unit/test_analytics_pipeline.py \
        tests/api/test_agent_api.py -v
+```
+
+M3 后续告警接线脚本测试：
+
+```bash
+pytest tests/unit/test_vinci_alerting_acceptance.py -v
 ```
 
 提交前 Hook 验证：

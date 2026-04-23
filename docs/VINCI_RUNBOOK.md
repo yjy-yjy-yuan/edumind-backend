@@ -111,3 +111,29 @@ curl -u admin:admin http://localhost:3000/api/health
 curl -u admin:admin http://localhost:3000/api/v1/provisioning/alert-rules
 curl -u admin:admin http://localhost:3000/api/prometheus/grafana/api/v1/rules
 ```
+
+预发布/生产接线准备（生成演练 payload + 命令清单）：
+
+```bash
+. .venv/bin/activate
+python scripts/run_vinci_alerting_acceptance_prep.py \
+  --grafana-url "https://grafana.pre.example.com" \
+  --loki-url "https://loki.pre.example.com" \
+  --grafana-user "${GRAFANA_USER}" \
+  --grafana-password "${GRAFANA_PASSWORD}" \
+  --event-count 40 \
+  --trace-prefix "vinci-preprod-drill" \
+  --output-dir "docs/monitoring/evidence/m3/preprod_prep"
+```
+
+脚本会生成：
+
+- `vinci_degraded_drill_payload.json`（注入 Loki 的降级演练事件）
+- `vinci_alerting_acceptance_commands.sh`（健康检查、规则导入校验、告警状态校验命令）
+
+执行命令清单前请先设置鉴权环境变量：
+
+```bash
+export GRAFANA_USER="your_user"
+export GRAFANA_PASSWORD="your_password"
+```

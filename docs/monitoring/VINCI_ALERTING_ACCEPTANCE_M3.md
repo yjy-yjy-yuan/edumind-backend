@@ -96,3 +96,9 @@ curl -u admin:admin http://localhost:3000/api/prometheus/grafana/api/v1/rules
 curl -X POST "http://localhost:3100/loki/api/v1/push" -H "Content-Type: application/json" --data-binary @docs/monitoring/evidence/m3/loki_push_payload_degraded_round2.json
 curl -u admin:admin http://localhost:3000/api/alertmanager/grafana/api/v2/alerts
 ```
+
+预发布/生产接线建议：
+
+- 使用 `scripts/run_vinci_alerting_acceptance_prep.py` 生成演练 payload 与命令清单。
+- 生成物示例路径：`docs/monitoring/evidence/m3/preprod_prep/`。
+- 生成的命令模板默认使用 `GRAFANA_USER` / `GRAFANA_PASSWORD` 环境变量，不会把口令写入文件。
