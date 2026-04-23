@@ -108,7 +108,38 @@ def test_execute_agent_governance_error_returns_400(client, monkeypatch):
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "governance_invalid_param"
+    payload = response.json()
+    assert payload["detail"]["detail"] == "governance_invalid_param"
+    assert payload["detail"]["error_code"] == "GOVERNANCE_REJECTED"
+
+
+@pytest.mark.api
+def test_execute_agent_governance_error_returns_recoverable_contract(client, monkeypatch):
+    def _raise_governance(*args, **kwargs):
+        raise GovernanceError("tool_not_allowed:lf_vinci_chat")
+
+    monkeypatch.setattr("app.routers.agent.execute_learning_flow_agent", _raise_governance)
+
+    response = client.post(
+        "/api/agent/execute",
+        json={
+            "video_id": 1,
+            "page_context": "video_detail",
+            "current_time_seconds": 0,
+            "subtitle_text": "x",
+            "recent_qa_messages": [],
+            "user_input": "test",
+        },
+    )
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert isinstance(payload.get("detail"), dict)
+    assert payload["detail"]["detail"] == "tool_not_allowed:lf_vinci_chat"
+    assert payload["detail"]["error_code"] == "GOVERNANCE_REJECTED"
+    assert payload["detail"]["recoverable"] is True
+    assert payload["detail"]["message"]
+    assert payload["detail"]["suggestion"]
 
 
 @pytest.mark.api
@@ -128,7 +159,8 @@ def test_execute_agent_budget_exceeded_returns_400(client, sample_video, monkeyp
     )
 
     assert response.status_code == 400
-    assert "token_budget_exceeded" in response.json()["detail"]
+    payload = response.json()
+    assert "token_budget_exceeded" in payload["detail"]["detail"]
 
 
 @pytest.mark.api
@@ -227,7 +259,7 @@ def test_execute_agent_with_vinci_tool_not_whitelisted_returns_400_and_blocks_wr
     after = db.query(Note).filter(Note.video_id == sample_video.id).count()
 
     assert response.status_code == 400
-    assert "tool_not_allowed:lf_vinci_chat" in response.json()["detail"]
+    assert "tool_not_allowed:lf_vinci_chat" in response.json()["detail"]["detail"]
     assert after == before
 
 

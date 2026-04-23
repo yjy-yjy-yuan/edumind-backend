@@ -202,3 +202,11 @@ pre-commit run --hook-stage pre-push --all-files
 - 当前已完成本地 Grafana/Loki 告警实接入验收（规则导入、触发演练、证据留存），见 `docs/monitoring/VINCI_ALERTING_ACCEPTANCE_M3.md`。
 - 当前已提供 `/api/ops/vinci/metrics` 作为进程内快照接口。
 - 下一步建议将 Runbook 阈值接入真实告警平台，补齐跨实例集中观测与告警闭环。
+
+## 8. M4 联调补充
+
+- M4 已落地前后端契约联调，见 `docs/VINCI_M4_INTEGRATION.md`。
+- 关键补充：
+  - `/api/agent/execute` 治理拒绝返回“可恢复错误对象”（保留原始 `detail` + `error_code/message/suggestion/recoverable`）。
+  - `/api/qa/ask` 流式输出统一 `answer` 结束事件（`stage=completed`、`progress=100`、`message=回答已完成`）。
+  - 前端契约校验覆盖“仅通过后端代理调用，不直连 Vinci”。
