@@ -6,6 +6,7 @@ import logging
 from time import perf_counter
 from typing import Any, Generator, Optional
 
+from app.agents.governance.context import ensure_in_governance_context
 from app.analytics.pipeline import get_telemetry
 from app.analytics.schema import AnalyticsEvent, AnalyticsStatus
 from app.core.config import settings
@@ -154,6 +155,7 @@ class VinciAdapterService:
         session_id: str,
         trace_id: str,
     ) -> dict[str, Any]:
+        ensure_in_governance_context()
         safe_trace_id = _safe_trace_id(trace_id)
         safe_session_id = str(session_id or "").strip()
         safe_history = _safe_history(history)
@@ -275,6 +277,7 @@ class VinciAdapterService:
         session_id: str,
         trace_id: str,
     ) -> Generator[dict[str, Any], None, None]:
+        ensure_in_governance_context()
         safe_trace_id = _safe_trace_id(trace_id)
         safe_session_id = str(session_id or "").strip()
         safe_history = _safe_history(history)
