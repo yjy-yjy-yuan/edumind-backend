@@ -13,7 +13,7 @@
 | # | 问题 | 修正结果 |
 |---|------|---------|
 | 1 | 报告中的配置项名称与代码不符 | 逐项核对 `config.py`，以实际命名为准 |
-| 2 | VinciClient 未接入 governance gateway | 已改用 `VinciAdapterService` + `governance_execution_context()` |
+| 2 | VinciClient 未接入治理网关 | 已改为 `execute_tool(\"lf_frame_description\", ...)` 经网关执行 |
 | 3 | `_VinciCircuitBreaker` 重复定义两次 | 已删除重复的 stub 版本（行 162-177） |
 | 4 | 前端测试为"注释型参考用例"而非可执行测试 | 已重写为 `frameDescription.test.mjs`（20个断言，全绿） |
 | 5 | `package.json` 测试命令不递归子目录 | 已改为 `tests/**/*.test.mjs` |
@@ -32,13 +32,13 @@
 | `app/routers/frame_description.py` | FastAPI 流式端点（describe/session/health） |
 | `scripts/demo_frame_description.sh` | 演示脚本（正常/降级/恢复三条链路） |
 | `tests/unit/test_frame_description_service.py` | 单元测试（24项） |
-| `tests/api/test_frame_description_api.py` | API 测试（8项） |
+| `tests/api/test_frame_description_api.py` | API 测试（10项） |
 
 ### 1.2 后端修改文件
 
 | 文件路径 | 说明 |
 |---------|------|
-| `app/core/config.py` | 新增 `FRAME_DESC_*` 系列配置（12项） |
+| `app/core/config.py` | 新增 `FRAME_DESC_*` 系列配置（13项） |
 | `app/main.py` | 注册 `frame_description` 路由 |
 
 ### 1.3 前端新增文件
@@ -83,13 +83,13 @@
 
 ## 三、测试验证结果
 
-### 3.1 后端测试（32项全绿）
+### 3.1 后端测试（40项全绿）
 
 ```
 tests/unit/test_frame_description_service.py   24 passed
-tests/api/test_frame_description_api.py        8 passed
+tests/api/test_frame_description_api.py       10 passed
 tests/smoke/test_app_startup.py               6 passed
-total: 38 passed
+total: 40 passed
 ```
 
 **单元测试覆盖**：
@@ -127,31 +127,29 @@ result = client.request_chat(...)  # ❌ 直接绕过 governance
 
 ```python
 # frame_description_service.py 新代码
-from app.services.vinci_adapter_service import VinciAdapterService, VinciAdapterError
-from app.agents.governance.context import governance_execution_context
+from app.agents.governance.gateway import execute_tool
+from app.agents.exceptions import GovernanceError
 
-def _call_vinci_sync(self, prompt, session_id, trace_id):
-    adapter = self._resolve_vinci_adapter()
-
-    # 1. 检查本服务层熔断器（"熔断打开 → 直接降级"决策）
+def _call_vinci_sync(self, prompt, session_id, trace_id, db):
+    # 1. 检查本服务层熔断器（"熔断打开 -> 直接降级"决策）
     blocked, _, _ = self._cb.is_blocked()
     if blocked:
         raise FrameDescServiceError("Vinci circuit breaker is open (service layer)")
 
-    # 2. 通过 governance gateway 执行（防绕过）
+    # 2. 通过 governance gateway execute_tool 执行（白名单 + 参数校验 + 审计）
     try:
-        with governance_execution_context():   # ← 强制要求在 gateway 内运行
-            result = adapter.request_chat(
-                prompt=prompt,
-                history=[],
-                session_id=session_id,
-                trace_id=trace_id,
-            )
+        result = execute_tool(
+            "lf_frame_description",
+            {"prompt": prompt, "history": [], "session_id": session_id},
+            db=db,
+            trace_id=trace_id,
+            pipeline="frame_description",
+        )
         answer = str(result.get("answer") or "").strip()
         return answer, None
-    except VinciAdapterError as exc:
-        self._cb.record_failure(str(exc))   # 记录失败用于本服务熔断
-        raise FrameDescServiceError(f"Vinci adapter error: {exc}") from exc
+    except GovernanceError as exc:
+        self._cb.record_failure(str(exc))
+        raise FrameDescServiceError(f"governance rejected: {exc}") from exc
 ```
 
 **双熔断器职责分离**：
@@ -214,7 +212,7 @@ class _VinciCircuitBreaker:
 | 详细度档位（brief/standard/detailed） | ✅ | 3档 prompt 模板 |
 | 上下文折叠展开（最近 5 条） | ✅ | `fdContextExpanded` + `fdRecentHistory` |
 | 反馈按钮（准确/不准确） | ✅ | `submitFdFeedback(accurate)` |
-| Governance gateway 接入 | ✅ | `governance_execution_context()` + `VinciAdapterService` |
+| Governance gateway 接入 | ✅ | `execute_tool("lf_frame_description", ...)` |
 | 集中式遥测 | ✅ | `_emit_telemetry` → `analytics.pipeline` |
 | 轨迹复利缓冲 | ✅ | `_FRAME_DESC_TRAJECTORY_BUFFER` |
 
@@ -226,7 +224,7 @@ class _VinciCircuitBreaker:
 |------|------|------|
 | **Effective** | ✅ | 规划(采样+上下文)/执行(Vinci+governance)/验证(去重) 职责分离 |
 | **Efficient** | ✅ | Token 预算(6000)、Jaccard 去重(≥0.82)、连续 4 次稳定跳过、3s 采样间隔 |
-| **Safe** | ✅ | `VinciAdapterService` + `governance_execution_context()` 强制网关执行 |
+| **Safe** | ✅ | `execute_tool` 白名单 + 参数校验 + 审计事件 |
 | **Robust** | ✅ | 双熔断降级、30s 自动恢复、页面卸载清理、ContextVar 线程隔离 |
 | **Monitorable** | ✅ | 集中式遥测：success/latency/failure/degraded/sampled/generated |
 | **Updatable** | ✅ | 版本化提示词(PROMPT_TEMPLATES v1)、配置开关、回滚路径 |
@@ -259,7 +257,7 @@ GET  /api/frame_description/health   ← 健康检查
 | 功能关闭 | `.env` → `FRAME_DESC_ENABLED=false` |
 | 提示词回滚 | 将 `_build_fusion_prompt` 改回 `PROMPT_TEMPLATES["v1"]` |
 | 前端下线 | `Player.vue` 删除 `<section class="fd-panel">...</section>` |
-| Governance 临时禁用 | 在 `_call_vinci_sync` 中注释 `with governance_execution_context()`（仅紧急调试） |
+| Governance 临时禁用 | 不建议禁用；紧急时仅通过 `FRAME_DESC_ENABLED=false` 关闭功能 |
 
 ---
 
@@ -268,7 +266,7 @@ GET  /api/frame_description/health   ← 健康检查
 | # | 问题 | 根因 | 解决方案 |
 |---|------|------|---------|
 | 1 | 报告配置项名与代码不符 | 未读取实际 config.py | 逐项核对，修正为实际命名和默认值 |
-| 2 | Vinci 调用绕过 governance | 直接用 VinciClient | 改用 `VinciAdapterService` + `governance_execution_context()` |
+| 2 | Vinci 调用绕过 governance | 直接用 VinciClient | 改为 `execute_tool("lf_frame_description", ...)` 统一网关执行 |
 | 3 | `_VinciCircuitBreaker` 定义两次 | stub 残留 | 删除行 162-177 的冗余定义 |
 | 4 | 前端测试为注释不可执行 | 误解测试要求 | 重写为 `frameDescription.test.mjs`，20个断言全绿 |
 | 5 | `package.json` 测试不递归 | `tests/*.test.mjs` | 改为 `tests/**/*.test.mjs` |
