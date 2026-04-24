@@ -129,7 +129,9 @@ def consume_stream(url: str, payload: dict, timeout: float = 30.0) -> tuple[list
         headers=HEADERS,
         timeout=timeout,
     ) as resp:
-        text = resp.read_text()
+        # httpx stream.Response 在部分版本不提供 read_text()，统一以 bytes 读取再解码。
+        raw = resp.read()
+        text = raw.decode("utf-8", errors="replace") if isinstance(raw, (bytes, bytearray)) else str(raw or "")
         if not resp.is_success:
             return [], f"HTTP {resp.status_code}: {text[:200]}"
         return parse_ndjson_stream(text), ""
