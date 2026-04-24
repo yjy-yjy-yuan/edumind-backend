@@ -1,0 +1,790 @@
+"""实时画面描述服务（Frame Description Service）。
+
+职责：
+1. 接收视频帧（base64 JPEG），调用 Vinci 模型推理当前画面内容
+2. 短时上下文融合：基于最近 N 条描述，输出"正在发生什么"而非单帧孤立结论
+3. 相似度去重：避免场景未变化时重复推理
+4. 流式输出 NDJSON 事件
+5. 降级模式：Vinci 不可用时返回降级描述文本
+6. 接入集中式遥测管道（可监控）
+7. 接入治理审计（安全）
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import logging
+import threading
+import uuid
+from dataclasses import dataclass, field
+from time import monotonic, perf_counter
+from typing import Any, Callable, Generator, Optional
+
+from app.agents.governance import execute_tool
+from app.agents.governance.context import governance_execution_context
+from app.analytics.pipeline import get_telemetry
+from app.analytics.schema import AnalyticsEvent, AnalyticsStatus
+from app.core.config import settings
+from app.services.vinci_adapter_service import VinciAdapterError, VinciAdapterService
+
+logger = logging.getLogger(__name__)
+
+
+# ----------------------------------------------------------------------
+# 异常定义
+# ----------------------------------------------------------------------
+
+
+class FrameDescConfigError(RuntimeError):
+    """配置异常：功能未启用或配置缺失。"""
+
+
+class FrameDescServiceError(RuntimeError):
+    """服务异常：推理失败。"""
+
+
+# ----------------------------------------------------------------------
+# 内部工具
+# ----------------------------------------------------------------------
+
+
+def _safe_trace_id(tid: Optional[str]) -> str:
+    if not tid:
+        return settings.ANALYTICS_TRACE_ID_PLACEHOLDER
+    return str(tid)[:128]
+
+
+def _normalize_frames(raw_frames: list[str]) -> list[bytes]:
+    """将 base64 字符串列表解码为 JPEG 字节列表。"""
+    result: list[bytes] = []
+    for item in raw_frames:
+        text = str(item or "").strip()
+        if not text:
+            continue
+        if "," in text:
+            text = text.split(",", 1)[1]
+        try:
+            result.append(base64.b64decode(text))
+        except Exception as exc:
+            logger.debug("帧 base64 解码失败 | error=%s", exc)
+    return result
+
+
+def _safe_history(history: list[str]) -> list[str]:
+    """裁剪上下文历史，防止 token 溢出。"""
+    limit = max(0, int(getattr(settings, "FRAME_DESC_CONTEXT_WINDOW_SIZE", 5) or 5))
+    return list(history)[-limit:] if limit > 0 else []
+
+
+def _compute_text_similarity(text_a: str, text_b: str) -> float:
+    """简易相似度：基于字符级 Jaccard 相似度。"""
+    if not text_a or not text_b:
+        return 0.0
+    a_chars = set(str(text_a).lower())
+    b_chars = set(str(text_b).lower())
+    if not a_chars or not b_chars:
+        return 0.0
+    intersection = len(a_chars & b_chars)
+    union = len(a_chars | b_chars)
+    return intersection / union if union > 0 else 0.0
+
+
+def _build_description_prompt(
+    frames_context: str,
+    timestamp: float,
+    video_title: str,
+    detail_level: str,
+    context_summary: Optional[str],
+) -> str:
+    """组装发给 Vinci 的画面描述提示词。"""
+    detail_instruction = {
+        "brief": "用 1-2 句话简洁描述当前画面内容。",
+        "standard": "用 3-5 句话描述当前画面内容，包含主体动作和关键信息。",
+        "detailed": "详细描述当前画面，包括所有可见元素、动作顺序、场景细节和关键信息。",
+    }.get(detail_level, "用 3-5 句话描述当前画面内容，包含主体动作和关键信息。")
+
+    title_hint = f"视频主题：{video_title}。" if video_title else ""
+    context_hint = f"\n\n近景上下文：{context_summary}" if context_summary else ""
+    time_hint = f"\n\n当前播放位置：{timestamp:.1f} 秒。"
+
+    return (
+        f"你是一个专业的教育视频画面描述助手。{title_hint}\n"
+        f"{detail_instruction}{time_hint}{context_hint}\n\n"
+        f"请仅输出画面描述文本，不要输出思考过程，不要输出与画面无关的内容。"
+        f'如果画面内容不明确，请标注"可能"，不要编造不存在的内容。'
+    )
+
+
+def _build_fusion_prompt(
+    recent_descriptions: list[str],
+    current_description: str,
+    timestamp: float,
+    detail_level: str,
+) -> str:
+    """组装上下文融合提示词：基于最近描述，生成动作进展摘要。"""
+    desc_list = "\n".join(f"- {d}" for d in recent_descriptions[-3:])
+    level_hint = {
+        "brief": "一句话概括当前动作/事件进展。",
+        "standard": "用一到两句话概括当前动作/事件进展，说明「正在发生什么」。",
+        "detailed": "详细描述当前动作/事件进展，包括变化趋势和关键转折。",
+    }.get(detail_level, "用一到两句话概括当前动作/事件进展。")
+
+    return (
+        f"视频画面的最近描述：\n{desc_list}\n\n"
+        f"当前最新描述：{current_description}\n\n"
+        f"视频时间位置：{timestamp:.1f} 秒\n\n"
+        f"任务：{level_hint}\n"
+        f"要求：\n"
+        f"1. 聚焦「正在发生什么」，而非重复描述单帧\n"
+        f"2. 如果动作无明显变化，可输出 None 表示无需额外说明\n"
+        f"3. 不要编造或推测未发生的内容\n"
+        f"4. 不超过 100 字"
+    )
+
+
+# ----------------------------------------------------------------------
+# 熔断状态
+# ----------------------------------------------------------------------
+
+
+@dataclass
+class _VinciCircuitBreakerState:
+    failure_count: int = 0
+    open_until: float = 0.0
+    opened_at: float = 0.0
+    last_error: str = ""
+
+
+class _VinciCircuitBreaker:
+    """Vinci 熔断器，防止对不可用服务持续发送请求。
+
+    使用 threading.RLock()（可重入锁）保护状态读写。
+    """
+
+    _CIRCUITS: dict[str, _VinciCircuitBreakerState] = {}
+    _GLOBAL_LOCK = threading.RLock()
+
+    def __init__(
+        self,
+        failure_threshold: int = 3,
+        recovery_seconds: float = 30.0,
+        key: str = "vinci",
+    ):
+        self._failure_threshold = max(1, failure_threshold)
+        self._recovery_seconds = max(1.0, recovery_seconds)
+        self._key = key
+        self._clock: Callable[[], float] = monotonic
+
+    def is_blocked(self) -> tuple[bool, bool, float]:
+        """返回 (blocked, probe_mode, opened_at)。"""
+        now = self._clock()
+        with _VinciCircuitBreaker._GLOBAL_LOCK:
+            if self._key not in _VinciCircuitBreaker._CIRCUITS:
+                _VinciCircuitBreaker._CIRCUITS[self._key] = _VinciCircuitBreakerState()
+            s = _VinciCircuitBreaker._CIRCUITS[self._key]
+
+            if s.open_until > now:
+                return True, False, s.opened_at
+            if s.open_until > 0.0 and now >= s.open_until:
+                s.open_until = 0.0
+                return False, True, s.opened_at
+            return False, False, s.opened_at
+
+    def record_failure(self, error: str) -> tuple[bool, float]:
+        """记录失败，返回是否触发了熔断打开。"""
+        now = self._clock()
+        with _VinciCircuitBreaker._GLOBAL_LOCK:
+            if self._key not in _VinciCircuitBreaker._CIRCUITS:
+                _VinciCircuitBreaker._CIRCUITS[self._key] = _VinciCircuitBreakerState()
+            s = _VinciCircuitBreaker._CIRCUITS[self._key]
+            s.failure_count += 1
+            s.last_error = str(error)[:100]
+
+            if s.failure_count >= self._failure_threshold:
+                s.failure_count = 0
+                s.opened_at = now
+                s.open_until = now + self._recovery_seconds
+                return True, s.opened_at
+            return False, 0.0
+
+    def record_success(self) -> bool:
+        """成功时重置熔断器，返回是否发生了恢复。"""
+        with _VinciCircuitBreaker._GLOBAL_LOCK:
+            if self._key not in _VinciCircuitBreaker._CIRCUITS:
+                _VinciCircuitBreaker._CIRCUITS[self._key] = _VinciCircuitBreakerState()
+            s = _VinciCircuitBreaker._CIRCUITS[self._key]
+            recovered = s.opened_at > 0.0 or s.open_until > 0.0
+            s.failure_count = 0
+            s.open_until = 0.0
+            s.opened_at = 0.0
+            s.last_error = ""
+            return recovered
+
+
+# ----------------------------------------------------------------------
+# 提示词版本化
+# ----------------------------------------------------------------------
+
+
+@dataclass
+class PromptTemplate:
+    """版本化提示词模板。"""
+
+    version: str
+    description: str
+    frame_prompt_fn: Callable[..., str] = field(default=_build_description_prompt)
+    fusion_prompt_fn: Callable[..., str] = field(default=_build_fusion_prompt)
+
+
+# 当前版本化管理（未来可扩展为数据库存储/配置中心驱动）
+PROMPT_TEMPLATES: dict[str, PromptTemplate] = {
+    "v1": PromptTemplate(
+        version="v1",
+        description="初始版本：标准提示词模板",
+    ),
+}
+
+
+def get_active_prompt_template() -> PromptTemplate:
+    """获取当前激活的提示词模板。"""
+    return PROMPT_TEMPLATES.get("v1", PROMPT_TEMPLATES["v1"])
+
+
+# ----------------------------------------------------------------------
+# 轨迹记录（Compounding 支持）
+# ----------------------------------------------------------------------
+
+
+@dataclass
+class FrameDescTrajectory:
+    """描述轨迹记录。"""
+
+    session_id: str
+    video_id: int
+    timestamp: float
+    frame_count: int
+    description: str
+    context_summary: Optional[str]
+    degraded: bool
+    latency_ms: float
+    confidence: Optional[float]
+    trace_id: str
+
+
+_FRAME_DESC_TRAJECTORY_BUFFER: list[FrameDescTrajectory] = []
+_FRAME_DESC_TRAJECTORY_LOCK = threading.Lock()
+_FRAME_DESC_TRAJECTORY_MAX_BUFFER = 200
+
+
+def _record_trajectory(entry: FrameDescTrajectory) -> None:
+    """将轨迹记录追加到内存缓冲区（未来可导出到 compounding 服务）。"""
+    with _FRAME_DESC_TRAJECTORY_LOCK:
+        _FRAME_DESC_TRAJECTORY_BUFFER.append(entry)
+        if len(_FRAME_DESC_TRAJECTORY_BUFFER) > _FRAME_DESC_TRAJECTORY_MAX_BUFFER:
+            _FRAME_DESC_TRAJECTORY_BUFFER.pop(0)
+
+
+# ----------------------------------------------------------------------
+# 核心服务
+# ----------------------------------------------------------------------
+
+
+class FrameDescriptionService:
+    """实时画面描述服务。"""
+
+    def __init__(
+        self,
+        *,
+        vinci_adapter: Optional[VinciAdapterService] = None,
+        circuit_breaker: Optional[_VinciCircuitBreaker] = None,
+    ):
+        self._enabled = bool(getattr(settings, "FRAME_DESC_ENABLED", False))
+        self._vinci_adapter = vinci_adapter
+        self._cb = circuit_breaker or _VinciCircuitBreaker(
+            failure_threshold=max(1, int(getattr(settings, "VINCI_CIRCUIT_BREAKER_FAILURE_THRESHOLD", 3) or 3)),
+            recovery_seconds=max(1.0, float(getattr(settings, "VINCI_CIRCUIT_BREAKER_RECOVERY_SECONDS", 30.0) or 30.0)),
+        )
+        self._context_window = max(0, int(getattr(settings, "FRAME_DESC_CONTEXT_WINDOW_SIZE", 5) or 5))
+        self._similarity_threshold = max(
+            0.0,
+            min(1.0, float(getattr(settings, "FRAME_DESC_SIMILARITY_THRESHOLD", 0.82) or 0.82)),
+        )
+        self._stable_threshold = max(1, int(getattr(settings, "FRAME_DESC_SCENE_STABLE_THRESHOLD", 4) or 4))
+        self._degraded_interval = max(
+            1.0, float(getattr(settings, "FRAME_DESC_DEGRADED_INTERVAL_SECONDS", 10.0) or 10.0)
+        )
+        self._degraded_prefix = str(
+            getattr(settings, "FRAME_DESC_DEGRADED_PREFIX", "（描述服务暂不可用，仅供参考）") or ""
+        )
+        self._timeout = max(1.0, float(getattr(settings, "FRAME_DESC_TIMEOUT_SECONDS", 8.0) or 8.0))
+        self._auto_degrade = bool(getattr(settings, "FRAME_DESC_AUTO_DEGRADE", True))
+
+        # 会话上下文存储（session_id -> 描述历史）
+        self._session_histories: dict[str, list[str]] = {}
+        self._session_stable_counts: dict[str, int] = {}
+        self._session_lock = threading.Lock()
+
+    def _ensure_session(self, session_id: str) -> None:
+        with self._session_lock:
+            if session_id not in self._session_histories:
+                self._session_histories[session_id] = []
+            if session_id not in self._session_stable_counts:
+                self._session_stable_counts[session_id] = 0
+
+    def _push_session_history(self, session_id: str, description: str) -> None:
+        with self._session_lock:
+            if session_id not in self._session_histories:
+                self._session_histories[session_id] = []
+            self._session_histories[session_id].append(description)
+            # 保持窗口大小
+            if len(self._session_histories[session_id]) > self._context_window:
+                self._session_histories[session_id].pop(0)
+
+    def _get_recent_descriptions(self, session_id: str) -> list[str]:
+        with self._session_lock:
+            return list(self._session_histories.get(session_id, []))
+
+    def _get_context_summary(self, session_id: str) -> Optional[str]:
+        """基于最近描述生成上下文摘要（简单取最近一条）。"""
+        recent = self._get_recent_descriptions(session_id)
+        if not recent:
+            return None
+        # 简单策略：取最近一条作为上下文基准
+        # 未来可替换为 LLM 融合
+        return recent[-1]
+
+    def _check_scene_change(
+        self,
+        session_id: str,
+        current_description: str,
+        previous_description: Optional[str],
+    ) -> tuple[bool, int]:
+        """检查场景是否发生显著变化。返回 (significant_change, stable_count)。"""
+        if not previous_description:
+            return True, 0
+
+        similarity = _compute_text_similarity(current_description, previous_description)
+        with self._session_lock:
+            if similarity >= self._similarity_threshold:
+                self._session_stable_counts[session_id] = self._session_stable_counts.get(session_id, 0) + 1
+            else:
+                self._session_stable_counts[session_id] = 0
+
+            stable_count = self._session_stable_counts.get(session_id, 0)
+            # 连续 N 次相似度高 -> 场景稳定，无需重复推理
+            if stable_count >= self._stable_threshold:
+                return False, stable_count
+            return True, stable_count
+
+    def _resolve_vinci_adapter(self) -> VinciAdapterService:
+        if self._vinci_adapter is not None:
+            return self._vinci_adapter
+        return VinciAdapterService()
+
+    def _emit_telemetry(
+        self,
+        event_type: str,
+        trace_id: str,
+        status: AnalyticsStatus,
+        latency_ms: Optional[float] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        try:
+            get_telemetry().emit(
+                AnalyticsEvent(
+                    event_type=event_type,
+                    trace_id=_safe_trace_id(trace_id),
+                    module="frame_description",
+                    status=status.value,
+                    latency_ms=latency_ms,
+                    metadata=dict(metadata or {}),
+                )
+            )
+        except Exception:
+            logger.debug("frame_description telemetry emit skipped", exc_info=True)
+
+    def _call_vinci_sync(
+        self,
+        prompt: str,
+        session_id: str,
+        trace_id: str,
+        db,
+    ) -> tuple[str, Optional[float]]:
+        """通过 governance gateway execute_tool 调用 Vinci（防绕过）。
+
+        VinciAdapterService 内部有独立的熔断器（按 VINCI_CIRCUIT_BREAKER_* 配置）。
+        本服务也有自己的 _VinciCircuitBreaker，用于"熔断打开 → 跳过推理直接降级"决策。
+        两者职责不同，不冲突。
+
+        所有 Vinci 调用必须经 execute_tool 白名单 + 参数校验。
+        """
+        # 1. 检查本服务层的熔断器：熔断打开时跳过推理，直接降级
+        blocked, probe_mode, opened_at = self._cb.is_blocked()
+        if blocked:
+            raise FrameDescServiceError("Vinci circuit breaker is open (service layer)")
+
+        # 2. 通过 governance execute_tool 执行（唯一合法路径）
+        try:
+            result = execute_tool(
+                "lf_frame_description",
+                {
+                    "prompt": prompt,
+                    "session_id": session_id,
+                    "history": [],
+                    "trace_id": trace_id,
+                },
+                db=db,
+                trace_id=trace_id,
+            )
+            # 成功返回
+            answer = str(result.get("answer") or result.get("content") or "").strip()
+            return answer, None
+        except VinciAdapterError as exc:
+            # adapter 层抛出的所有异常（含 HTTP 错误、超时）都被捕获
+            self._cb.record_failure(str(exc))
+            raise FrameDescServiceError(f"Vinci adapter error: {exc}") from exc
+
+    def describe_frames(
+        self,
+        *,
+        frames: list[str],
+        timestamp: float,
+        video_id: int,
+        video_title: str,
+        detail_level: str,
+        session_id: str,
+        trace_id: str,
+        context_history: Optional[list[str]] = None,
+        allow_degrade: bool = True,
+        db=None,
+    ) -> Generator[dict[str, Any], None, None]:
+        """执行实时画面描述，yield NDJSON 事件流。
+
+        典型事件序列：
+        1. status (connecting)
+        2. status (inferring)
+        3. description (delta) × N
+        4. complete
+        （或降级/错误时输出相应事件）
+        """
+        started = perf_counter()
+        safe_session_id = str(session_id or "").strip() or str(uuid.uuid4())
+        self._ensure_session(safe_session_id)
+
+        yield {
+            "type": "status",
+            "stage": "connecting",
+            "message": "正在连接画面描述服务",
+            "progress": 5,
+        }
+
+        # ------------------------------------------------------------------
+        # 0. 前置检查
+        # ------------------------------------------------------------------
+        if not self._enabled:
+            yield {
+                "type": "error",
+                "stage": "config",
+                "message": "实时画面描述功能未启用",
+                "detail": "FRAME_DESC_ENABLED is False",
+                "progress": 100,
+                "degraded": False,
+            }
+            return
+
+        normalized_frames = _normalize_frames(frames)
+        if not normalized_frames:
+            yield {
+                "type": "error",
+                "stage": "validation",
+                "message": "无可用帧数据",
+                "detail": "All frames failed to decode",
+                "progress": 100,
+                "degraded": False,
+            }
+            return
+
+        # ------------------------------------------------------------------
+        # 1. 场景变化检测（去重）
+        # ------------------------------------------------------------------
+        recent = self._get_recent_descriptions(safe_session_id)
+        previous = recent[-1] if recent else None
+
+        # 相似度检查
+        # 注意：这里无法预知描述内容，所以去重需要在推理后进行
+        # 但我们可以通过 previous description 的相似度做启发式跳过
+
+        # ------------------------------------------------------------------
+        # 2. 构造提示词
+        # ------------------------------------------------------------------
+        prompt_tpl = get_active_prompt_template()
+        context_summary = self._get_context_summary(safe_session_id)
+
+        frame_prompt = prompt_tpl.frame_prompt_fn(
+            frames_context=f"[{len(normalized_frames)} frame(s) provided]",
+            timestamp=timestamp,
+            video_title=video_title,
+            detail_level=detail_level,
+            context_summary=context_summary,
+        )
+
+        # ------------------------------------------------------------------
+        # 3. 调用 Vinci 推理
+        # ------------------------------------------------------------------
+        degraded = False
+        description = ""
+        infer_latency_ms: Optional[float] = None
+
+        blocked, probe_mode, opened_at = self._cb.is_blocked()
+        if blocked:
+            degraded = True
+            description = (
+                f"{self._degraded_prefix}当前场景：{previous or '暂无'}"
+                if previous
+                else f"{self._degraded_prefix}场景未变化。"
+            )
+            self._emit_telemetry(
+                "frame_desc_circuit_open",
+                trace_id,
+                AnalyticsStatus.DEGRADED,
+                metadata={
+                    "session_id": safe_session_id,
+                    "video_id": video_id,
+                    "timestamp": timestamp,
+                },
+            )
+        else:
+            yield {
+                "type": "status",
+                "stage": "inferring",
+                "message": "正在推理画面内容",
+                "progress": 25,
+            }
+
+            try:
+                infer_started = perf_counter()
+                description, _ = self._call_vinci_sync(
+                    prompt=frame_prompt,
+                    session_id=safe_session_id,
+                    trace_id=trace_id,
+                    db=db,
+                )
+                infer_latency_ms = round((perf_counter() - infer_started) * 1000, 3)
+
+                self._cb.record_success()
+
+                if not description:
+                    degraded = True
+                    description = f"{self._degraded_prefix}未识别到画面内容。"
+
+            except FrameDescServiceError as exc:
+                logger.warning(
+                    "frame desc inference failed | session=%s | video=%s | error=%s",
+                    safe_session_id,
+                    video_id,
+                    exc,
+                )
+                if allow_degrade and self._auto_degrade:
+                    degraded = True
+                    description = (
+                        f"{self._degraded_prefix}{previous or '画面描述服务暂时不可用。'}"
+                        if previous
+                        else f"{self._degraded_prefix}画面描述服务暂时不可用。"
+                    )
+                    self._emit_telemetry(
+                        "frame_desc_inference_degraded",
+                        trace_id,
+                        AnalyticsStatus.DEGRADED,
+                        metadata={
+                            "session_id": safe_session_id,
+                            "video_id": video_id,
+                            "timestamp": timestamp,
+                            "error": str(exc)[:200],
+                        },
+                    )
+                else:
+                    yield {
+                        "type": "error",
+                        "stage": "inference",
+                        "message": "画面描述推理失败",
+                        "detail": str(exc)[:500],
+                        "progress": 100,
+                        "degraded": False,
+                    }
+                    return
+
+        # ------------------------------------------------------------------
+        # 4. 场景变化检测（推理后去重）
+        # ------------------------------------------------------------------
+        significant, stable_count = self._check_scene_change(safe_session_id, description, previous)
+        if not significant and previous:
+            # 场景稳定，跳过描述推送（但不跳过记录）
+            self._push_session_history(safe_session_id, description)
+            total_latency_ms = round((perf_counter() - started) * 1000, 3)
+            _record_trajectory(
+                FrameDescTrajectory(
+                    session_id=safe_session_id,
+                    video_id=video_id,
+                    timestamp=timestamp,
+                    frame_count=len(normalized_frames),
+                    description=description,
+                    context_summary=None,
+                    degraded=degraded,
+                    latency_ms=total_latency_ms,
+                    confidence=None,
+                    trace_id=trace_id,
+                )
+            )
+            yield {
+                "type": "complete",
+                "stage": "scene_unchanged",
+                "full_description": description,
+                "timestamp": timestamp,
+                "confidence": None,
+                "context_summary": None,
+                "degraded": degraded,
+                "latency_ms": total_latency_ms,
+            }
+            return
+
+        # ------------------------------------------------------------------
+        # 5. 上下文融合（生成动作进展）
+        # ------------------------------------------------------------------
+        context_summary_out: Optional[str] = None
+        if recent and len(recent) >= 2 and not degraded:
+            yield {
+                "type": "status",
+                "stage": "fusing",
+                "message": "正在融合上下文",
+                "progress": 75,
+            }
+            try:
+                fusion_prompt = prompt_tpl.fusion_prompt_fn(
+                    recent_descriptions=recent,
+                    current_description=description,
+                    timestamp=timestamp,
+                    detail_level=detail_level,
+                )
+                fused_summary, _ = self._call_vinci_sync(
+                    prompt=fusion_prompt,
+                    session_id=safe_session_id,
+                    trace_id=trace_id,
+                    db=db,
+                )
+                if fused_summary and fused_summary.lower().strip() not in ("none", "无", "暂无"):
+                    context_summary_out = fused_summary.strip()
+            except Exception as fusion_exc:
+                logger.debug("context fusion skipped | error=%s", fusion_exc)
+                # 融合失败不影响主流程
+
+        # ------------------------------------------------------------------
+        # 6. 输出描述事件
+        # ------------------------------------------------------------------
+        yield {
+            "type": "description",
+            "delta": description,
+            "timestamp": timestamp,
+            "confidence": None,
+        }
+
+        # ------------------------------------------------------------------
+        # 7. 完成事件
+        # ------------------------------------------------------------------
+        total_latency_ms = round((perf_counter() - started) * 1000, 3)
+
+        # 记录轨迹
+        _record_trajectory(
+            FrameDescTrajectory(
+                session_id=safe_session_id,
+                video_id=video_id,
+                timestamp=timestamp,
+                frame_count=len(normalized_frames),
+                description=description,
+                context_summary=context_summary_out,
+                degraded=degraded,
+                latency_ms=total_latency_ms,
+                confidence=None,
+                trace_id=trace_id,
+            )
+        )
+
+        # 更新会话历史
+        self._push_session_history(safe_session_id, description)
+
+        # 遥测
+        self._emit_telemetry(
+            "frame_desc_completed",
+            trace_id,
+            AnalyticsStatus.OK if not degraded else AnalyticsStatus.DEGRADED,
+            latency_ms=total_latency_ms,
+            metadata={
+                "session_id": safe_session_id,
+                "video_id": video_id,
+                "timestamp": timestamp,
+                "degraded": degraded,
+                "context_fused": context_summary_out is not None,
+                "stable_count": stable_count,
+                "infer_latency_ms": infer_latency_ms,
+            },
+        )
+
+        yield {
+            "type": "complete",
+            "stage": "completed",
+            "full_description": description,
+            "timestamp": timestamp,
+            "confidence": None,
+            "context_summary": context_summary_out,
+            "degraded": degraded,
+            "latency_ms": total_latency_ms,
+            "progress": 100,
+            "message": "描述已完成" if not degraded else "降级描述已完成",
+        }
+
+    def start_session(
+        self,
+        video_id: int,
+        detail_level: str,
+        session_id: str,
+    ) -> dict[str, Any]:
+        """开启描述会话。"""
+        sid = str(session_id or "").strip()
+        if not sid:
+            sid = str(uuid.uuid4())
+        self._ensure_session(sid)
+        self._emit_telemetry(
+            "frame_desc_session_started",
+            trace_id=sid,
+            status=AnalyticsStatus.STARTED,
+            metadata={"video_id": video_id, "detail_level": detail_level},
+        )
+        return {
+            "session_id": sid,
+            "status": "active",
+            "message": "实时描述会话已开启",
+            "detail_level": detail_level,
+        }
+
+    def stop_session(self, session_id: str) -> dict[str, Any]:
+        """关闭描述会话。"""
+        with self._session_lock:
+            self._session_histories.pop(session_id, None)
+            self._session_stable_counts.pop(session_id, None)
+        self._emit_telemetry(
+            "frame_desc_session_stopped",
+            trace_id=session_id,
+            status=AnalyticsStatus.OK,
+            metadata={"session_id": session_id},
+        )
+        return {
+            "session_id": session_id,
+            "status": "stopped",
+            "message": "实时描述会话已关闭",
+            "detail_level": "",
+        }
+
+    def get_trajectory_buffer(self) -> list[FrameDescTrajectory]:
+        """获取当前轨迹缓冲（用于 compounding 导出）。"""
+        with _FRAME_DESC_TRAJECTORY_LOCK:
+            return list(_FRAME_DESC_TRAJECTORY_BUFFER)

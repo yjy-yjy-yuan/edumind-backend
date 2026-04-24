@@ -76,6 +76,33 @@ class Settings(BaseSettings):
     VINCI_CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 3
     VINCI_CIRCUIT_BREAKER_RECOVERY_SECONDS: float = 30.0
 
+    # 实时画面描述配置（EduMind Frame Description Service）
+    FRAME_DESC_ENABLED: bool = False
+    # 采样策略：固定间隔（fixed_interval）| 智能采样（smart）
+    FRAME_DESC_SAMPLE_MODE: str = "fixed_interval"
+    # 固定间隔模式下的采样周期（秒）；智能模式也会用此值作为兜底最小间隔
+    FRAME_DESC_SAMPLE_INTERVAL_SECONDS: float = 3.0
+    # 帧描述服务超时（秒）
+    FRAME_DESC_TIMEOUT_SECONDS: float = 8.0
+    # 上下文融合窗口（描述历史条数）
+    FRAME_DESC_CONTEXT_WINDOW_SIZE: int = 5
+    # 相似度阈值：帧描述文本与上条描述相似度超过此值时跳过推理
+    FRAME_DESC_SIMILARITY_THRESHOLD: float = 0.82
+    # 场景未变化检测：连续 N 次相似度超过阈值后强制跳过推理
+    FRAME_DESC_SCENE_STABLE_THRESHOLD: int = 4
+    # 降级模式下描述频率（秒）：Vinci 不可用时降为低频描述
+    FRAME_DESC_DEGRADED_INTERVAL_SECONDS: float = 10.0
+    # 降级模式：描述文本固定前缀（可标注"可能"等置信度词汇）
+    FRAME_DESC_DEGRADED_PREFIX: str = "（描述服务暂不可用，仅供参考）"
+    # 单次推理最大输入帧数
+    FRAME_DESC_MAX_FRAMES_PER_REQUEST: int = 3
+    # 输入帧最大边长（像素）；超过此值会自动缩放
+    FRAME_DESC_MAX_FRAME_SIZE: int = 640
+    # Token 预算上限（估算），超预算时自动降频
+    FRAME_DESC_TOKEN_BUDGET: int = 6000
+    # 是否自动降级（Vinci 不可用时返回降级描述而非错误）
+    FRAME_DESC_AUTO_DEGRADE: bool = True
+
     # Ollama 配置
     OLLAMA_BASE_URL: str = "http://localhost:11434/api"
     OLLAMA_MODEL: str = "qwen-3.5:9b"

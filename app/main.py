@@ -158,6 +158,7 @@ from app.routers import (
     auth,
     chat,
     design,
+    frame_description,
     note,
     ops,
     qa,
@@ -178,6 +179,7 @@ app.include_router(ops.router, prefix="/api/ops", tags=["运维观测"])
 app.include_router(recommendation.router, prefix="/api/recommendations", tags=["视频推荐"])
 app.include_router(search.router, tags=["语义搜索"])
 app.include_router(agent.router, prefix="/api/agent", tags=["学习流智能体"])
+app.include_router(frame_description.router, prefix="/api/frame_description", tags=["实时画面描述"])
 
 
 # 根路由

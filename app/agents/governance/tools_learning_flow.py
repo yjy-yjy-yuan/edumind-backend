@@ -88,6 +88,38 @@ def tool_lf_create_timestamp(db: Session, params: dict[str, Any]) -> dict[str, A
     }
 
 
+def tool_lf_frame_description(db: Session, params: dict[str, Any]) -> dict[str, Any]:
+    """通过治理网关调用 Vinci 适配层执行画面描述（不可绕过）。
+
+    与 tool_lf_vinci_chat 共用同一后端，参数校验由 gateway._validate_params 完成。
+    """
+    ensure_in_governance_context()
+    _ = db
+    prompt = str(params.get("prompt") or "").strip()
+    session_id = str(params.get("session_id") or "").strip()
+    trace_id = str(params.get("trace_id") or "").strip()
+    history = params.get("history")
+    safe_history = history if isinstance(history, list) else []
+
+    service = VinciAdapterService()
+    try:
+        response = service.request_chat(
+            prompt=prompt,
+            history=safe_history,
+            session_id=session_id,
+            trace_id=trace_id,
+        )
+    except VinciAdapterError as exc:
+        raise GovernanceError(f"vinci_call_failed:{exc.error_code}") from exc
+
+    payload = dict(response or {})
+    payload.setdefault("session_id", session_id)
+    payload.setdefault("trace_id", trace_id)
+    payload.setdefault("history", safe_history)
+    payload["tokens_estimated"] = _estimate_tokens(prompt) + _estimate_tokens(str(payload.get("answer") or ""))
+    return payload
+
+
 def tool_lf_vinci_chat(db: Session, params: dict[str, Any]) -> dict[str, Any]:
     """通过治理网关调用 Vinci 适配层（不可绕过）。"""
     ensure_in_governance_context()

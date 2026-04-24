@@ -40,6 +40,7 @@ _TOOL_HANDLERS: Dict[str, Callable[[Session, dict[str, Any]], dict[str, Any]]] =
     "lf_persist_note": tools_learning_flow.tool_lf_persist_note,
     "lf_create_timestamp": tools_learning_flow.tool_lf_create_timestamp,
     "lf_vinci_chat": tools_learning_flow.tool_lf_vinci_chat,
+    "lf_frame_description": tools_learning_flow.tool_lf_frame_description,
 }
 
 
@@ -122,6 +123,38 @@ def _validate_params(tool_name: str, params: dict[str, Any]) -> None:
         return
 
     if tool_name == "lf_vinci_chat":
+        prompt = str(params.get("prompt") or "").strip()
+        if not prompt:
+            raise GovernanceError("missing_prompt")
+        if len(prompt) > MAX_VINCI_PROMPT_CHARS:
+            raise GovernanceError("prompt_too_long")
+
+        session_id = str(params.get("session_id") or "").strip()
+        if not session_id:
+            raise GovernanceError("missing_session_id")
+        if len(session_id) > MAX_VINCI_SESSION_ID_CHARS:
+            raise GovernanceError("session_id_too_long")
+
+        history = params.get("history")
+        if history is None:
+            return
+        if not isinstance(history, list):
+            raise GovernanceError("invalid_history")
+        if len(history) > MAX_VINCI_HISTORY_ITEMS:
+            raise GovernanceError("history_too_long")
+        for item in history:
+            if not isinstance(item, dict):
+                raise GovernanceError("invalid_history_item")
+            role = str(item.get("role") or "").strip()
+            content = str(item.get("content") or "")
+            if not role:
+                raise GovernanceError("invalid_history_item")
+            if len(content) > MAX_VINCI_HISTORY_CONTENT_CHARS:
+                raise GovernanceError("history_item_content_too_long")
+        return
+
+    if tool_name == "lf_frame_description":
+        # 参数校验逻辑与 lf_vinci_chat 完全相同（均调用同一 Vinci 后端）
         prompt = str(params.get("prompt") or "").strip()
         if not prompt:
             raise GovernanceError("missing_prompt")
