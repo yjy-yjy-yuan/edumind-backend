@@ -230,6 +230,45 @@ def test_health_returns_enabled_flag(client, monkeypatch):
 
 
 @pytest.mark.api
+def test_session_disabled_returns_503(client, sample_video, monkeypatch):
+    """功能未启用时 session 端点返回 503。"""
+    monkeypatch.setattr(
+        "app.routers.frame_description.settings",
+        MagicMock(FRAME_DESC_ENABLED=False),
+    )
+    response = client.post(
+        "/api/frame_description/session",
+        json={
+            "video_id": sample_video.id,
+            "action": "start",
+            "detail_level": "standard",
+            "session_id": "",
+        },
+    )
+    assert response.status_code == 503
+    assert "未启用" in response.json()["detail"]
+
+
+@pytest.mark.api
+def test_health_disabled_returns_enabled_false(client, monkeypatch):
+    """健康检查端点在功能未启用时返回 enabled=False。"""
+    monkeypatch.setattr(
+        "app.routers.frame_description.settings",
+        MagicMock(FRAME_DESC_ENABLED=False),
+    )
+    mock_service = MagicMock()
+    monkeypatch.setattr(
+        "app.routers.frame_description.get_frame_desc_service",
+        lambda: mock_service,
+    )
+    response = client.get("/api/frame_description/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["enabled"] is False
+    assert data["description"] == "功能未启用"
+
+
+@pytest.mark.api
 def test_invalid_action_returns_422(client, sample_video, monkeypatch):
     """非法 action 值被 Pydantic 验证拒绝（422）。"""
     monkeypatch.setattr(
