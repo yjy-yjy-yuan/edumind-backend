@@ -1,12 +1,9 @@
 """聊天系统工具 - FastAPI 版本"""
 
 import logging
-from typing import Generator
-from typing import List
+from typing import Generator, List
 
-from app.utils.qa_utils import call_provider_chat
-from app.utils.qa_utils import normalize_provider
-from app.utils.qa_utils import resolve_model
+from app.utils.qa_utils import call_provider_chat, normalize_provider, resolve_model
 
 logger = logging.getLogger(__name__)
 

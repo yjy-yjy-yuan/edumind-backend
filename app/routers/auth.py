@@ -6,28 +6,22 @@ from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from sqlalchemy.orm import Session
+
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.user import User
-from app.schemas.auth import UserLogin
-from app.schemas.auth import UserRegister
-from app.schemas.auth import UserUpdate
-from app.utils.auth_security import build_password_fingerprint
-from app.utils.auth_security import is_valid_phone_number
-from app.utils.auth_security import looks_like_email
-from app.utils.auth_security import normalize_email
-from app.utils.auth_security import normalize_phone_number
-from app.utils.auth_token import build_auth_token
-from app.utils.auth_token import parse_auth_token
-from app.utils.auth_token import parse_bearer_token
-from fastapi import APIRouter
-from fastapi import Depends
-from fastapi import File
-from fastapi import Header
-from fastapi import HTTPException
-from fastapi import UploadFile
-from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session
+from app.schemas.auth import UserLogin, UserRegister, UserUpdate
+from app.utils.auth_security import (
+    build_password_fingerprint,
+    is_valid_phone_number,
+    looks_like_email,
+    normalize_email,
+    normalize_phone_number,
+)
+from app.utils.auth_token import build_auth_token, parse_auth_token, parse_bearer_token
 
 logger = logging.getLogger(__name__)
 

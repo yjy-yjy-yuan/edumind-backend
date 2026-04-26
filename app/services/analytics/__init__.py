@@ -5,12 +5,16 @@ This package keeps a stable ``app.services.analytics`` entrypoint for
 deployment checklists and external integrations.
 """
 
-from app.analytics.pipeline import AnalyticsTelemetry
-from app.analytics.pipeline import get_telemetry
-from app.analytics.pipeline import reset_telemetry_for_tests
-from app.analytics.schema import AnalyticsEvent
-from app.analytics.schema import AnalyticsStatus
-from app.analytics.schema import validate_analytics_event
+from app.analytics.pipeline import (
+    AnalyticsTelemetry,
+    get_telemetry,
+    reset_telemetry_for_tests,
+)
+from app.analytics.schema import (
+    AnalyticsEvent,
+    AnalyticsStatus,
+    validate_analytics_event,
+)
 
 __all__ = [
     "AnalyticsTelemetry",

@@ -7,15 +7,14 @@ import logging
 import time
 from collections import deque
 from datetime import datetime
-from typing import Any
-from typing import Dict
-from typing import List
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
-from app.repositories.similarity_audit_log_repository import SimilarityAuditLogRepository
-from app.services.similarity_analytics import SimilarityAuditLog
-from app.services.similarity_analytics import SimilarityMetrics
 from sqlalchemy.orm import Session
+
+from app.repositories.similarity_audit_log_repository import (
+    SimilarityAuditLogRepository,
+)
+from app.services.similarity_analytics import SimilarityAuditLog, SimilarityMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -296,12 +295,12 @@ class SimilarityAuditLogPersistenceService:
             }
 
         # 提取数据（兼容 ORM 模型和内存对象）
-        scores = [log.score for log in logs if hasattr(log, 'score') and log.score is not None]
-        latencies = [log.latency_ms for log in logs if hasattr(log, 'latency_ms') and log.latency_ms > 0]
+        scores = [log.score for log in logs if hasattr(log, "score") and log.score is not None]
+        latencies = [log.latency_ms for log in logs if hasattr(log, "latency_ms") and log.latency_ms > 0]
 
-        success_count = sum(1 for log in logs if getattr(log, 'success', False))
-        retry_count = sum(1 for log in logs if getattr(log, 'retry_count', 0) > 0)
-        parse_error_count = sum(1 for log in logs if not getattr(log, 'parse_ok', False))
+        success_count = sum(1 for log in logs if getattr(log, "success", False))
+        retry_count = sum(1 for log in logs if getattr(log, "retry_count", 0) > 0)
+        parse_error_count = sum(1 for log in logs if not getattr(log, "parse_ok", False))
 
         # 计算指标
         avg_score = statistics.mean(scores) if scores else None

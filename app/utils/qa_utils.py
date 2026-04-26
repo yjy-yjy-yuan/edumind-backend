@@ -8,14 +8,16 @@ import math
 import re
 from collections import Counter
 from dataclasses import dataclass
-from typing import Generator
-from typing import Optional
+from typing import Generator, Optional
 
 import requests
+
 from app.core.config import settings
-from app.services.video_content_service import clean_multiline_text
-from app.services.video_content_service import clean_whitespace
-from app.services.video_content_service import tokenize_sentence
+from app.services.video_content_service import (
+    clean_multiline_text,
+    clean_whitespace,
+    tokenize_sentence,
+)
 
 logger = logging.getLogger(__name__)
 

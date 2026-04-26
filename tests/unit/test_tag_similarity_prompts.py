@@ -6,10 +6,13 @@
 """
 
 import pytest
-from app.services.tag_similarity_prompts import TagSimilarityPromptFactory
-from app.services.tag_similarity_prompts import TagSimilarityPromptV1
-from app.services.tag_similarity_prompts import TagSimilarityPromptV2
-from app.services.tag_similarity_prompts import get_prompt_changelog
+
+from app.services.tag_similarity_prompts import (
+    TagSimilarityPromptFactory,
+    TagSimilarityPromptV1,
+    TagSimilarityPromptV2,
+    get_prompt_changelog,
+)
 
 
 class TestTagSimilarityPromptV1:

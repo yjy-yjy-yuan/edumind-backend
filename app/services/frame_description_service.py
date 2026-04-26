@@ -410,7 +410,9 @@ class FrameDescriptionService:
         session_id: str,
         trace_id: str,
         db,
-    ) -> tuple[str, Optional[float]]:
+        *,
+        base64_frames: Optional[list[str]] = None,
+    ) -> tuple[str, bool]:
         """通过 governance gateway execute_tool 调用 Vinci（防绕过）。
 
         VinciAdapterService 内部有独立的熔断器（按 VINCI_CIRCUIT_BREAKER_* 配置）。
@@ -418,11 +420,21 @@ class FrameDescriptionService:
         两者职责不同，不冲突。
 
         所有 Vinci 调用必须经 execute_tool 白名单 + 参数校验。
+
+        Args:
+            prompt: 当前帧的提示词（含上下文融合内容）
+            session_id: 会话 ID
+            trace_id: 追踪 ID
+            db: 数据库会话（由调用方在外部创建）
+            base64_frames: 已编码的图像帧 base64 字符串列表。
+                           为空/None 时降级为纯文本模式（silent=True）。
         """
         # 1. 检查本服务层的熔断器：熔断打开时跳过推理，直接降级
         blocked, probe_mode, opened_at = self._cb.is_blocked()
         if blocked:
             raise FrameDescServiceError("Vinci circuit breaker is open (service layer)")
+
+        safe_frames = [str(f or "").strip() for f in list(base64_frames or []) if f]
 
         # 2. 通过 governance execute_tool 执行（唯一合法路径）
         try:
@@ -433,13 +445,16 @@ class FrameDescriptionService:
                     "session_id": session_id,
                     "history": [],
                     "trace_id": trace_id,
+                    # 核心修复：传递真实视频帧数据
+                    "base64_frames": safe_frames,
                 },
                 db=db,
                 trace_id=trace_id,
             )
             # 成功返回
             answer = str(result.get("answer") or result.get("content") or "").strip()
-            return answer, None
+            adapter_degraded = bool(result.get("degraded") is True)
+            return answer, adapter_degraded
         except VinciAdapterError as exc:
             # adapter 层抛出的所有异常（含 HTTP 错误、超时）都被捕获
             self._cb.record_failure(str(exc))
@@ -505,6 +520,9 @@ class FrameDescriptionService:
             }
             return
 
+        # 将解码后的帧字节转换为 base64 字符串（供 Vinci 推理）
+        base64_frames = [base64.b64encode(frame_data).decode("ascii") for frame_data in normalized_frames]
+
         # ------------------------------------------------------------------
         # 1. 场景变化检测（去重）
         # ------------------------------------------------------------------
@@ -552,6 +570,7 @@ class FrameDescriptionService:
                     "session_id": safe_session_id,
                     "video_id": video_id,
                     "timestamp": timestamp,
+                    "frame_count": len(base64_frames),
                 },
             )
         else:
@@ -564,15 +583,18 @@ class FrameDescriptionService:
 
             try:
                 infer_started = perf_counter()
-                description, _ = self._call_vinci_sync(
+                description, adapter_degraded = self._call_vinci_sync(
                     prompt=frame_prompt,
                     session_id=safe_session_id,
                     trace_id=trace_id,
                     db=db,
+                    base64_frames=base64_frames,
                 )
                 infer_latency_ms = round((perf_counter() - infer_started) * 1000, 3)
 
                 self._cb.record_success()
+                if adapter_degraded:
+                    degraded = True
 
                 if not description:
                     degraded = True

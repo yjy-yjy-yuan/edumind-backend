@@ -1,11 +1,8 @@
 """聊天 Pydantic Schema"""
 
-from typing import List
-from typing import Literal
-from typing import Optional
+from typing import List, Literal, Optional
 
-from pydantic import BaseModel
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 
 class ChatMessage(BaseModel):

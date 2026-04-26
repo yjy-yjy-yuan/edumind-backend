@@ -1,8 +1,7 @@
 """嵌入工厂 - 改编自 SentrySearch"""
 
 import logging
-from typing import List
-from typing import Optional
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 

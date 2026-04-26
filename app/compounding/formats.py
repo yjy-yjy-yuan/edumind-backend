@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from dataclasses import field
-from typing import Any
-from typing import Dict
-from typing import List
+from dataclasses import dataclass, field
+from typing import Any, Dict, List
 
 # 与导出 JSONL 行对齐的版本号
 FEEDBACK_SCHEMA_VERSION = "compounding_feedback_v1"

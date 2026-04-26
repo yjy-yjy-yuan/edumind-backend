@@ -1,8 +1,7 @@
 """本地模型向量嵌入"""
 
 import logging
-from typing import List
-from typing import Optional
+from typing import List, Optional
 
 from sklearn.feature_extraction.text import HashingVectorizer
 

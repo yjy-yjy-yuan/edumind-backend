@@ -1,12 +1,9 @@
 """字幕 Pydantic Schema"""
 
 from datetime import datetime
-from typing import List
-from typing import Optional
+from typing import List, Optional
 
-from pydantic import BaseModel
-from pydantic import ConfigDict
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SubtitleBase(BaseModel):

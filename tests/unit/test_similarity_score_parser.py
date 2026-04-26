@@ -6,10 +6,13 @@
 """
 
 import pytest
-from app.services.similarity_score_parser import ParseErrorType
-from app.services.similarity_score_parser import ParseResult
-from app.services.similarity_score_parser import SimilarityScoreParser
-from app.services.similarity_score_parser import TagInputValidator
+
+from app.services.similarity_score_parser import (
+    ParseErrorType,
+    ParseResult,
+    SimilarityScoreParser,
+    TagInputValidator,
+)
 
 
 class TestSimilarityScoreParserBasic:

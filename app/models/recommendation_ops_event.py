@@ -1,17 +1,12 @@
 """推荐运营事件落库模型（支撑运营聚合 API 的持久化口径）。"""
 
 from datetime import datetime
-from typing import Any
-from typing import Optional
+from typing import Any, Optional
+
+from sqlalchemy import JSON, DateTime, Integer, String, text
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
-from sqlalchemy import JSON
-from sqlalchemy import DateTime
-from sqlalchemy import Integer
-from sqlalchemy import String
-from sqlalchemy import text
-from sqlalchemy.orm import Mapped
-from sqlalchemy.orm import mapped_column
 
 
 class RecommendationOpsEvent(Base):

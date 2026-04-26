@@ -290,3 +290,70 @@ def test_invalid_action_returns_422(client, sample_video, monkeypatch):
         },
     )
     assert response.status_code == 422
+
+
+@pytest.mark.api
+def test_health_returns_vinci_probe_result(client, monkeypatch):
+    """健康检查端点包含 Vinci 实际可达性探测结果。"""
+    monkeypatch.setattr(
+        "app.routers.frame_description.settings",
+        MagicMock(FRAME_DESC_ENABLED=True),
+    )
+    mock_service = MagicMock()
+    monkeypatch.setattr(
+        "app.routers.frame_description.get_frame_desc_service",
+        lambda: mock_service,
+    )
+    # Mock VinciAdapterService.health_check to avoid real HTTP calls
+    from app.services.vinci_adapter_service import VinciHealthResult
+
+    mock_health = VinciHealthResult(reachable=True, latency_ms=42.5)
+    monkeypatch.setattr(
+        "app.services.vinci_adapter_service.VinciAdapterService.health_check",
+        lambda self, **kw: mock_health,
+    )
+
+    response = client.get("/api/frame_description/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["enabled"] is True
+    assert "vinci" in data
+    assert "reachable" in data["vinci"]
+    assert "latency_ms" in data["vinci"]
+    assert "error" in data["vinci"]
+    assert "error_code" in data["vinci"]
+    assert data["vinci"]["reachable"] is True
+    assert data["vinci"]["latency_ms"] == 42.5
+
+
+@pytest.mark.api
+def test_health_vinci_unreachable_includes_error_detail(client, monkeypatch):
+    """Vinci 不可达时 health 返回错误详情。"""
+    monkeypatch.setattr(
+        "app.routers.frame_description.settings",
+        MagicMock(FRAME_DESC_ENABLED=True),
+    )
+    mock_service = MagicMock()
+    monkeypatch.setattr(
+        "app.routers.frame_description.get_frame_desc_service",
+        lambda: mock_service,
+    )
+    from app.services.vinci_adapter_service import VinciHealthResult
+
+    mock_health = VinciHealthResult(
+        reachable=False,
+        latency_ms=-1.0,
+        error="connection refused",
+        error_code="VINCI_UNAVAILABLE",
+    )
+    monkeypatch.setattr(
+        "app.services.vinci_adapter_service.VinciAdapterService.health_check",
+        lambda self, **kw: mock_health,
+    )
+
+    response = client.get("/api/frame_description/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["vinci"]["reachable"] is False
+    assert data["vinci"]["error"] == "connection refused"
+    assert data["vinci"]["error_code"] == "VINCI_UNAVAILABLE"

@@ -1,12 +1,11 @@
 """单元测试 - 数据模型"""
 
 import pytest
-from app.models.note import Note
-from app.models.note import NoteTimestamp
+
+from app.models.note import Note, NoteTimestamp
 from app.models.subtitle import Subtitle
 from app.models.user import User
-from app.models.video import Video
-from app.models.video import VideoStatus
+from app.models.video import Video, VideoStatus
 
 
 @pytest.mark.unit

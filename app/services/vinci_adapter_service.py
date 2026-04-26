@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from time import monotonic, perf_counter
 from typing import Any, Callable, Generator, Optional
 
-from app.agents.governance.context import ensure_in_governance_context
 from app.analytics.pipeline import get_telemetry
 from app.analytics.schema import AnalyticsEvent, AnalyticsStatus
 from app.core.config import settings
@@ -20,6 +19,22 @@ from app.services.vinci_client import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class VinciHealthResult:
+    """Vinci 健康探测结果。"""
+
+    def __init__(
+        self,
+        reachable: bool,
+        latency_ms: float,
+        error: Optional[str] = None,
+        error_code: Optional[str] = None,
+    ):
+        self.reachable = bool(reachable)
+        self.latency_ms = float(latency_ms) if latency_ms >= 0 else -1.0
+        self.error = str(error or "").strip() or None
+        self.error_code = str(error_code or "").strip() or None
 
 
 class VinciAdapterError(RuntimeError):
@@ -289,6 +304,8 @@ class VinciAdapterService:
         session_id: str,
         trace_id: str,
     ) -> dict[str, Any]:
+        from app.agents.governance.context import ensure_in_governance_context
+
         ensure_in_governance_context()
         safe_trace_id = _safe_trace_id(trace_id)
         safe_session_id = str(session_id or "").strip()
@@ -469,6 +486,8 @@ class VinciAdapterService:
         session_id: str,
         trace_id: str,
     ) -> Generator[dict[str, Any], None, None]:
+        from app.agents.governance.context import ensure_in_governance_context
+
         ensure_in_governance_context()
         safe_trace_id = _safe_trace_id(trace_id)
         safe_session_id = str(session_id or "").strip()
@@ -565,4 +584,273 @@ class VinciAdapterService:
                 status=AnalyticsStatus.OK.value,
                 latency_ms=latency_ms,
                 metadata={"session_id": safe_session_id, "done_emitted": True},
+            )
+
+    def request_vision_chat(
+        self,
+        *,
+        prompt: str,
+        base64_frames: list[str],
+        history: list[dict[str, Any]],
+        session_id: str,
+        trace_id: str,
+        silent: bool = False,
+    ) -> dict[str, Any]:
+        """调用 Vinci internvl 推理（含图像帧）。
+
+        与 request_chat 共用熔断器，但走独立的 /api/v1/inference/internvl 端点。
+        自动将 EduMind history 格式转换为 internvl 的 [ts, text] 格式。
+        """
+        from app.agents.governance.context import ensure_in_governance_context
+
+        ensure_in_governance_context()
+        safe_trace_id = _safe_trace_id(trace_id)
+        safe_session_id = str(session_id or "").strip()
+        safe_history = _safe_history(history)
+        safe_frames = [str(f or "").strip() for f in list(base64_frames or []) if f]
+        started = perf_counter()
+
+        blocked, probe_mode, opened_at = self._before_request_circuit_check()
+        if blocked:
+            return self._build_degraded_payload(
+                safe_history=safe_history,
+                safe_session_id=safe_session_id,
+                safe_trace_id=safe_trace_id,
+                error_code="VINCI_CIRCUIT_OPEN",
+                reason="circuit_open",
+                latency_ms=0.0,
+                opened_at=opened_at,
+            )
+
+        self._emit_event(
+            event_type="vinci_vision_started",
+            trace_id=safe_trace_id,
+            status=AnalyticsStatus.STARTED.value,
+            metadata={
+                "session_id": safe_session_id,
+                "frame_count": len(safe_frames),
+                "circuit_probe": bool(probe_mode),
+                "silent": bool(silent),
+            },
+        )
+        logger.info(
+            "vinci vision request started | trace_id=%s | session_id=%s | frames=%d | probe=%s | silent=%s",
+            safe_trace_id,
+            safe_session_id,
+            len(safe_frames),
+            probe_mode,
+            silent,
+        )
+
+        try:
+            raw_response = self.client.request_vision_chat(
+                prompt=str(prompt or ""),
+                base64_frames=safe_frames,
+                history=safe_history,
+                session_id=safe_session_id,
+                trace_id=safe_trace_id,
+                silent=bool(silent),
+            )
+        except VinciTimeoutError as exc:
+            latency_ms = round((perf_counter() - started) * 1000, 3)
+            opened, at = self._record_failure(error_code="VINCI_TIMEOUT", probe_mode=probe_mode)
+            self._emit_event(
+                event_type="vinci_vision_timeout",
+                trace_id=safe_trace_id,
+                status=AnalyticsStatus.TIMEOUT.value,
+                latency_ms=latency_ms,
+                metadata={"session_id": safe_session_id, "circuit_opened": opened, "frame_count": len(safe_frames)},
+            )
+            if opened:
+                self._emit_event(
+                    event_type="vinci_circuit_opened",
+                    trace_id=safe_trace_id,
+                    status=AnalyticsStatus.DEGRADED.value,
+                    metadata={
+                        "session_id": safe_session_id,
+                        "reason": "vision_timeout",
+                        "error_code": "VINCI_TIMEOUT",
+                        "opened_at": at,
+                        "recovery_seconds": self._circuit_recovery_seconds,
+                    },
+                )
+            raise VinciAdapterError(
+                str(exc) or "vinci vision timeout",
+                error_code="VINCI_TIMEOUT",
+                trace_id=safe_trace_id,
+                status_code=504,
+            ) from exc
+        except VinciHTTPError as exc:
+            latency_ms = round((perf_counter() - started) * 1000, 3)
+            upstream_status = int(getattr(exc, "status_code", 502) or 502)
+            error_code = f"VINCI_UPSTREAM_{upstream_status}"
+            opened, at = self._record_failure(error_code=error_code, probe_mode=probe_mode)
+            self._emit_event(
+                event_type="vinci_vision_error",
+                trace_id=safe_trace_id,
+                status=AnalyticsStatus.ERROR.value,
+                latency_ms=latency_ms,
+                metadata={
+                    "session_id": safe_session_id,
+                    "upstream_status_code": upstream_status,
+                    "circuit_opened": opened,
+                    "frame_count": len(safe_frames),
+                },
+            )
+            if opened:
+                self._emit_event(
+                    event_type="vinci_circuit_opened",
+                    trace_id=safe_trace_id,
+                    status=AnalyticsStatus.DEGRADED.value,
+                    metadata={
+                        "session_id": safe_session_id,
+                        "reason": "vision_upstream_error",
+                        "error_code": error_code,
+                        "opened_at": at,
+                        "recovery_seconds": self._circuit_recovery_seconds,
+                    },
+                )
+            raise VinciAdapterError(
+                str(exc) or "vinci vision upstream error",
+                error_code=error_code,
+                trace_id=safe_trace_id,
+                upstream_status_code=upstream_status,
+                status_code=502,
+            ) from exc
+        except VinciUnavailableError as exc:
+            latency_ms = round((perf_counter() - started) * 1000, 3)
+            opened, at = self._record_failure(error_code="VINCI_UNAVAILABLE", probe_mode=probe_mode)
+            if opened:
+                self._emit_event(
+                    event_type="vinci_circuit_opened",
+                    trace_id=safe_trace_id,
+                    status=AnalyticsStatus.DEGRADED.value,
+                    metadata={
+                        "session_id": safe_session_id,
+                        "reason": "vision_unavailable",
+                        "error_code": "VINCI_UNAVAILABLE",
+                        "opened_at": at,
+                        "recovery_seconds": self._circuit_recovery_seconds,
+                    },
+                )
+            logger.warning(
+                "vinci vision request degraded | trace_id=%s | session_id=%s | error=%s",
+                safe_trace_id,
+                safe_session_id,
+                exc,
+            )
+            return self._build_degraded_payload(
+                safe_history=safe_history,
+                safe_session_id=safe_session_id,
+                safe_trace_id=safe_trace_id,
+                error_code="VINCI_UNAVAILABLE",
+                reason="vision_unavailable",
+                latency_ms=latency_ms,
+                opened_at=at if opened else None,
+            )
+
+        normalized = self._normalize_response(
+            raw_response,
+            session_id=safe_session_id,
+            trace_id=safe_trace_id,
+            fallback_history=safe_history,
+        )
+        recovered = self._record_success()
+        latency_ms = round((perf_counter() - started) * 1000, 3)
+        self._emit_event(
+            event_type="vinci_vision_completed",
+            trace_id=safe_trace_id,
+            status=AnalyticsStatus.OK.value,
+            latency_ms=latency_ms,
+            metadata={
+                "session_id": normalized["session_id"],
+                "degraded": bool(normalized.get("degraded")),
+                "frame_count": len(safe_frames),
+                "silent": bool(silent),
+            },
+        )
+        if recovered:
+            self._emit_event(
+                event_type="vinci_circuit_recovered",
+                trace_id=safe_trace_id,
+                status=AnalyticsStatus.OK.value,
+                metadata={"session_id": safe_session_id},
+            )
+        logger.info(
+            "vinci vision completed | trace_id=%s | session_id=%s | degraded=%s | frames=%d",
+            safe_trace_id,
+            normalized["session_id"],
+            normalized.get("degraded"),
+            len(safe_frames),
+        )
+        return normalized
+
+    def health_check(self, *, timeout_seconds: float = 5.0) -> VinciHealthResult:
+        """探测 Vinci internvl 服务是否可达。
+
+        使用轻量级 ping（POST 一个空帧请求）来确认服务可用性。
+        与业务请求共用同一 base_url，分开独立超时控制。
+        """
+        import time as _time
+
+        started = _time.perf_counter()
+        try:
+            client: VinciClient = self.client
+            base_url = str(getattr(client, "base_url", "") or "").strip() or "http://127.0.0.1:18081"
+            path = "/api/v1/inference/internvl"
+            url = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+            payload = {
+                "question": "ping",
+                "history": [],
+                "session_id": "health_check",
+                "timestamp": 0,
+                "silent": False,
+                "frames": [],
+                "base64_frames": [],
+            }
+            import httpx
+
+            headers = {"Content-Type": "application/json", "Accept": "application/json"}
+            api_key = str(getattr(client, "api_key", "") or "").strip()
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+            with httpx.Client(timeout=httpx.Timeout(timeout_seconds, connect=min(timeout_seconds, 3.0))) as http:
+                response = http.post(url, json=payload, headers=headers)
+            latency_ms = round((_time.perf_counter() - started) * 1000, 3)
+            if 200 <= response.status_code < 300:
+                return VinciHealthResult(reachable=True, latency_ms=latency_ms)
+            try:
+                err_body = response.json()
+                err_msg = str(err_body.get("message") or err_body.get("error") or "")[:200]
+            except Exception:
+                err_msg = f"http {response.status_code}"
+            return VinciHealthResult(
+                reachable=False,
+                latency_ms=latency_ms,
+                error=err_msg,
+                error_code=f"HTTP_{response.status_code}",
+            )
+        except VinciTimeoutError as exc:
+            latency_ms = round((_time.perf_counter() - started) * 1000, 3)
+            return VinciHealthResult(
+                reachable=False,
+                latency_ms=latency_ms,
+                error=f"timeout after {timeout_seconds}s",
+                error_code="VINCI_TIMEOUT",
+            )
+        except VinciUnavailableError as exc:
+            latency_ms = round((_time.perf_counter() - started) * 1000, 3)
+            return VinciHealthResult(
+                reachable=False,
+                latency_ms=latency_ms,
+                error=str(exc)[:200],
+                error_code="VINCI_UNAVAILABLE",
+            )
+        except Exception as exc:
+            latency_ms = round((_time.perf_counter() - started) * 1000, 3)
+            return VinciHealthResult(
+                reachable=False,
+                latency_ms=latency_ms,
+                error=str(exc)[:200],
+                error_code="VINCI_CHECK_FAILED",
             )

@@ -1,6 +1,7 @@
 """TokenBudget 硬限流单测。"""
 
 import pytest
+
 from app.agents.budget import TokenBudget
 from app.agents.exceptions import BudgetExceededError
 

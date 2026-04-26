@@ -17,11 +17,14 @@ import subprocess
 import threading
 import time
 
-from app.services.video_content_service import extract_transcript_text
-from app.services.whisper_runtime import clear_whisper_device_cache
-from app.services.whisper_runtime import get_whisper_device
-from app.services.whisper_runtime import transcribe_audio_with_whisper
 from sqlalchemy import inspect
+
+from app.services.video_content_service import extract_transcript_text
+from app.services.whisper_runtime import (
+    clear_whisper_device_cache,
+    get_whisper_device,
+    transcribe_audio_with_whisper,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -300,8 +303,7 @@ def transcribe_with_live_progress(
 def save_subtitles(result: dict, srt_path: str, txt_path: str):
     """保存字幕文件"""
     try:
-        from whisper.utils import WriteSRT
-        from whisper.utils import WriteTXT
+        from whisper.utils import WriteSRT, WriteTXT
 
         with open(srt_path, "w", encoding="utf-8") as srt:
             WriteSRT(None).write_result(result, srt)
@@ -382,11 +384,11 @@ def sync_subtitles_to_db(db, video_id: int, result: dict, language: str) -> int:
 def update_video_status(video_id: int, status: str, progress: float, step: str, **kwargs):
     """更新视频状态 (在子进程中创建新的数据库连接)"""
     # 动态导入以避免跨进程问题
-    from app.core.config import settings
-    from app.models.video import Video
-    from app.models.video import VideoStatus
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
+
+    from app.core.config import settings
+    from app.models.video import Video, VideoStatus
 
     engine = create_engine(
         settings.DATABASE_URL,
@@ -434,8 +436,7 @@ def start_indexing_async(
     from app.core.config import settings
     from app.core.database import SessionLocal
     from app.core.executor import submit_task
-    from app.models.vector_index import VectorIndex
-    from app.models.vector_index import VectorIndexStatus
+    from app.models.vector_index import VectorIndex, VectorIndexStatus
 
     db = SessionLocal()
     try:
@@ -503,8 +504,7 @@ def wait_for_indexing_ready(video_id: int, user_id: int, timeout_seconds: int = 
     """
     from app.core.config import settings
     from app.core.database import SessionLocal
-    from app.models.vector_index import VectorIndex
-    from app.models.vector_index import VectorIndexStatus
+    from app.models.vector_index import VectorIndex, VectorIndexStatus
 
     # 如果超时设置为负数，表示不等待
     if timeout_seconds < 0:
@@ -593,11 +593,11 @@ def process_video_task(
     )
 
     # 动态导入以避免跨进程问题
-    from app.core.config import settings
-    from app.models.video import Video
-    from app.models.video import VideoStatus
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
+
+    from app.core.config import settings
+    from app.models.video import Video, VideoStatus
 
     engine = create_engine(
         settings.DATABASE_URL,
@@ -771,10 +771,12 @@ def process_video_task(
                 inline_indexing_started = False
 
         if auto_generate_summary or auto_generate_tags:
-            from app.services.video_content_service import generate_primary_topic_name
-            from app.services.video_content_service import generate_video_summary
-            from app.services.video_content_service import generate_video_tags
-            from app.services.video_content_service import normalize_summary_style
+            from app.services.video_content_service import (
+                generate_primary_topic_name,
+                generate_video_summary,
+                generate_video_tags,
+                normalize_summary_style,
+            )
 
             normalized_summary_style = normalize_summary_style(summary_style)
             if auto_generate_summary or auto_generate_tags:
@@ -955,11 +957,12 @@ def cleanup_video_task(video_id: int) -> dict:
     """
     logger.info(f"开始清理视频 | ID: {video_id}")
 
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
     from app.core.config import settings
     from app.models.qa import Question
     from app.models.video import Video
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
 
     engine = create_engine(
         settings.DATABASE_URL,

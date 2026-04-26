@@ -1,15 +1,18 @@
 """视频推荐服务单测。"""
 
-from app.models.video import Video
-from app.models.video import VideoStatus
+from app.models.video import Video, VideoStatus
 from app.services import video_recommendation_service as recommendation_service
-from app.services.external_candidate_service import ExternalCandidate
-from app.services.external_candidate_service import ExternalCandidateFetchReport
-from app.services.external_candidate_service import ExternalProviderFetchSummary
-from app.services.video_recommendation_service import build_normalized_video_tags
-from app.services.video_recommendation_service import build_recommendation_profile
-from app.services.video_recommendation_service import recommend_videos
-from app.services.video_recommendation_service import sanitize_recommendation_payload_for_client
+from app.services.external_candidate_service import (
+    ExternalCandidate,
+    ExternalCandidateFetchReport,
+    ExternalProviderFetchSummary,
+)
+from app.services.video_recommendation_service import (
+    build_normalized_video_tags,
+    build_recommendation_profile,
+    recommend_videos,
+    sanitize_recommendation_payload_for_client,
+)
 
 
 def fake_fetch_external_candidates_report(*args, **kwargs):

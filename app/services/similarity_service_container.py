@@ -7,7 +7,9 @@
 - 便于依赖注入
 """
 
-from app.services.similarity_audit_log_service import SimilarityAuditLogPersistenceService
+from app.services.similarity_audit_log_service import (
+    SimilarityAuditLogPersistenceService,
+)
 
 # 全局单例实例（在应用启动时初始化）
 _persistence_service: SimilarityAuditLogPersistenceService = None

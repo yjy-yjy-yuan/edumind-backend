@@ -4,6 +4,7 @@ import io
 import os
 
 import pytest
+
 from app.models.user import User
 from app.utils.auth_token import build_auth_token
 

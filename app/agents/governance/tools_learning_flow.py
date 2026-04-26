@@ -91,7 +91,11 @@ def tool_lf_create_timestamp(db: Session, params: dict[str, Any]) -> dict[str, A
 def tool_lf_frame_description(db: Session, params: dict[str, Any]) -> dict[str, Any]:
     """通过治理网关调用 Vinci 适配层执行画面描述（不可绕过）。
 
-    与 tool_lf_vinci_chat 共用同一后端，参数校验由 gateway._validate_params 完成。
+    支持两种模式：
+    - vision 模式：有 base64_frames → 调用 request_vision_chat（含图像）
+    - text   模式：无 base64_frames   → 调用 request_chat（纯文本，降级）
+
+    参数校验由 gateway._validate_params 完成。
     """
     ensure_in_governance_context()
     _ = db
@@ -100,15 +104,37 @@ def tool_lf_frame_description(db: Session, params: dict[str, Any]) -> dict[str, 
     trace_id = str(params.get("trace_id") or "").strip()
     history = params.get("history")
     safe_history = history if isinstance(history, list) else []
+    raw_frames = params.get("base64_frames")
+    safe_frames: list[str] = []
+    if isinstance(raw_frames, list) and raw_frames:
+        for f in raw_frames:
+            text = str(f or "").strip()
+            if text:
+                if "," in text:
+                    text = text.split(",", 1)[1]
+                safe_frames.append(text)
 
     service = VinciAdapterService()
     try:
-        response = service.request_chat(
-            prompt=prompt,
-            history=safe_history,
-            session_id=session_id,
-            trace_id=trace_id,
-        )
+        if safe_frames:
+            # Vision 模式：带图像帧
+            response = service.request_vision_chat(
+                prompt=prompt,
+                base64_frames=safe_frames,
+                history=safe_history,
+                session_id=session_id,
+                trace_id=trace_id,
+            )
+        else:
+            # Text 模式：无图像（降级或 silent=True 自动描述）
+            response = service.request_vision_chat(
+                prompt=prompt,
+                base64_frames=[],
+                history=safe_history,
+                session_id=session_id,
+                trace_id=trace_id,
+                silent=True,
+            )
     except VinciAdapterError as exc:
         raise GovernanceError(f"vinci_call_failed:{exc.error_code}") from exc
 
@@ -117,6 +143,7 @@ def tool_lf_frame_description(db: Session, params: dict[str, Any]) -> dict[str, 
     payload.setdefault("trace_id", trace_id)
     payload.setdefault("history", safe_history)
     payload["tokens_estimated"] = _estimate_tokens(prompt) + _estimate_tokens(str(payload.get("answer") or ""))
+    payload["frame_count"] = len(safe_frames)
     return payload
 
 

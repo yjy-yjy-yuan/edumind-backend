@@ -15,15 +15,18 @@ from datetime import datetime
 from typing import Generator
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+
 from app.models.base import Base
 from app.models.similarity_audit_log import SimilarityAuditLogModel
-from app.repositories.similarity_audit_log_repository import SimilarityAuditLogRepository
-from app.services.similarity_analytics import SimilarityAuditLog
-from app.services.similarity_analytics import SimilarityEventType
-from app.services.similarity_audit_log_service import SimilarityAuditLogPersistenceService
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
-from sqlalchemy.orm import sessionmaker
+from app.repositories.similarity_audit_log_repository import (
+    SimilarityAuditLogRepository,
+)
+from app.services.similarity_analytics import SimilarityAuditLog, SimilarityEventType
+from app.services.similarity_audit_log_service import (
+    SimilarityAuditLogPersistenceService,
+)
 
 # ==================== Fixtures ====================
 

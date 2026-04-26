@@ -8,9 +8,7 @@
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict
-from typing import Literal
-from typing import Tuple
+from typing import Dict, Literal, Tuple
 
 
 class PromptVersion(Enum):

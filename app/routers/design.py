@@ -4,20 +4,19 @@ from __future__ import annotations
 
 import base64
 import logging
-from typing import Any
-from typing import Optional
+from typing import Any, Optional
+
+from fastapi import APIRouter, Depends, Header, HTTPException
+from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.routers.auth import get_current_user_or_404
-from app.schemas.design import DesignMessageRequest
-from app.schemas.design import DesignProjectCreateRequest
-from app.schemas.design import DesignScreenshotRequest
+from app.schemas.design import (
+    DesignMessageRequest,
+    DesignProjectCreateRequest,
+    DesignScreenshotRequest,
+)
 from app.services import sleek_service
-from fastapi import APIRouter
-from fastapi import Depends
-from fastapi import Header
-from fastapi import HTTPException
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

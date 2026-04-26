@@ -3,14 +3,10 @@
 from __future__ import annotations
 
 import math
-from typing import Any
-from typing import Dict
-from typing import Optional
-from typing import Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from app.analytics.pipeline import AnalyticsTelemetry
-from app.analytics.schema import AnalyticsEvent
-from app.analytics.schema import AnalyticsStatus
+from app.analytics.schema import AnalyticsEvent, AnalyticsStatus
 from app.core.config import settings
 
 _MODULE = "search"

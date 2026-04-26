@@ -5,22 +5,16 @@ from __future__ import annotations
 import logging
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime
-from datetime import timedelta
-from datetime import timezone
+from datetime import datetime, timedelta, timezone
 from threading import Lock
-from typing import Any
-from typing import Dict
-from typing import List
-from typing import Optional
-from typing import Set
+from typing import Any, Dict, List, Optional, Set
+
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.recommendation_ops_event import RecommendationOpsEvent
-from app.models.video import Video
-from app.models.video import VideoStatus
-from sqlalchemy.orm import Session
+from app.models.video import Video, VideoStatus
 
 IMPORT_REQUESTED_EVENT = "recommendation_import_external_requested"
 IMPORT_COMPLETED_EVENT = "recommendation_import_external_completed"

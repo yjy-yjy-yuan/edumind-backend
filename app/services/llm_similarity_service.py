@@ -19,31 +19,33 @@ import re
 import time
 import uuid
 from datetime import datetime
-from typing import Any
-from typing import Dict
-from typing import List
-from typing import Optional
-from typing import Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
+from openai import OpenAI
+
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.services.config_model_params import InputValidationConfig
-from app.services.config_model_params import ModelParamWhitelist
-from app.services.config_model_params import SimilarityConfig
-from app.services.similarity_analytics import SimilarityAuditLog
-from app.services.similarity_analytics import SimilarityAuditLogger
-from app.services.similarity_analytics import SimilarityMetrics
-from app.services.similarity_score_parser import ParseResult
-from app.services.similarity_score_parser import SimilarityScoreParser
-from app.services.similarity_score_parser import TagInputValidator
+from app.services.config_model_params import (
+    InputValidationConfig,
+    ModelParamWhitelist,
+    SimilarityConfig,
+)
+from app.services.similarity_analytics import (
+    SimilarityAuditLog,
+    SimilarityAuditLogger,
+    SimilarityMetrics,
+)
+from app.services.similarity_score_parser import (
+    ParseResult,
+    SimilarityScoreParser,
+    TagInputValidator,
+)
 from app.services.similarity_service_container import get_persistence_service
 
 # 导入新的模块化组件
 from app.services.tag_similarity_prompts import TagSimilarityPromptFactory
-from app.utils.ollama_compat import build_ollama_options
-from app.utils.ollama_compat import sanitize_ollama_response_text
-from openai import OpenAI
+from app.utils.ollama_compat import build_ollama_options, sanitize_ollama_response_text
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -110,7 +112,7 @@ class LLMSimilarityService:
                     base_url=settings.OPENAI_BASE_URL,
                 )
                 # 验证配置的模型在白名单中
-                model = getattr(settings, 'OPENAI_SIMILARITY_MODEL', SimilarityConfig.DEFAULT_OPENAI_MODEL)
+                model = getattr(settings, "OPENAI_SIMILARITY_MODEL", SimilarityConfig.DEFAULT_OPENAI_MODEL)
                 try:
                     ModelParamWhitelist.get_openai_profile(model)
                     self.use_openai = True
@@ -128,7 +130,7 @@ class LLMSimilarityService:
             response = requests.get(f"{settings.OLLAMA_BASE_URL}/tags", timeout=5)
             if response.status_code == 200:
                 # 验证配置的模型在白名单中
-                model = getattr(settings, 'OLLAMA_SIMILARITY_MODEL', SimilarityConfig.DEFAULT_OLLAMA_MODEL)
+                model = getattr(settings, "OLLAMA_SIMILARITY_MODEL", SimilarityConfig.DEFAULT_OLLAMA_MODEL)
                 try:
                     ModelParamWhitelist.get_ollama_profile(model)
                     self.use_ollama = True
@@ -171,7 +173,7 @@ class LLMSimilarityService:
 
         # 4. 尝试 LLM 计算（带重试）
         # 从配置获取重试次数，默认2次
-        max_retries = getattr(settings, 'SIMILARITY_MAX_RETRIES', 2)
+        max_retries = getattr(settings, "SIMILARITY_MAX_RETRIES", 2)
         score = self._calculate_with_retry(
             trace_id=trace_id,
             tag1=tag1_clean,
@@ -208,9 +210,9 @@ class LLMSimilarityService:
                     prompt_version=self.prompt_version,
                     provider="ollama" if self.use_ollama else "openai",
                     model=(
-                        getattr(settings, 'OLLAMA_SIMILARITY_MODEL', SimilarityConfig.DEFAULT_OLLAMA_MODEL)
+                        getattr(settings, "OLLAMA_SIMILARITY_MODEL", SimilarityConfig.DEFAULT_OLLAMA_MODEL)
                         if self.use_ollama
-                        else getattr(settings, 'OPENAI_SIMILARITY_MODEL', SimilarityConfig.DEFAULT_OPENAI_MODEL)
+                        else getattr(settings, "OPENAI_SIMILARITY_MODEL", SimilarityConfig.DEFAULT_OPENAI_MODEL)
                     ),
                 )
                 audit_log.retry_count = attempt + 1  # 记录重试次数（从1开始：\"第1次尝试\"）
@@ -302,7 +304,7 @@ class LLMSimilarityService:
             prompt = TagSimilarityPromptFactory.get_ollama_prompt(tag1, tag2, self.prompt_version)
 
             # 2. 获取参数白名单中的配置
-            model = getattr(settings, 'OLLAMA_SIMILARITY_MODEL', SimilarityConfig.DEFAULT_OLLAMA_MODEL)
+            model = getattr(settings, "OLLAMA_SIMILARITY_MODEL", SimilarityConfig.DEFAULT_OLLAMA_MODEL)
             profile = ModelParamWhitelist.get_ollama_profile(model)
 
             # 3. 调用 Ollama 生成
@@ -359,7 +361,7 @@ class LLMSimilarityService:
             user_prompt = TagSimilarityPromptFactory.get_user_prompt(tag1, tag2, self.prompt_version)
 
             # 2. 获取参数白名单中的配置
-            model = getattr(settings, 'OPENAI_SIMILARITY_MODEL', SimilarityConfig.DEFAULT_OPENAI_MODEL)
+            model = getattr(settings, "OPENAI_SIMILARITY_MODEL", SimilarityConfig.DEFAULT_OPENAI_MODEL)
             profile = ModelParamWhitelist.get_openai_profile(model)
 
             # 3. 调用 OpenAI 兼容 API
@@ -404,7 +406,7 @@ class LLMSimilarityService:
             return 0.0
 
         # 中文按字分割，英文按词分割
-        if any('\u4e00' <= ch <= '\u9fff' for ch in s1 + s2):
+        if any("\u4e00" <= ch <= "\u9fff" for ch in s1 + s2):
             set1 = set(s1)
             set2 = set(s2)
         else:
@@ -469,12 +471,12 @@ class LLMSimilarityService:
             video_tags = []
 
             # 获取视频标签
-            if video.get('tags'):
+            if video.get("tags"):
                 try:
-                    if isinstance(video['tags'], str):
-                        video_tags = json.loads(video['tags'])
+                    if isinstance(video["tags"], str):
+                        video_tags = json.loads(video["tags"])
                     else:
-                        video_tags = video['tags']
+                        video_tags = video["tags"]
                 except json.JSONDecodeError:
                     logger.warning(f"视频标签格式无效: {video.get('tags')}")
                     continue
@@ -486,10 +488,10 @@ class LLMSimilarityService:
             similarity = self.calculate_tag_sets_similarity(target_tags, video_tags)
 
             if similarity >= threshold:
-                similar_videos.append({'video': video, 'similarity': similarity})
+                similar_videos.append({"video": video, "similarity": similarity})
 
         # 排序并限制
-        similar_videos.sort(key=lambda x: x['similarity'], reverse=True)
+        similar_videos.sort(key=lambda x: x["similarity"], reverse=True)
         return similar_videos[:limit]
 
     # ==================== 诊断与监控接口 ====================

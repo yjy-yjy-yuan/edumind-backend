@@ -11,6 +11,7 @@ LLM相似度服务单元测试
 from unittest.mock import patch
 
 import pytest
+
 from app.core.config import settings
 from app.services.config_model_params import SimilarityConfig
 from app.services.llm_similarity_service import LLMSimilarityService
@@ -19,8 +20,8 @@ from app.services.llm_similarity_service import LLMSimilarityService
 class TestLLMSimilarityServiceRetry:
     """测试重试机制"""
 
-    @patch('app.services.llm_similarity_service.audit_logger')
-    @patch('app.services.llm_similarity_service.metrics')
+    @patch("app.services.llm_similarity_service.audit_logger")
+    @patch("app.services.llm_similarity_service.metrics")
     def test_max_retries_parameter_effect(self, mock_metrics, mock_audit_logger):
         """验证max_retries参数真实生效"""
         service = LLMSimilarityService()
@@ -28,16 +29,16 @@ class TestLLMSimilarityServiceRetry:
         service.use_openai = False
 
         # 模拟Ollama返回值为None（失败）
-        with patch.object(service, '_calculate_similarity_with_ollama', return_value=None) as mock_ollama:
+        with patch.object(service, "_calculate_similarity_with_ollama", return_value=None) as mock_ollama:
             # max_retries=1时，只尝试1次
             result = service._calculate_with_retry(trace_id="test1", tag1="tag1", tag2="tag2", max_retries=1)
             # 应该触发降级并返回默认值
             assert mock_ollama.call_count == 1
             assert result == (SimilarityConfig.DEFAULT_FALLBACK_SCORE_ON_ERROR or 0.0)
 
-    @patch('app.services.llm_similarity_service.audit_logger')
-    @patch('app.services.llm_similarity_service.metrics')
-    @patch('time.sleep')  # Mock sleep防止测试缓慢
+    @patch("app.services.llm_similarity_service.audit_logger")
+    @patch("app.services.llm_similarity_service.metrics")
+    @patch("time.sleep")  # Mock sleep防止测试缓慢
     def test_retry_loop_with_fallback(self, mock_sleep, mock_metrics, mock_audit_logger):
         """验证重试循环在所有尝试失败后触发降级"""
         service = LLMSimilarityService()
@@ -45,7 +46,7 @@ class TestLLMSimilarityServiceRetry:
         service.use_openai = False
 
         # Ollama全部失败
-        with patch.object(service, '_calculate_similarity_with_ollama', return_value=None) as mock_ollama:
+        with patch.object(service, "_calculate_similarity_with_ollama", return_value=None) as mock_ollama:
             result = service._calculate_with_retry(trace_id="test2", tag1="math", tag2="algebra", max_retries=2)
             # 应该触发降级并返回default值，且触发一次退避
             assert mock_ollama.call_count == 2
@@ -56,9 +57,9 @@ class TestLLMSimilarityServiceRetry:
 class TestLLMSimilarityServiceReturnValue:
     """测试返回值元组解包"""
 
-    @patch('app.services.llm_similarity_service.audit_logger')
-    @patch('app.services.llm_similarity_service.metrics')
-    @patch('time.perf_counter')
+    @patch("app.services.llm_similarity_service.audit_logger")
+    @patch("app.services.llm_similarity_service.metrics")
+    @patch("time.perf_counter")
     def test_tuple_unpacking_ollama_success(self, mock_perf_counter, mock_metrics, mock_audit_logger):
         """验证Ollama返回(score, parse_elapsed)元组被正确解包"""
         service = LLMSimilarityService()
@@ -70,7 +71,7 @@ class TestLLMSimilarityServiceReturnValue:
 
         # Ollama返回(score, parse_elapsed)
         with patch.object(
-            service, '_calculate_similarity_with_ollama', return_value=(0.85, 50.0)  # score=0.85, parse_elapsed=50ms
+            service, "_calculate_similarity_with_ollama", return_value=(0.85, 50.0)  # score=0.85, parse_elapsed=50ms
         ):
             result = service._calculate_with_retry(trace_id="test3", tag1="python", tag2="programming", max_retries=1)
 
@@ -82,9 +83,9 @@ class TestLLMSimilarityServiceReturnValue:
 class TestLLMSimilarityServiceLatencySplit:
     """测试延迟拆分"""
 
-    @patch('app.services.llm_similarity_service.audit_logger')
-    @patch('app.services.llm_similarity_service.metrics')
-    @patch('time.perf_counter')
+    @patch("app.services.llm_similarity_service.audit_logger")
+    @patch("app.services.llm_similarity_service.metrics")
+    @patch("time.perf_counter")
     def test_provider_latency_calculation(self, mock_perf_counter, mock_metrics, mock_audit_logger):
         """验证provider_latency = total - parse_latency"""
         service = LLMSimilarityService()
@@ -95,7 +96,7 @@ class TestLLMSimilarityServiceLatencySplit:
         mock_perf_counter.side_effect = [100.0, 100.2]  # 0.2s = 200ms
 
         # Ollama返回(score, parse_elapsed_50ms)
-        with patch.object(service, '_calculate_similarity_with_ollama', return_value=(0.75, 50.0)):
+        with patch.object(service, "_calculate_similarity_with_ollama", return_value=(0.75, 50.0)):
             service._calculate_with_retry(trace_id="test4", tag1="ai", tag2="machine_learning", max_retries=1)
 
             # 验证audit_logger.log_success被调用时的参数
@@ -109,9 +110,9 @@ class TestLLMSimilarityServiceLatencySplit:
             assert parse_latency_ms == 50.0
             assert provider_latency_ms == pytest.approx(150.0, abs=1e-6)
 
-    @patch('app.services.llm_similarity_service.audit_logger')
-    @patch('app.services.llm_similarity_service.metrics')
-    @patch('time.perf_counter')
+    @patch("app.services.llm_similarity_service.audit_logger")
+    @patch("app.services.llm_similarity_service.metrics")
+    @patch("time.perf_counter")
     def test_provider_latency_lower_bound_protection(self, mock_perf_counter, mock_metrics, mock_audit_logger):
         """验证provider_latency = max(0.0, total - parse)保护"""
         service = LLMSimilarityService()
@@ -124,13 +125,13 @@ class TestLLMSimilarityServiceLatencySplit:
         # Ollama返回(score, parse_elapsed_50ms)
         with patch.object(
             service,
-            '_calculate_similarity_with_ollama',
+            "_calculate_similarity_with_ollama",
             return_value=(0.8, 50.0),  # parse_elapsed > total_elapsed = 负数
         ):
             service._calculate_with_retry(trace_id="test5", tag1="test", tag2="case", max_retries=1)
 
             call_args = mock_audit_logger.log_success.call_args
-            provider_latency_ms = call_args.kwargs.get('provider_latency_ms') or 0
+            provider_latency_ms = call_args.kwargs.get("provider_latency_ms") or 0
 
             # 验证provider_latency >= 0（下限保护）
             assert provider_latency_ms >= 0.0
@@ -139,9 +140,9 @@ class TestLLMSimilarityServiceLatencySplit:
 class TestLLMSimilarityServiceConfigInjection:
     """测试配置注入"""
 
-    @patch('app.services.llm_similarity_service.audit_logger')
-    @patch('app.services.llm_similarity_service.metrics')
-    @patch('app.services.llm_similarity_service.InputValidationConfig.prepare_tag_pair')
+    @patch("app.services.llm_similarity_service.audit_logger")
+    @patch("app.services.llm_similarity_service.metrics")
+    @patch("app.services.llm_similarity_service.InputValidationConfig.prepare_tag_pair")
     def test_similarity_max_retries_config(self, mock_prepare_tag_pair, mock_metrics, mock_audit_logger):
         """验证SIMILARITY_MAX_RETRIES配置生效"""
         mock_prepare_tag_pair.return_value = ("config", "test")
@@ -166,9 +167,9 @@ class TestLLMSimilarityServiceConfigInjection:
 class TestLLMSimilarityServiceMainPath:
     """测试主流程链接"""
 
-    @patch('app.services.llm_similarity_service.InputValidationConfig.prepare_tag_pair')
-    @patch('app.services.llm_similarity_service.audit_logger')
-    @patch('app.services.llm_similarity_service.metrics')
+    @patch("app.services.llm_similarity_service.InputValidationConfig.prepare_tag_pair")
+    @patch("app.services.llm_similarity_service.audit_logger")
+    @patch("app.services.llm_similarity_service.metrics")
     def test_calculate_tag_similarity_with_llm_main_path(self, mock_metrics, mock_audit_logger, mock_prepare_tag_pair):
         """验证calculate_tag_similarity_with_llm主流程"""
         service = LLMSimilarityService()
@@ -179,7 +180,7 @@ class TestLLMSimilarityServiceMainPath:
         mock_prepare_tag_pair.return_value = ("python", "programming")
 
         # Mock重试返回值
-        with patch.object(service, '_calculate_with_retry', return_value=0.87):
+        with patch.object(service, "_calculate_with_retry", return_value=0.87):
             result = service.calculate_tag_similarity_with_llm(tag1="Python", tag2="Programming")
 
             # 应该返回float分值

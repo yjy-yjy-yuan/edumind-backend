@@ -24,6 +24,7 @@ from app.services.frame_description_service import (
     FrameDescriptionService,
     FrameDescServiceError,
 )
+from app.services.vinci_adapter_service import VinciAdapterService, VinciHealthResult
 
 logger = logging.getLogger(__name__)
 
@@ -174,11 +175,42 @@ async def manage_session(
 
 @router.get("/health")
 async def frame_desc_health():
-    """画面描述服务健康检查。"""
-    service = get_frame_desc_service()
+    """画面描述服务健康检查。
+
+    包含三层检查：
+    1. 功能开关（FRAME_DESC_ENABLED）
+    2. 服务实例（FrameDescriptionService 实例化）
+    3. Vinci 实际可达性（通过 VinciAdapterService.health_check()）
+
+    返回的 vinci.reachable 字段是实际探测结果，运维可据此判断是否需要干预。
+    """
+    import time
+
     enabled = bool(getattr(settings, "FRAME_DESC_ENABLED", False))
+    service = get_frame_desc_service()
+
+    health_result: VinciHealthResult = VinciHealthResult(reachable=False, latency_ms=-1.0)
+    if enabled and service is not None:
+        start = time.perf_counter()
+        try:
+            adapter = VinciAdapterService()
+            health_result = adapter.health_check(timeout_seconds=5.0)
+        except Exception:
+            health_result = VinciHealthResult(
+                reachable=False,
+                latency_ms=round((time.perf_counter() - start) * 1000, 3),
+                error="health_check_internal_error",
+                error_code="INTERNAL_ERROR",
+            )
+
     return {
         "enabled": enabled,
         "service": "active" if service else "inactive",
         "description": "实时画面描述服务" if enabled else "功能未启用",
+        "vinci": {
+            "reachable": health_result.reachable,
+            "latency_ms": health_result.latency_ms,
+            "error": health_result.error,
+            "error_code": health_result.error_code,
+        },
     }

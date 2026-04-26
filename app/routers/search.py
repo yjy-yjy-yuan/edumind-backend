@@ -3,25 +3,28 @@
 import logging
 from typing import List
 
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.orm import Session
+
 from app.core.config import settings
 from app.core.database import get_db
-from app.models.vector_index import VectorIndex
-from app.models.vector_index import VectorIndexStatus
+from app.models.vector_index import VectorIndex, VectorIndexStatus
 from app.models.video import Video
-from app.schemas.search import IndexingStatusResponse
-from app.schemas.search import SearchResultChunk
-from app.schemas.search import SemanticSearchRequest
-from app.schemas.search import SemanticSearchResponse
-from app.services.search.search import SemanticSearchBackendUnavailableError
-from app.services.search.search import semantic_search_videos
-from app.services.search.search_log import is_global_semantic_search_request
-from app.services.search.search_log import maybe_record_global_semantic_search
+from app.schemas.search import (
+    IndexingStatusResponse,
+    SearchResultChunk,
+    SemanticSearchRequest,
+    SemanticSearchResponse,
+)
+from app.services.search.search import (
+    SemanticSearchBackendUnavailableError,
+    semantic_search_videos,
+)
+from app.services.search.search_log import (
+    is_global_semantic_search_request,
+    maybe_record_global_semantic_search,
+)
 from app.utils.auth_deps import resolve_user_from_request
-from fastapi import APIRouter
-from fastapi import Depends
-from fastapi import HTTPException
-from fastapi import Request
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/search", tags=["search"])

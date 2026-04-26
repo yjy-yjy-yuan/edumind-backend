@@ -6,9 +6,12 @@
 """
 
 import pytest
-from app.services.config_model_params import InputValidationConfig
-from app.services.config_model_params import ModelParamWhitelist
-from app.services.config_model_params import SimilarityConfig
+
+from app.services.config_model_params import (
+    InputValidationConfig,
+    ModelParamWhitelist,
+    SimilarityConfig,
+)
 
 
 class TestModelParamWhitelist:

@@ -361,6 +361,67 @@ class TestFrameDescriptionService:
 
 
 class TestFrameDescriptionDegradedMode:
+    def test_vinci_adapter_degraded_payload_marks_complete_as_degraded(self, monkeypatch):
+        """当 execute_tool 返回 degraded=True 时，complete 事件也必须标记 degraded=True。"""
+        monkeypatch.setattr(
+            "app.services.frame_description_service.get_telemetry",
+            lambda: MagicMock(emit=MagicMock()),
+        )
+        monkeypatch.setattr(
+            "app.services.frame_description_service.settings",
+            MagicMock(
+                FRAME_DESC_ENABLED=True,
+                FRAME_DESC_TIMEOUT_SECONDS=8.0,
+                FRAME_DESC_CONTEXT_WINDOW_SIZE=5,
+                FRAME_DESC_SIMILARITY_THRESHOLD=0.82,
+                FRAME_DESC_SCENE_STABLE_THRESHOLD=4,
+                FRAME_DESC_DEGRADED_INTERVAL_SECONDS=10.0,
+                FRAME_DESC_DEGRADED_PREFIX="（描述服务暂不可用，仅供参考）",
+                VINCI_CIRCUIT_BREAKER_FAILURE_THRESHOLD=3,
+                VINCI_CIRCUIT_BREAKER_RECOVERY_SECONDS=30.0,
+                FRAME_DESC_AUTO_DEGRADE=True,
+                ANALYTICS_TRACE_ID_PLACEHOLDER="unset",
+            ),
+        )
+
+        def fake_execute_tool(tool_name, params, *, db, trace_id):
+            _ = db, trace_id, tool_name, params
+            return {
+                "answer": "Vinci 服务暂不可用，已返回降级结果，请稍后重试。",
+                "degraded": True,
+                "session_id": "degraded-payload-session",
+            }
+
+        monkeypatch.setattr(
+            "app.services.frame_description_service.execute_tool",
+            fake_execute_tool,
+        )
+
+        service = FrameDescriptionService()
+        service._cb = _VinciCircuitBreaker(
+            failure_threshold=3,
+            recovery_seconds=30.0,
+            key=f"test-adapter-degraded-{id(self)}",
+        )
+
+        events = list(
+            service.describe_frames(
+                frames=["/9j/4AAQSkZJRg=="],
+                timestamp=10.0,
+                video_id=1,
+                video_title="Test",
+                detail_level="standard",
+                session_id="degraded-payload-session",
+                trace_id="trace-degraded-payload",
+                allow_degrade=True,
+                db=None,
+            )
+        )
+
+        complete_events = [e for e in events if e["type"] == "complete"]
+        assert len(complete_events) == 1
+        assert complete_events[0]["degraded"] is True
+
     def test_vinci_unavailable_returns_degraded(self, monkeypatch):
         """当 Vinci 超时时（execute_tool 抛出 VinciAdapterError），服务应返回降级描述。"""
         monkeypatch.setattr(

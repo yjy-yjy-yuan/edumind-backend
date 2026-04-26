@@ -32,6 +32,8 @@ MAX_VINCI_PROMPT_CHARS = 20_000
 MAX_VINCI_SESSION_ID_CHARS = 128
 MAX_VINCI_HISTORY_ITEMS = 50
 MAX_VINCI_HISTORY_CONTENT_CHARS = 8_000
+MAX_VINCI_BASE64_FRAMES = 3
+MAX_VINCI_BASE64_FRAME_SIZE_CHARS = 200_000  # ~150KB JPEG at quality=0.6
 ALLOWED_NOTE_TYPES = frozenset({"text", "code", "list"})
 
 
@@ -154,7 +156,6 @@ def _validate_params(tool_name: str, params: dict[str, Any]) -> None:
         return
 
     if tool_name == "lf_frame_description":
-        # 参数校验逻辑与 lf_vinci_chat 完全相同（均调用同一 Vinci 后端）
         prompt = str(params.get("prompt") or "").strip()
         if not prompt:
             raise GovernanceError("missing_prompt")
@@ -166,6 +167,23 @@ def _validate_params(tool_name: str, params: dict[str, Any]) -> None:
             raise GovernanceError("missing_session_id")
         if len(session_id) > MAX_VINCI_SESSION_ID_CHARS:
             raise GovernanceError("session_id_too_long")
+
+        # base64_frames 校验：支持空列表（纯文本描述 / 降级模式）
+        raw_frames = params.get("base64_frames")
+        if raw_frames is None:
+            pass  # 允许为空，降级到纯文本模式
+        elif not isinstance(raw_frames, list):
+            raise GovernanceError("invalid_base64_frames")
+        elif len(raw_frames) > MAX_VINCI_BASE64_FRAMES:
+            raise GovernanceError("too_many_base64_frames")
+        else:
+            for item in raw_frames:
+                if not isinstance(item, str):
+                    raise GovernanceError("invalid_base64_frame_item")
+                if not item.strip():
+                    raise GovernanceError("empty_base64_frame")
+                if len(item) > MAX_VINCI_BASE64_FRAME_SIZE_CHARS:
+                    raise GovernanceError("base64_frame_too_large")
 
         history = params.get("history")
         if history is None:

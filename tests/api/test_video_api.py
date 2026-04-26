@@ -61,8 +61,7 @@ class TestVideoAPI:
 
     def test_generate_tags_includes_subject_tag(self, client, db, sample_user, monkeypatch):
         """重提标签后应写回科目标签，便于视频详情页直接展示。"""
-        from app.models.video import Video
-        from app.models.video import VideoStatus
+        from app.models.video import Video, VideoStatus
 
         monkeypatch.setattr("app.services.video_content_service.call_online_chat", lambda *args, **kwargs: None)
         monkeypatch.setattr("app.services.video_content_service.call_ollama", lambda *args, **kwargs: None)
@@ -105,11 +104,9 @@ class TestVideoAPI:
 
     def test_delete_video_cascades_subtitles_notes_and_timestamps(self, client, db, sample_user):
         """删除视频前先清理字幕、笔记时间戳与笔记，避免外键失败。"""
-        from app.models.note import Note
-        from app.models.note import NoteTimestamp
+        from app.models.note import Note, NoteTimestamp
         from app.models.subtitle import Subtitle
-        from app.models.video import Video
-        from app.models.video import VideoStatus
+        from app.models.video import Video, VideoStatus
 
         video = Video(
             user_id=sample_user.id,
@@ -542,8 +539,7 @@ class TestVideoAPI:
 
     def test_upload_video_url_allows_resubmit_after_failed_record(self, client, db, monkeypatch, sample_user):
         """测试历史失败的链接任务不会阻止重新提交。"""
-        from app.models.video import Video
-        from app.models.video import VideoStatus
+        from app.models.video import Video, VideoStatus
         from app.utils.auth_token import build_auth_token
 
         submitted = {"count": 0}
@@ -898,8 +894,7 @@ class TestNoteAPI:
 
     def test_update_note_video_and_clear_tags(self, client, db, sample_note, sample_video):
         """测试更新笔记的视频关联并清空标签。"""
-        from app.models.video import Video
-        from app.models.video import VideoStatus
+        from app.models.video import Video, VideoStatus
 
         second_video = Video(
             user_id=sample_video.user_id,

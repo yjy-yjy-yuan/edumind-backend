@@ -228,6 +228,118 @@ def test_execute_tool_fd_rejects_history_item_missing_role(db):
 
 
 # ---------------------------------------------------------------------------
+# 2b. base64_frames 参数校验测试（新增）
+# ---------------------------------------------------------------------------
+
+
+def test_execute_tool_fd_rejects_base64_frames_not_list(db):
+    """base64_frames 不为 list 时拒绝（invalid_base64_frames）。"""
+    with pytest.raises(GovernanceError, match="invalid_base64_frames"):
+        execute_tool(
+            "lf_frame_description",
+            {"prompt": "hello", "session_id": "s1", "base64_frames": "not_a_list", "history": []},
+            db=db,
+            trace_id="t-fd-b64-1",
+        )
+
+
+def test_execute_tool_fd_rejects_too_many_base64_frames(db):
+    """base64_frames 元素数量超过 MAX_VINCI_BASE64_FRAMES 时拒绝。"""
+    from app.agents.governance.gateway import MAX_VINCI_BASE64_FRAMES
+
+    too_many = ["frame_data"] * (MAX_VINCI_BASE64_FRAMES + 1)
+    with pytest.raises(GovernanceError, match="too_many_base64_frames"):
+        execute_tool(
+            "lf_frame_description",
+            {"prompt": "hello", "session_id": "s1", "base64_frames": too_many, "history": []},
+            db=db,
+            trace_id="t-fd-b64-2",
+        )
+
+
+def test_execute_tool_fd_rejects_base64_frame_item_not_string(db):
+    """base64_frames 内元素不是字符串时拒绝。"""
+    with pytest.raises(GovernanceError, match="invalid_base64_frame_item"):
+        execute_tool(
+            "lf_frame_description",
+            {"prompt": "hello", "session_id": "s1", "base64_frames": [123], "history": []},
+            db=db,
+            trace_id="t-fd-b64-3",
+        )
+
+
+def test_execute_tool_fd_rejects_empty_base64_frame(db):
+    """base64_frames 内有空字符串元素时拒绝。"""
+    with pytest.raises(GovernanceError, match="empty_base64_frame"):
+        execute_tool(
+            "lf_frame_description",
+            {"prompt": "hello", "session_id": "s1", "base64_frames": ["valid", "", "also_valid"], "history": []},
+            db=db,
+            trace_id="t-fd-b64-4",
+        )
+
+
+def test_execute_tool_fd_rejects_base64_frame_too_large(db):
+    """单帧 base64 字符串超过 MAX_VINCI_BASE64_FRAME_SIZE_CHARS 时拒绝。"""
+    from app.agents.governance.gateway import MAX_VINCI_BASE64_FRAME_SIZE_CHARS
+
+    too_large = "x" * (MAX_VINCI_BASE64_FRAME_SIZE_CHARS + 1)
+    with pytest.raises(GovernanceError, match="base64_frame_too_large"):
+        execute_tool(
+            "lf_frame_description",
+            {"prompt": "hello", "session_id": "s1", "base64_frames": [too_large], "history": []},
+            db=db,
+            trace_id="t-fd-b64-5",
+        )
+
+
+def test_execute_tool_fd_accepts_valid_base64_frames(db):
+    """合法的 base64_frames 列表通过校验。"""
+    from app.agents.governance.gateway import MAX_VINCI_BASE64_FRAMES
+
+    valid_frames = ["a" * 100 for _ in range(MAX_VINCI_BASE64_FRAMES)]
+    # 只验证校验通过（不验证业务逻辑）
+    try:
+        execute_tool(
+            "lf_frame_description",
+            {"prompt": "hello", "session_id": "s1", "base64_frames": valid_frames, "history": []},
+            db=db,
+            trace_id="t-fd-b64-6",
+        )
+    except GovernanceError as e:
+        # 可能因其他原因失败（如 governance context），但不是 base64_frames 校验失败
+        assert "base64_frame" not in str(e), f"Unexpected base64_frames error: {e}"
+
+
+def test_execute_tool_fd_accepts_empty_base64_frames(db):
+    """base64_frames 为空列表时不报错（降级到纯文本模式）。"""
+    try:
+        execute_tool(
+            "lf_frame_description",
+            {"prompt": "hello", "session_id": "s1", "base64_frames": [], "history": []},
+            db=db,
+            trace_id="t-fd-b64-7",
+        )
+    except GovernanceError as e:
+        # 可能因其他原因失败（如 governance context），但不是 base64_frames 校验失败
+        assert "base64_frame" not in str(e), f"Unexpected base64_frames error: {e}"
+
+
+def test_execute_tool_fd_accepts_no_base64_frames_key(db):
+    """params 中完全不包含 base64_frames 键时通过校验（纯文本模式）。"""
+    try:
+        execute_tool(
+            "lf_frame_description",
+            {"prompt": "hello", "session_id": "s1", "history": []},
+            db=db,
+            trace_id="t-fd-b64-8",
+        )
+    except GovernanceError as e:
+        # 可能因其他原因失败（如 governance context），但不是 base64_frames 校验失败
+        assert "base64_frame" not in str(e), f"Unexpected base64_frames error: {e}"
+
+
+# ---------------------------------------------------------------------------
 # 3. 绕过网关直调阻断测试（ensure_in_governance_context 层面）
 # ---------------------------------------------------------------------------
 

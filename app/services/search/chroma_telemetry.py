@@ -1,7 +1,6 @@
 """Chroma telemetry adapter for backend local runtime."""
 
-from chromadb.telemetry.product import ProductTelemetryClient
-from chromadb.telemetry.product import ProductTelemetryEvent
+from chromadb.telemetry.product import ProductTelemetryClient, ProductTelemetryEvent
 from overrides import override
 
 
