@@ -115,26 +115,55 @@ def estimate_transcription_seconds(duration_seconds: float, model_name: str) -> 
 
 
 def generate_video_info(video_path: str) -> dict:
-    """获取视频信息"""
+    """获取视频信息（OpenCV 优先，ffmpeg/ffprobe 回退）"""
+    # 尝试 OpenCV
     try:
         import cv2
 
         cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            logger.error(f"无法打开视频文件: {video_path}")
-            return None
-
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        duration = frame_count / fps if fps > 0 else 0
-
-        cap.release()
-
-        return {"width": width, "height": height, "fps": fps, "frame_count": frame_count, "duration": duration}
+        if cap.isOpened():
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            duration = frame_count / fps if fps > 0 else 0
+            cap.release()
+            if width > 0 and height > 0:
+                return {"width": width, "height": height, "fps": fps, "frame_count": frame_count, "duration": duration}
     except Exception as e:
-        logger.error(f"获取视频信息失败: {str(e)}")
+        logger.warning(f"OpenCV 获取视频信息失败，尝试 ffprobe: {str(e)}")
+
+    # 回退：使用 ffmpeg stderr 解析视频信息
+    try:
+        import re
+        import subprocess
+        result = subprocess.run(
+            ["ffmpeg", "-i", video_path],
+            capture_output=True, text=True, timeout=30
+        )
+        stderr = result.stderr
+        duration_match = re.search(r"Duration: (\d+):(\d+):(\d+(?:\.\d+)?)", stderr)
+        duration = 0
+        if duration_match:
+            h, m, s = duration_match.groups()
+            duration = int(h) * 3600 + int(m) * 60 + float(s)
+
+        width, height, fps = 0, 0, 0
+        for line in stderr.split(chr(10)):
+            if "Stream" in line and "Video" in line:
+                dim_match = re.search(r"(\d+)x(\d+)", line)
+                if dim_match:
+                    width, height = int(dim_match.group(1)), int(dim_match.group(2))
+                fps_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:fps|tbr)", line)
+                if fps_match:
+                    fps = float(fps_match.group(1))
+                break
+
+        logger.info("ffmpeg 提取视频信息成功 | path=%s | dur=%.1fs | %dx%d | %.2ffps",
+                     video_path, duration, width, height, fps)
+        return {"width": width, "height": height, "fps": fps, "frame_count": int(duration * fps) if fps > 0 else 0, "duration": duration}
+    except Exception as e:
+        logger.error(f"ffmpeg 获取视频信息失败: {str(e)}")
         return None
 
 
@@ -149,13 +178,12 @@ def is_placeholder_file(filepath: str) -> bool:
 
 
 def generate_preview_image(video_path: str, preview_path: str) -> bool:
-    """生成视频预览图"""
-    try:
-        import cv2
-        import numpy as np
-
-        # 检查是否为占位文件
-        if is_placeholder_file(video_path):
+    """生成视频预览图（OpenCV 优先，ffmpeg 回退）"""
+    # 检查是否为占位文件
+    if is_placeholder_file(video_path):
+        try:
+            import numpy as np
+            import cv2
             img = np.zeros((360, 640, 3), dtype=np.uint8)
             img[:, :] = (25, 55, 125)
             font = cv2.FONT_HERSHEY_SIMPLEX
@@ -163,22 +191,35 @@ def generate_preview_image(video_path: str, preview_path: str) -> bool:
             cv2.putText(img, "Please replace manually", (140, 220), font, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
             cv2.imwrite(preview_path, img)
             return True
+        except Exception:
+            return True  # 占位文件无需实际预览
 
+    # 尝试 OpenCV
+    try:
+        import cv2
         cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            return False
-
-        ret, frame = cap.read()
-        cap.release()
-
-        if not ret:
-            return False
-
-        cv2.imwrite(preview_path, frame)
-        return True
+        if cap.isOpened():
+            ret, frame = cap.read()
+            cap.release()
+            if ret:
+                cv2.imwrite(preview_path, frame)
+                return True
     except Exception as e:
-        logger.error(f"生成预览图失败: {str(e)}")
-        return False
+        logger.warning(f"OpenCV 生成预览图失败，尝试 ffmpeg: {str(e)}")
+
+    # 回退：使用 ffmpeg 提取第一帧
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", video_path, "-vframes", "1", "-q:v", "2", preview_path],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0 and os.path.exists(preview_path):
+            return True
+    except Exception as e:
+        logger.warning(f"ffmpeg 生成预览图也失败: {str(e)}")
+
+    return False
 
 
 def extract_audio(video_path: str, audio_path: str) -> bool:
@@ -651,11 +692,7 @@ def process_video_task(
             video.preview_filepath = preview_path
             db.commit()
         else:
-            if not is_placeholder:
-                video.status = VideoStatus.FAILED
-                video.current_step = "生成预览图失败"
-                db.commit()
-                return {"status": "failed", "message": "生成预览图失败"}
+            logger.warning("生成预览图失败，继续处理视频 | video_id=%s", video_id)
 
         # Step 2: 提取视频信息 (30%)
         video.process_progress = 30.0
