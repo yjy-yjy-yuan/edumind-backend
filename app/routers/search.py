@@ -24,7 +24,7 @@ from app.services.search.search_log import (
     is_global_semantic_search_request,
     maybe_record_global_semantic_search,
 )
-from app.utils.auth_deps import resolve_user_from_request
+from app.utils.auth_deps import resolve_user_id_from_request
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/search", tags=["search"])
@@ -39,28 +39,15 @@ def get_current_user_id(request: Request, db: Session = Depends(get_db)) -> int:
     2. 兼容旧链路的 X-User-ID
     3. 默认用户 1（仅开发兜底，保持历史兼容）
     """
-    raw_user_id = request.headers.get("X-User-ID")
-    user_id = None
-    if raw_user_id:
-        try:
-            user_id = int(raw_user_id)
-        except (ValueError, TypeError):
-            user_id = None
-
-    authorization = request.headers.get("Authorization")
-    current_user = resolve_user_from_request(db, user_id, authorization)
-    if current_user is not None:
-        return int(current_user.id)
-
-    # Bearer 明确传入但无法解析/校验时，不允许再默默回退，避免越权。
-    if authorization and authorization.strip().lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="请先登录后再使用语义搜索")
-
-    if user_id is not None:
-        return user_id
-
-    logger.warning("Using default user_id=1 (no authentication header found)")
-    return 1
+    return resolve_user_id_from_request(
+        db,
+        authorization=request.headers.get("Authorization"),
+        x_user_id=request.headers.get("X-User-ID"),
+        query_user_id=request.query_params.get("user_id"),
+        allow_default_user=True,
+        default_user_id=1,
+        unauthorized_detail="请先登录后再使用语义搜索",
+    )
 
 
 def verify_user_video_access(user_id: int, video_id: int, db: Session) -> Video:

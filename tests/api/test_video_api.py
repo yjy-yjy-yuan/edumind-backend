@@ -128,7 +128,7 @@ class TestVideoAPI:
                 language="zh",
             )
         )
-        note = Note(title="笔记", content="内容", video_id=video.id, note_type="text")
+        note = Note(title="笔记", content="内容", video_id=video.id, user_id=video.user_id, note_type="text")
         db.add(note)
         db.commit()
         db.refresh(note)
@@ -931,6 +931,7 @@ class TestNoteAPI:
             title="函数极限笔记",
             content="这里记录函数极限与导数关系",
             video_id=sample_video.id,
+            user_id=sample_video.user_id,
             note_type="text",
             tags="极限,导数",
             keywords="极限,导数",

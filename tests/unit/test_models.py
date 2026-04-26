@@ -15,6 +15,7 @@ class TestVideoModel:
     def test_video_creation(self, db):
         """测试创建视频"""
         video = Video(
+            user_id=1,
             filename="test.mp4",
             filepath="/tmp/test.mp4",
             title="测试视频",
@@ -30,6 +31,7 @@ class TestVideoModel:
     def test_video_status_enum(self, db):
         """测试视频状态枚举"""
         video = Video(
+            user_id=1,
             filename="test.mp4",
             filepath="/tmp/test.mp4",
             status=VideoStatus.PROCESSING,
@@ -43,6 +45,7 @@ class TestVideoModel:
     def test_video_to_dict(self, db):
         """测试视频转字典"""
         video = Video(
+            user_id=1,
             filename="test.mp4",
             filepath="/tmp/test.mp4",
             title="测试",
@@ -101,6 +104,7 @@ class TestNoteModel:
             title="测试笔记",
             content="笔记内容",
             video_id=sample_video.id,
+            user_id=sample_video.user_id,
         )
         db.add(note)
         db.commit()
@@ -114,6 +118,7 @@ class TestNoteModel:
             title="测试笔记",
             content="笔记内容",
             video_id=sample_video.id,
+            user_id=sample_video.user_id,
         )
         db.add(note)
         db.commit()

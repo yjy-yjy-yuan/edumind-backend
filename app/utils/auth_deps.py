@@ -2,6 +2,7 @@
 
 from typing import Optional
 
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -27,3 +28,49 @@ def resolve_user_from_request(db: Session, user_id: Optional[int], authorization
         return db.query(User).filter(User.id == user_id).first()
 
     return None
+
+
+def resolve_user_id_from_request(
+    db: Session,
+    *,
+    authorization: Optional[str],
+    x_user_id: Optional[str] = None,
+    query_user_id: Optional[str] = None,
+    allow_default_user: bool = False,
+    default_user_id: int = 1,
+    unauthorized_detail: str = "请先登录",
+) -> int:
+    """Resolve user id for routes that need explicit user scoping.
+
+    Priority:
+    1. Bearer token
+    2. legacy user id (X-User-ID / query user_id)
+    3. optional default user fallback (development compatibility)
+    """
+    raw_user_id = str(x_user_id or "").strip() or str(query_user_id or "").strip() or None
+    parsed_user_id: Optional[int] = None
+    if raw_user_id:
+        try:
+            parsed_user_id = int(raw_user_id)
+        except (TypeError, ValueError):
+            parsed_user_id = None
+
+    user = resolve_user_from_request(db, parsed_user_id, authorization)
+    if user is not None:
+        return int(user.id)
+
+    if authorization and authorization.strip().lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail=unauthorized_detail)
+
+    if parsed_user_id is not None:
+        return parsed_user_id
+
+    if allow_default_user:
+        default_email = str(getattr(settings, "DEV_DEFAULT_USER_EMAIL", "") or "").strip().lower()
+        if default_email:
+            default_user = db.query(User).filter(User.email == default_email).first()
+            if default_user is not None:
+                return int(default_user.id)
+        return int(default_user_id)
+
+    raise HTTPException(status_code=401, detail=unauthorized_detail)

@@ -36,13 +36,14 @@ repos:
         entry: .venv/bin/trailing-whitespace-fixer --markdown-linebreak-ext=md
         language: system
         files: ''
-        exclude: '\.md$'
+        exclude: '(\.md$|^data/chroma/|^data/chroma_broken_20260410_183433/|\.bin$|^\.env\.bak\.)'
 
       - id: end-of-file-fixer
         name: end of file fixer
         entry: .venv/bin/end-of-file-fixer
         language: system
         files: ''
+        exclude: '(^data/chroma/|^data/chroma_broken_20260410_183433/|\.bin$|^\.env\.bak\.)'
 
       - id: check-merge-conflict
         name: check merge conflict

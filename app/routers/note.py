@@ -7,7 +7,7 @@ import zipfile
 from typing import List, Optional
 
 import jieba.analyse
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -16,10 +16,23 @@ from app.core.database import get_db
 from app.models.note import Note, NoteTimestamp
 from app.models.video import Video
 from app.schemas.note import NoteCreate, NoteResponse, NoteUpdate
+from app.utils.auth_deps import resolve_user_id_from_request
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def get_current_user_id(request: Request, db: Session = Depends(get_db)) -> int:
+    return resolve_user_id_from_request(
+        db,
+        authorization=request.headers.get("Authorization"),
+        x_user_id=request.headers.get("X-User-ID"),
+        query_user_id=request.query_params.get("user_id"),
+        allow_default_user=True,
+        default_user_id=1,
+        unauthorized_detail="请先登录后再使用笔记功能",
+    )
 
 
 def normalize_tag_string(raw_tags: Optional[str]) -> Optional[str]:
@@ -47,7 +60,7 @@ def extract_keywords(text: str, top_k: int = 10) -> List[str]:
     return keywords
 
 
-def generate_content_vector(text: str, db: Session) -> str:
+def generate_content_vector(text: str, db: Session, *, user_id: int) -> str:
     """生成内容向量"""
     if not text or len(text.strip()) == 0:
         return json.dumps([0.0] * 10)
@@ -55,7 +68,7 @@ def generate_content_vector(text: str, db: Session) -> str:
     try:
         from sklearn.feature_extraction.text import TfidfVectorizer
 
-        all_notes = db.query(Note).all()
+        all_notes = db.query(Note).filter(Note.user_id == user_id).all()
         all_contents = [note.content for note in all_notes if note.content and len(note.content.strip()) > 0]
 
         if not all_contents:
@@ -99,9 +112,10 @@ async def get_notes(
     search: Optional[str] = None,
     note_type: Optional[str] = None,
     db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
 ):
     """获取所有笔记"""
-    query = db.query(Note)
+    query = db.query(Note).filter(Note.user_id == current_user_id)
 
     if video_id:
         query = query.filter(Note.video_id == video_id)
@@ -119,16 +133,18 @@ async def get_notes(
 
 
 @router.get("/notes/{note_id}")
-async def get_note(note_id: int, db: Session = Depends(get_db)):
+async def get_note(note_id: int, db: Session = Depends(get_db), current_user_id: int = Depends(get_current_user_id)):
     """获取单个笔记"""
-    note = db.query(Note).filter(Note.id == note_id).first()
+    note = db.query(Note).filter(Note.id == note_id, Note.user_id == current_user_id).first()
     if not note:
         raise HTTPException(status_code=404, detail="笔记不存在")
     return {"status": "success", "data": note.to_dict()}
 
 
 @router.post("/notes")
-async def create_note(data: NoteCreate, db: Session = Depends(get_db)):
+async def create_note(
+    data: NoteCreate, db: Session = Depends(get_db), current_user_id: int = Depends(get_current_user_id)
+):
     """创建新笔记"""
     if not data.title:
         raise HTTPException(status_code=400, detail="标题不能为空")
@@ -141,14 +157,14 @@ async def create_note(data: NoteCreate, db: Session = Depends(get_db)):
     )
 
     if data.video_id:
-        video = db.query(Video).filter(Video.id == data.video_id).first()
+        video = db.query(Video).filter(Video.id == data.video_id, Video.user_id == current_user_id).first()
         if not video:
-            raise HTTPException(status_code=404, detail="视频不存在")
+            raise HTTPException(status_code=404, detail="视频不存在或无权访问")
 
     content = data.content or ""
     keywords = extract_keywords(content)
     keywords_str = ",".join(keywords) if keywords else None
-    content_vector = generate_content_vector(content, db)
+    content_vector = generate_content_vector(content, db, user_id=current_user_id)
 
     note = Note(
         title=data.title,
@@ -156,6 +172,7 @@ async def create_note(data: NoteCreate, db: Session = Depends(get_db)):
         content_vector=content_vector,
         note_type=data.note_type or "text",
         video_id=data.video_id,
+        user_id=current_user_id,
         tags=normalize_tag_string(data.tags),
         keywords=keywords_str,
     )
@@ -179,9 +196,14 @@ async def create_note(data: NoteCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/notes/{note_id}")
-async def update_note(note_id: int, data: NoteUpdate, db: Session = Depends(get_db)):
+async def update_note(
+    note_id: int,
+    data: NoteUpdate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """更新笔记"""
-    note = db.query(Note).filter(Note.id == note_id).first()
+    note = db.query(Note).filter(Note.id == note_id, Note.user_id == current_user_id).first()
     if not note:
         raise HTTPException(status_code=404, detail="笔记不存在")
     logger.debug("note update request | note_id=%s | fields=%s", note_id, sorted(data.model_fields_set))
@@ -194,16 +216,16 @@ async def update_note(note_id: int, data: NoteUpdate, db: Session = Depends(get_
         note.content = data.content or ""
         keywords = extract_keywords(note.content)
         note.keywords = ",".join(keywords) if keywords else None
-        note.content_vector = generate_content_vector(note.content, db)
+        note.content_vector = generate_content_vector(note.content, db, user_id=current_user_id)
     if "note_type" in updated_fields:
         note.note_type = data.note_type
     if "video_id" in updated_fields:
         if data.video_id is None:
             note.video_id = None
         else:
-            video = db.query(Video).filter(Video.id == data.video_id).first()
+            video = db.query(Video).filter(Video.id == data.video_id, Video.user_id == current_user_id).first()
             if not video:
-                raise HTTPException(status_code=404, detail="视频不存在")
+                raise HTTPException(status_code=404, detail="视频不存在或无权访问")
             note.video_id = data.video_id
     if "tags" in updated_fields:
         note.tags = normalize_tag_string(data.tags)
@@ -217,9 +239,13 @@ async def update_note(note_id: int, data: NoteUpdate, db: Session = Depends(get_
 
 
 @router.delete("/notes/{note_id}")
-async def delete_note(note_id: int, db: Session = Depends(get_db)):
+async def delete_note(
+    note_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """删除笔记"""
-    note = db.query(Note).filter(Note.id == note_id).first()
+    note = db.query(Note).filter(Note.id == note_id, Note.user_id == current_user_id).first()
     if not note:
         raise HTTPException(status_code=404, detail="笔记不存在")
     logger.debug("note delete request | note_id=%s | video_id=%s | title=%s", note_id, note.video_id, note.title)
@@ -231,10 +257,14 @@ async def delete_note(note_id: int, db: Session = Depends(get_db)):
 
 @router.post("/notes/{note_id}/timestamps")
 async def add_timestamp(
-    note_id: int, time_seconds: float, subtitle_text: Optional[str] = None, db: Session = Depends(get_db)
+    note_id: int,
+    time_seconds: float,
+    subtitle_text: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
 ):
     """添加时间戳"""
-    note = db.query(Note).filter(Note.id == note_id).first()
+    note = db.query(Note).filter(Note.id == note_id, Note.user_id == current_user_id).first()
     if not note:
         raise HTTPException(status_code=404, detail="笔记不存在")
     logger.debug(
@@ -254,10 +284,18 @@ async def add_timestamp(
 
 
 @router.delete("/notes/{note_id}/timestamps/{timestamp_id}")
-async def delete_timestamp(note_id: int, timestamp_id: int, db: Session = Depends(get_db)):
+async def delete_timestamp(
+    note_id: int,
+    timestamp_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """删除时间戳"""
     timestamp = (
-        db.query(NoteTimestamp).filter(NoteTimestamp.id == timestamp_id, NoteTimestamp.note_id == note_id).first()
+        db.query(NoteTimestamp)
+        .join(Note, Note.id == NoteTimestamp.note_id)
+        .filter(NoteTimestamp.id == timestamp_id, NoteTimestamp.note_id == note_id, Note.user_id == current_user_id)
+        .first()
     )
     if not timestamp:
         raise HTTPException(status_code=404, detail="时间戳不存在")
@@ -268,10 +306,10 @@ async def delete_timestamp(note_id: int, timestamp_id: int, db: Session = Depend
 
 
 @router.get("/tags")
-async def get_tags(db: Session = Depends(get_db)):
+async def get_tags(db: Session = Depends(get_db), current_user_id: int = Depends(get_current_user_id)):
     """获取所有标签"""
     logger.debug("note tags query request")
-    notes = db.query(Note).filter(Note.tags.isnot(None)).all()
+    notes = db.query(Note).filter(Note.user_id == current_user_id, Note.tags.isnot(None)).all()
 
     all_tags = {}
     for note in notes:
@@ -288,7 +326,12 @@ async def get_tags(db: Session = Depends(get_db)):
 
 
 @router.post("/notes/similar")
-async def get_similar_notes(content: str, limit: int = 5, db: Session = Depends(get_db)):
+async def get_similar_notes(
+    content: str,
+    limit: int = 5,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """获取相似笔记"""
     if not content or len(content) < 10:
         return {"status": "success", "data": []}
@@ -305,7 +348,7 @@ async def get_similar_notes(content: str, limit: int = 5, db: Session = Depends(
                 or_(Note.title.like(f"%{word}%"), Note.content.like(f"%{word}%"), Note.keywords.like(f"%{word}%"))
             )
 
-        keyword_matches = db.query(Note).filter(or_(*conditions)).all()
+        keyword_matches = db.query(Note).filter(Note.user_id == current_user_id, or_(*conditions)).all()
         similar_notes.extend(keyword_matches)
 
     # 去重并限制数量
@@ -327,42 +370,71 @@ async def get_notes_alias(
     search: Optional[str] = None,
     note_type: Optional[str] = None,
     db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
 ):
     """兼容 REST 风格的笔记列表入口。"""
-    return await get_notes(video_id=video_id, tag=tag, search=search, note_type=note_type, db=db)
+    return await get_notes(
+        video_id=video_id,
+        tag=tag,
+        search=search,
+        note_type=note_type,
+        db=db,
+        current_user_id=current_user_id,
+    )
 
 
 @router.post("")
-async def create_note_alias(data: NoteCreate, db: Session = Depends(get_db)):
+async def create_note_alias(
+    data: NoteCreate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """兼容 REST 风格的创建笔记入口。"""
-    return await create_note(data=data, db=db)
+    return await create_note(data=data, db=db, current_user_id=current_user_id)
 
 
 @router.get("/{note_id}")
-async def get_note_alias(note_id: int, db: Session = Depends(get_db)):
+async def get_note_alias(
+    note_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """兼容 REST 风格的读取笔记入口。"""
-    return await get_note(note_id=note_id, db=db)
+    return await get_note(note_id=note_id, db=db, current_user_id=current_user_id)
 
 
 @router.put("/{note_id}")
-async def update_note_alias(note_id: int, data: NoteUpdate, db: Session = Depends(get_db)):
+async def update_note_alias(
+    note_id: int,
+    data: NoteUpdate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """兼容 REST 风格的更新笔记入口。"""
-    return await update_note(note_id=note_id, data=data, db=db)
+    return await update_note(note_id=note_id, data=data, db=db, current_user_id=current_user_id)
 
 
 @router.delete("/{note_id}")
-async def delete_note_alias(note_id: int, db: Session = Depends(get_db)):
+async def delete_note_alias(
+    note_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """兼容 REST 风格的删除笔记入口。"""
-    return await delete_note(note_id=note_id, db=db)
+    return await delete_note(note_id=note_id, db=db, current_user_id=current_user_id)
 
 
 @router.post("/notes/batch-delete")
-async def batch_delete_notes(note_ids: List[int], db: Session = Depends(get_db)):
+async def batch_delete_notes(
+    note_ids: List[int],
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """批量删除笔记"""
     if not note_ids:
         raise HTTPException(status_code=400, detail="未提供笔记ID")
 
-    notes = db.query(Note).filter(Note.id.in_(note_ids)).all()
+    notes = db.query(Note).filter(Note.user_id == current_user_id, Note.id.in_(note_ids)).all()
     for note in notes:
         db.delete(note)
     db.commit()
@@ -371,12 +443,16 @@ async def batch_delete_notes(note_ids: List[int], db: Session = Depends(get_db))
 
 
 @router.post("/notes/batch-export")
-async def batch_export_notes(note_ids: List[int], db: Session = Depends(get_db)):
+async def batch_export_notes(
+    note_ids: List[int],
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """批量导出笔记"""
     if not note_ids:
         raise HTTPException(status_code=400, detail="未提供笔记ID")
 
-    notes = db.query(Note).filter(Note.id.in_(note_ids)).all()
+    notes = db.query(Note).filter(Note.user_id == current_user_id, Note.id.in_(note_ids)).all()
     if not notes:
         raise HTTPException(status_code=404, detail="未找到指定的笔记")
 
@@ -403,9 +479,13 @@ async def batch_export_notes(note_ids: List[int], db: Session = Depends(get_db))
 
 
 @router.get("/notes/{note_id}/export")
-async def export_single_note(note_id: int, db: Session = Depends(get_db)):
+async def export_single_note(
+    note_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """导出单个笔记"""
-    note = db.query(Note).filter(Note.id == note_id).first()
+    note = db.query(Note).filter(Note.id == note_id, Note.user_id == current_user_id).first()
     if not note:
         raise HTTPException(status_code=404, detail="未找到指定的笔记")
 
@@ -427,11 +507,11 @@ async def export_single_note(note_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/tags/sync")
-async def sync_tags(db: Session = Depends(get_db)):
+async def sync_tags(db: Session = Depends(get_db), current_user_id: int = Depends(get_current_user_id)):
     """同步标签数据，清除不存在于任何笔记中的标签"""
     try:
         logger.debug("note tags sync request")
-        notes = db.query(Note).all()
+        notes = db.query(Note).filter(Note.user_id == current_user_id).all()
 
         # 收集所有实际存在的标签
         valid_tags = set()
