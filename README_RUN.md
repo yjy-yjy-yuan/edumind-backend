@@ -23,6 +23,11 @@ cp .env.example .env
 
 按实际环境填写数据库、模型服务和密钥配置。若修改端口，请同步调整 `PORT` 与 `CORS_ORIGINS`。
 
+数据库说明：
+- 生产/联调默认使用 MySQL（`mysql+pymysql://...`）。
+- 本地快速验证可改为 SQLite（例如 `DATABASE_URL=sqlite:///./edumind_dev.db`）。
+- 后端会根据 `DATABASE_URL` 自动选择兼容参数（MySQL 连接池参数或 SQLite `check_same_thread=False`）。
+
 如果需要联调 Vinci 微服务，请至少配置：
 
 ```bash
@@ -41,6 +46,8 @@ VINCI_STREAM_PATH=/api/v1/chat/stream
 brew services start mysql
 ollama serve
 ```
+
+如果你使用 SQLite，本步骤可跳过 MySQL。
 
 ## 5. 可选：导入本地 GGUF 到 Ollama
 
