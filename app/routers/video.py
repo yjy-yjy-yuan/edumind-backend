@@ -10,56 +10,67 @@ import tempfile
 import traceback
 from typing import Optional
 
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
+from fastapi.responses import FileResponse, Response, StreamingResponse
+from sqlalchemy.orm import Session
+
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.subtitle import Subtitle
-from app.models.video import Video
-from app.models.video import VideoProcessingOrigin
-from app.models.video import VideoStatus
-from app.schemas.video import OfflineTranscriptSyncRequest
-from app.schemas.video import TranscriptSummaryRequest
-from app.schemas.video import VideoDetail
-from app.schemas.video import VideoListResponse
-from app.schemas.video import VideoProcessingOptionsResponse
-from app.schemas.video import VideoProcessRequest
-from app.schemas.video import VideoStatusResponse
-from app.schemas.video import VideoSummaryRequest
-from app.schemas.video import VideoTagRequest
-from app.schemas.video import VideoUploadResponse
-from app.schemas.video import VideoUploadURL
-from app.services.video_api_service import build_processing_metadata
-from app.services.video_api_service import build_processing_options
-from app.services.video_api_service import serialize_video
-from app.services.video_content_service import build_subject_enriched_tags
-from app.services.video_content_service import generate_primary_topic_name
-from app.services.video_content_service import generate_video_summary
-from app.services.video_content_service import generate_video_tags
-from app.services.video_content_service import normalize_summary_style
-from app.services.video_content_service import read_subtitle_text
-from app.services.video_processing_registry import forget_video_processing_request
-from app.services.video_processing_registry import remember_video_processing_request
-from app.services.video_recommendation_service import load_candidate_videos_for_recommendation
-from app.services.video_recommendation_service import recommend_videos
-from app.services.video_recommendation_service import sanitize_recommendation_payload_for_client
+from app.models.video import Video, VideoProcessingOrigin, VideoStatus
+from app.schemas.video import (
+    OfflineTranscriptSyncRequest,
+    TranscriptSummaryRequest,
+    VideoDetail,
+    VideoListResponse,
+    VideoProcessingOptionsResponse,
+    VideoProcessRequest,
+    VideoStatusResponse,
+    VideoSummaryRequest,
+    VideoTagRequest,
+    VideoUploadResponse,
+    VideoUploadURL,
+)
+from app.services.video_api_service import (
+    build_processing_metadata,
+    build_processing_options,
+    serialize_video,
+)
+from app.services.video_content_service import (
+    build_subject_enriched_tags,
+    generate_primary_topic_name,
+    generate_video_summary,
+    generate_video_tags,
+    normalize_summary_style,
+    read_subtitle_text,
+)
+from app.services.video_processing_registry import (
+    forget_video_processing_request,
+    remember_video_processing_request,
+)
+from app.services.video_recommendation_service import (
+    load_candidate_videos_for_recommendation,
+    recommend_videos,
+    sanitize_recommendation_payload_for_client,
+)
 from app.services.video_url_import_service import import_remote_video_from_url
-from app.services.whisper_runtime import get_supported_whisper_models
-from app.services.whisper_runtime import get_whisper_model_catalog
-from app.services.whisper_runtime import normalize_whisper_model_name
-from app.services.whisper_runtime import transcribe_audio_with_whisper
+from app.services.whisper_runtime import (
+    get_supported_whisper_models,
+    get_whisper_model_catalog,
+    normalize_whisper_model_name,
+    transcribe_audio_with_whisper,
+)
 from app.utils.auth_deps import resolve_user_from_request
-from fastapi import APIRouter
-from fastapi import Depends
-from fastapi import File
-from fastapi import Form
-from fastapi import Header
-from fastapi import HTTPException
-from fastapi import Query
-from fastapi import Request
-from fastapi import UploadFile
-from fastapi.responses import FileResponse
-from fastapi.responses import Response
-from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -773,8 +784,7 @@ async def delete_video(video_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="视频不存在")
 
     # 删除关联的问题记录
-    from app.models.note import Note
-    from app.models.note import NoteTimestamp
+    from app.models.note import Note, NoteTimestamp
     from app.models.qa import Question
 
     db.query(Question).filter(Question.video_id == video_id).delete()

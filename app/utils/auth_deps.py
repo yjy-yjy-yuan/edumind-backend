@@ -2,11 +2,11 @@
 
 from typing import Optional
 
+from sqlalchemy.orm import Session
+
 from app.core.config import settings
 from app.models.user import User
-from app.utils.auth_token import parse_auth_token
-from app.utils.auth_token import parse_bearer_token
-from sqlalchemy.orm import Session
+from app.utils.auth_token import parse_auth_token, parse_bearer_token
 
 
 def resolve_user_from_request(db: Session, user_id: Optional[int], authorization: Optional[str]) -> Optional[User]:

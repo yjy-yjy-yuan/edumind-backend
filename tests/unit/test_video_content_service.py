@@ -1,10 +1,13 @@
 """视频摘要与标签服务测试。"""
 
 import pytest
-from app.services.video_content_service import SUMMARY_STYLE_STUDY
-from app.services.video_content_service import fallback_summary
-from app.services.video_content_service import generate_video_summary
-from app.services.video_content_service import generate_video_tags
+
+from app.services.video_content_service import (
+    SUMMARY_STYLE_STUDY,
+    fallback_summary,
+    generate_video_summary,
+    generate_video_tags,
+)
 
 
 @pytest.mark.unit

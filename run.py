@@ -1,6 +1,7 @@
 """应用启动脚本"""
 
 import uvicorn
+
 from app.core.config import settings
 
 if __name__ == "__main__":

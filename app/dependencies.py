@@ -2,11 +2,10 @@
 
 from typing import Generator
 
-from app.core.database import SessionLocal
-from fastapi import Depends
-from fastapi import HTTPException
-from fastapi import status
+from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
+
+from app.core.database import SessionLocal
 
 
 def get_db() -> Generator[Session, None, None]:

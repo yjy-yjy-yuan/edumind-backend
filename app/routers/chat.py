@@ -2,12 +2,11 @@
 
 import logging
 
-from app.schemas.chat import ChatRequest
-from app.utils.qa_utils import QAConfigError
-from app.utils.qa_utils import QAProviderError
-from fastapi import APIRouter
-from fastapi import HTTPException
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
+
+from app.schemas.chat import ChatRequest
+from app.utils.qa_utils import QAConfigError, QAProviderError
 
 logger = logging.getLogger(__name__)
 

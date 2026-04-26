@@ -4,16 +4,21 @@ import json
 import logging
 
 import pytest
+
 from app.services import video_recommendation_service as recommendation_service
-from app.services.external_candidate_service import ExternalCandidate
-from app.services.external_candidate_service import ExternalCandidateFetchReport
-from app.services.external_candidate_service import ExternalProviderFetchSummary
+from app.services.external_candidate_service import (
+    ExternalCandidate,
+    ExternalCandidateFetchReport,
+    ExternalProviderFetchSummary,
+)
 
 
 @pytest.fixture(autouse=True)
 def reset_recommendation_ops_event_store():
     """隔离推荐运营聚合内存缓冲，避免测试间互相污染。"""
-    from app.services.recommendation_ops_service import reset_recommendation_event_store_for_tests
+    from app.services.recommendation_ops_service import (
+        reset_recommendation_event_store_for_tests,
+    )
 
     reset_recommendation_event_store_for_tests()
     yield
@@ -86,8 +91,7 @@ class TestRecommendationAPI:
 
     def test_videos_items_strip_slice_fields(self, client, db, sample_user, monkeypatch):
         """推荐接口出口统一去切片：summary/reason_text/tags 必须清空。"""
-        from app.models.video import Video
-        from app.models.video import VideoStatus
+        from app.models.video import Video, VideoStatus
 
         internal_video = Video(
             user_id=sample_user.id,
@@ -123,8 +127,7 @@ class TestRecommendationAPI:
     def test_videos_contract_v1_restores_seed_video_title(self, client, db, sample_user, monkeypatch):
         """RECOMMENDATION_CONTRACT_VERSION=1 时仍返回 seed_video_title，但切片文本字段继续清空。"""
         from app.core.config import settings
-        from app.models.video import Video
-        from app.models.video import VideoStatus
+        from app.models.video import Video, VideoStatus
 
         seed_video = Video(
             user_id=sample_user.id,
@@ -166,8 +169,7 @@ class TestRecommendationAPI:
 
     def test_home_recommendations_prioritize_active_video(self, client, db, sample_user):
         """首页推荐优先返回当前需要继续跟进的处理中视频。"""
-        from app.models.video import Video
-        from app.models.video import VideoStatus
+        from app.models.video import Video, VideoStatus
         from app.utils.auth_token import build_auth_token
 
         sample_user.learning_direction = "数学 导数"
@@ -230,8 +232,7 @@ class TestRecommendationAPI:
 
     def test_home_recommendations_enforce_similarity_threshold_and_window(self, client, db, sample_user):
         """推荐接口应按后端阈值过滤，并将条数规范化到 6~8。"""
-        from app.models.video import Video
-        from app.models.video import VideoStatus
+        from app.models.video import Video, VideoStatus
         from app.utils.auth_token import build_auth_token
 
         math_videos = [
@@ -284,8 +285,7 @@ class TestRecommendationAPI:
 
     def test_related_recommendations_rank_overlap_video_first(self, client, db, sample_user):
         """相关推荐优先返回与 seed 视频主题重合度更高的视频。"""
-        from app.models.video import Video
-        from app.models.video import VideoStatus
+        from app.models.video import Video, VideoStatus
 
         seed_video = Video(
             user_id=sample_user.id,
@@ -341,8 +341,7 @@ class TestRecommendationAPI:
 
     def test_related_recommendations_infer_subject_from_title_only(self, client, db, sample_user):
         """即使原始标签为空，相关推荐也应能根据科目归一返回同科目内容。"""
-        from app.models.video import Video
-        from app.models.video import VideoStatus
+        from app.models.video import Video, VideoStatus
 
         seed_video = Video(
             user_id=sample_user.id,
@@ -395,8 +394,7 @@ class TestRecommendationAPI:
 
     def test_related_recommendations_hard_filter_seed_and_excluded_ids(self, client, db, sample_user, monkeypatch):
         """路由层在最终响应前应硬过滤 seed 与 exclude_video_ids 指定视频。"""
-        from app.models.video import Video
-        from app.models.video import VideoStatus
+        from app.models.video import Video, VideoStatus
 
         seed_video = Video(
             user_id=sample_user.id,
@@ -478,8 +476,7 @@ class TestRecommendationAPI:
 
     def test_recommendations_exclude_blocked_title_keyword(self, client, db, sample_user, monkeypatch):
         """命中黑名单标题关键词（排列组合插空法详解）时，应从最终响应中剔除并重算计数。"""
-        from app.models.video import Video
-        from app.models.video import VideoStatus
+        from app.models.video import Video, VideoStatus
 
         kept_video = Video(
             user_id=sample_user.id,
@@ -533,8 +530,7 @@ class TestRecommendationAPI:
 
     def test_home_recommendations_include_external_candidates(self, client, db, sample_user, monkeypatch):
         """推荐接口应支持在返回中混入站外候选元数据。"""
-        from app.models.video import Video
-        from app.models.video import VideoStatus
+        from app.models.video import Video, VideoStatus
 
         internal_video = Video(
             user_id=sample_user.id,
@@ -596,8 +592,7 @@ class TestRecommendationAPI:
     ):
         """登录用户命中站外可导入候选时，应先入库再返回可打开详情的推荐项。"""
         from app.core.config import settings
-        from app.models.video import Video
-        from app.models.video import VideoStatus
+        from app.models.video import Video, VideoStatus
         from app.utils.auth_token import build_auth_token
 
         internal_video = Video(
@@ -728,8 +723,7 @@ class TestRecommendationAPI:
 
     def test_recommendation_ops_metrics_aggregates_import_and_processing(self, client, db, sample_user):
         """运营聚合接口返回推荐导入成功率与处理完成率。"""
-        from app.models.video import Video
-        from app.models.video import VideoStatus
+        from app.models.video import Video, VideoStatus
         from app.services.recommendation_ops_service import record_recommendation_event
         from app.utils.auth_token import build_auth_token
 
@@ -831,10 +825,11 @@ class TestRecommendationAPI:
 
     def test_recommendation_ops_metrics_persists_beyond_memory_buffer(self, client, db, sample_user):
         """清空内存缓冲后，聚合接口仍可从数据库恢复口径。"""
-        from app.models.video import Video
-        from app.models.video import VideoStatus
-        from app.services.recommendation_ops_service import record_recommendation_event
-        from app.services.recommendation_ops_service import reset_recommendation_event_store_for_tests
+        from app.models.video import Video, VideoStatus
+        from app.services.recommendation_ops_service import (
+            record_recommendation_event,
+            reset_recommendation_event_store_for_tests,
+        )
         from app.utils.auth_token import build_auth_token
 
         completed_video = Video(

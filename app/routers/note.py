@@ -4,25 +4,18 @@ import io
 import json
 import logging
 import zipfile
-from typing import List
-from typing import Optional
+from typing import List, Optional
 
 import jieba.analyse
-from app.core.database import get_db
-from app.models.note import Note
-from app.models.note import NoteTimestamp
-from app.models.video import Video
-from app.schemas.note import NoteCreate
-from app.schemas.note import NoteResponse
-from app.schemas.note import NoteUpdate
-from fastapi import APIRouter
-from fastapi import Depends
-from fastapi import HTTPException
-from fastapi import Query
-from fastapi.responses import Response
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
+
+from app.core.database import get_db
+from app.models.note import Note, NoteTimestamp
+from app.models.video import Video
+from app.schemas.note import NoteCreate, NoteResponse, NoteUpdate
 
 logger = logging.getLogger(__name__)
 

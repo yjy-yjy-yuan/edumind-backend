@@ -7,11 +7,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
-from typing import Optional
+from typing import Any, Optional
+
+from sqlalchemy.orm import Session
 
 from app.models.video import Video
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -128,8 +128,8 @@ def _build_thought_tags(ctx: AgentContext, subtitle_excerpt: str = "") -> list[s
     return tags[:5]
 
 
-def execute_learning_flow_agent(db: Session, *, request) -> dict[str, Any]:
-    """编排入口：Planner / Executor（经 governance）/ Validator。"""
+def execute_learning_flow_agent(db: Session, *, request, user_id: int | None = None) -> dict[str, Any]:
+    """编排入口：Planner / Executor（经 governance）/ Validator / Trajectory Recorder。"""
     from app.agents.pipelines.learning_flow_pipeline import run_learning_flow_pipeline
 
     logger.debug(
@@ -141,4 +141,4 @@ def execute_learning_flow_agent(db: Session, *, request) -> dict[str, Any]:
         len(request.recent_qa_messages or []),
         normalize_user_input(request.user_input),
     )
-    return run_learning_flow_pipeline(db, request=request)
+    return run_learning_flow_pipeline(db, request=request, user_id=user_id)

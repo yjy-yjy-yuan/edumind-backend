@@ -4,14 +4,12 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from app.models.base import Base
 from sqlalchemy import DateTime
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import Integer
-from sqlalchemy import String
-from sqlalchemy import Text
-from sqlalchemy.orm import Mapped
-from sqlalchemy.orm import mapped_column
+from sqlalchemy import Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base import Base
 
 
 class VectorIndexStatus(str, Enum):

@@ -3,17 +3,10 @@
 from datetime import datetime
 from typing import Optional
 
+from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, String, Text, text
+from sqlalchemy.orm import Mapped, mapped_column
+
 from app.models.base import Base
-from sqlalchemy import JSON
-from sqlalchemy import Boolean
-from sqlalchemy import DateTime
-from sqlalchemy import Float
-from sqlalchemy import Integer
-from sqlalchemy import String
-from sqlalchemy import Text
-from sqlalchemy import text
-from sqlalchemy.orm import Mapped
-from sqlalchemy.orm import mapped_column
 
 
 class SimilarityAuditLogModel(Base):

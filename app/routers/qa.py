@@ -4,22 +4,21 @@ import json
 import logging
 from typing import Optional
 
-from app.core.database import SessionLocal
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+
 from app.core.database import get_db
 from app.models.qa import Question
 from app.models.video import Video
 from app.schemas.qa import AskRequest
-from app.utils.qa_utils import SUPPORTED_QA_PROVIDERS
-from app.utils.qa_utils import QAConfigError
-from app.utils.qa_utils import QAProviderError
-from app.utils.qa_utils import QASystem
-from app.utils.qa_utils import resolve_provider_label
-from fastapi import APIRouter
-from fastapi import Depends
-from fastapi import HTTPException
-from fastapi import Query
-from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from app.utils.qa_utils import (
+    SUPPORTED_QA_PROVIDERS,
+    QAConfigError,
+    QAProviderError,
+    QASystem,
+    resolve_provider_label,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +97,21 @@ def persist_question_record(
     return question.to_dict()
 
 
+def normalize_stream_event(event: dict, *, provider: str, model: str) -> dict:
+    if not isinstance(event, dict):
+        return {}
+    normalized = dict(event)
+    event_type = str(normalized.get("type") or "").strip().lower()
+    if event_type == "answer":
+        normalized.setdefault("stage", "completed")
+        normalized.setdefault("progress", 100)
+        normalized.setdefault("message", "回答已完成")
+        normalized.setdefault("provider", provider)
+        normalized.setdefault("provider_label", resolve_provider_label(provider))
+        normalized.setdefault("model", model)
+    return normalized
+
+
 @router.post("/ask")
 async def ask_question(request: AskRequest, db: Session = Depends(get_db)):
     """提问并获取答案"""
@@ -135,7 +149,7 @@ async def ask_question(request: AskRequest, db: Session = Depends(get_db)):
         if request.stream:
 
             def generate():
-                stream_db = SessionLocal()
+                stream_db = db
                 try:
                     stream_video = None
                     if normalized_mode == "video":
@@ -199,36 +213,41 @@ async def ask_question(request: AskRequest, db: Session = Depends(get_db)):
                         mode=normalized_mode,
                         history=stream_history,
                     ):
-                        if event.get("type") == "answer":
+                        normalized_event = normalize_stream_event(
+                            event,
+                            provider=normalized_provider,
+                            model=request_model,
+                        )
+                        if normalized_event.get("type") == "answer":
                             logger.debug(
                                 "qa stream answer event | video_id=%s | answer_len=%s | references=%s",
                                 request.video_id,
-                                len(str(event.get("answer") or "")),
-                                len(event.get("references") or []),
+                                len(str(normalized_event.get("answer") or "")),
+                                len(normalized_event.get("references") or []),
                             )
                             stored_question = persist_question_record(
                                 stream_db,
                                 video_id=request.video_id if normalized_mode == "video" else None,
                                 content=request.question,
-                                answer=event.get("answer"),
+                                answer=normalized_event.get("answer"),
                             )
-                            event.update(
+                            normalized_event.update(
                                 {
                                     **stored_question,
                                     "provider": normalized_provider,
                                     "mode": normalized_mode,
-                                    "model": event.get("model"),
+                                    "model": normalized_event.get("model"),
                                 }
                             )
                         logger.info(
                             "QA stream event | type=%s | stage=%s | provider=%s | model=%s | video_id=%s",
-                            event.get("type"),
-                            event.get("stage"),
-                            event.get("provider"),
-                            event.get("model"),
+                            normalized_event.get("type"),
+                            normalized_event.get("stage"),
+                            normalized_event.get("provider"),
+                            normalized_event.get("model"),
                             request.video_id,
                         )
-                        yield serialize_stream_event(event)
+                        yield serialize_stream_event(normalized_event)
                 except QAConfigError as exc:
                     logger.error("问答流配置错误 | error=%s", exc)
                     stream_db.rollback()
@@ -265,8 +284,6 @@ async def ask_question(request: AskRequest, db: Session = Depends(get_db)):
                             "progress": 100,
                         }
                     )
-                finally:
-                    stream_db.close()
 
             return StreamingResponse(generate(), media_type="application/x-ndjson; charset=utf-8")
 

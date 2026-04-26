@@ -3,6 +3,7 @@
 import base64
 
 import pytest
+
 from app.utils.auth_token import build_auth_token
 
 

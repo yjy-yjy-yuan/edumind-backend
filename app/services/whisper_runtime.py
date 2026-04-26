@@ -11,8 +11,7 @@ import os
 import threading
 import time
 from copy import deepcopy
-from typing import Any
-from typing import Iterable
+from typing import Any, Iterable
 from urllib.parse import urlparse
 
 from app.core.config import settings

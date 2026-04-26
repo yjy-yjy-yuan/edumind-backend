@@ -38,7 +38,7 @@ def check_efficient():
             cache_hit = True
             break
 
-    ok = ("class TokenBudget" in budget and "charge(" in budget and cache_hit)
+    ok = "class TokenBudget" in budget and "charge(" in budget and cache_hit
     return ok, {
         "token_budget": "class TokenBudget" in budget,
         "cache_aware_prompt_or_runtime": cache_hit,
@@ -50,19 +50,21 @@ def check_safe():
     g = read("app/agents/governance/gateway.py")
     ctx = read("app/agents/governance/context.py")
     tools = read("app/agents/governance/tools_learning_flow.py")
-    ok = all(
-        token in g
-        for token in [
-            "_TOOL_HANDLERS",
-            "_validate_params",
-            "tool_not_allowed",
-            "GovernanceError",
-            "def execute_tool(",
-            "governance_execution_context",
-        ]
-    ) and all(
-        token in ctx for token in ["ContextVar", "ensure_in_governance_context", "governance_bypass_blocked"]
-    ) and "ensure_in_governance_context()" in tools
+    ok = (
+        all(
+            token in g
+            for token in [
+                "_TOOL_HANDLERS",
+                "_validate_params",
+                "tool_not_allowed",
+                "GovernanceError",
+                "def execute_tool(",
+                "governance_execution_context",
+            ]
+        )
+        and all(token in ctx for token in ["ContextVar", "ensure_in_governance_context", "governance_bypass_blocked"])
+        and "ensure_in_governance_context()" in tools
+    )
     return ok, {
         "governance_gateway": "app/agents/governance/gateway.py",
         "whitelist_and_validation": "_TOOL_HANDLERS" in g and "_validate_params" in g,

@@ -3,16 +3,21 @@
 from datetime import datetime
 from typing import Optional
 
-from app.utils.auth_security import is_strong_password
-from app.utils.auth_security import is_valid_phone_number
-from app.utils.auth_security import normalize_email
-from app.utils.auth_security import normalize_phone_number
-from pydantic import BaseModel
-from pydantic import ConfigDict
-from pydantic import EmailStr
-from pydantic import Field
-from pydantic import field_validator
-from pydantic import model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
+
+from app.utils.auth_security import (
+    is_strong_password,
+    is_valid_phone_number,
+    normalize_email,
+    normalize_phone_number,
+)
 
 
 class UserRegister(BaseModel):

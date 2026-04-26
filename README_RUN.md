@@ -23,12 +23,31 @@ cp .env.example .env
 
 按实际环境填写数据库、模型服务和密钥配置。若修改端口，请同步调整 `PORT` 与 `CORS_ORIGINS`。
 
+数据库说明：
+- 生产/联调默认使用 MySQL（`mysql+pymysql://...`）。
+- 本地快速验证可改为 SQLite（例如 `DATABASE_URL=sqlite:///./edumind_dev.db`）。
+- 后端会根据 `DATABASE_URL` 自动选择兼容参数（MySQL 连接池参数或 SQLite `check_same_thread=False`）。
+
+如果需要联调 Vinci 微服务，请至少配置：
+
+```bash
+VINCI_ENABLED=true
+VINCI_BASE_URL=http://127.0.0.1:8010
+VINCI_API_KEY=
+VINCI_CHAT_PATH=/api/v1/chat
+VINCI_STREAM_PATH=/api/v1/chat/stream
+```
+
+更多说明见 [`docs/VINCI_INTEGRATION_M1.md`](docs/VINCI_INTEGRATION_M1.md)。
+
 ## 4. 启动依赖服务（按需）
 
 ```bash
 brew services start mysql
 ollama serve
 ```
+
+如果你使用 SQLite，本步骤可跳过 MySQL。
 
 ## 5. 可选：导入本地 GGUF 到 Ollama
 
@@ -60,7 +79,7 @@ curl http://127.0.0.1:2004/health
 ## 8. 本仓库推荐验证链路
 
 ```bash
-python scripts/validate_backend_smoke.py
+pytest tests/smoke/test_app_startup.py -v
 mkdir -p .pycache-hook
 PYTHONPYCACHEPREFIX="$PWD/.pycache-hook" python -m compileall app scripts
 python scripts/validate_system_requirements.py
@@ -71,6 +90,15 @@ python scripts/validate_system_requirements.py
 ```bash
 pre-commit run --all-files
 pre-commit run --hook-stage pre-push --all-files
+```
+
+如果本次改动包含 Vinci 适配层，建议额外执行：
+
+```bash
+pytest tests/unit/test_vinci_adapter_service.py -v
+pytest tests/unit/test_agent_governance_gateway.py -v
+pytest tests/unit/test_analytics_alerting.py tests/unit/test_analytics_pipeline.py -v
+pytest tests/api/test_vinci_ops_api.py -v
 ```
 
 ## 10. 常见问题

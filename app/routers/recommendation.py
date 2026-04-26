@@ -2,43 +2,40 @@
 
 import time
 import uuid
-from typing import Optional
-from typing import Union
+from typing import Optional, Union
 from urllib.parse import urlparse
 
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from sqlalchemy.orm import Session
+
 from app.analytics.pipeline import get_telemetry
-from app.analytics.schema import AnalyticsEvent
-from app.analytics.schema import AnalyticsStatus
+from app.analytics.schema import AnalyticsEvent, AnalyticsStatus
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.video import Video
-from app.schemas.recommendation import RecommendationOpsMetricsResponse
-from app.schemas.recommendation import RecommendationSceneListResponse
-from app.schemas.recommendation import VideoRecommendationResponse
-from app.schemas.recommendation import VideoRecommendationResponseV1
-from app.schemas.video import VideoUploadResponse
-from app.schemas.video import VideoUploadURL
-from app.services.recommendation_ops_service import build_recommendation_ops_metrics
-from app.services.recommendation_ops_service import record_recommendation_event
-from app.services.video_api_service import build_processing_options
-from app.services.video_api_service import serialize_video
-from app.services.video_recommendation_service import SCENE_MAP
-from app.services.video_recommendation_service import list_recommendation_scenes
-from app.services.video_recommendation_service import load_candidate_videos_for_recommendation
-from app.services.video_recommendation_service import normalize_scene
-from app.services.video_recommendation_service import recommend_videos
-from app.services.video_recommendation_service import sanitize_recommendation_payload_for_client
-from app.services.video_recommendation_service import summarize_recommendation_sources
+from app.schemas.recommendation import (
+    RecommendationOpsMetricsResponse,
+    RecommendationSceneListResponse,
+    VideoRecommendationResponse,
+    VideoRecommendationResponseV1,
+)
+from app.schemas.video import VideoUploadResponse, VideoUploadURL
+from app.services.recommendation_ops_service import (
+    build_recommendation_ops_metrics,
+    record_recommendation_event,
+)
+from app.services.video_api_service import build_processing_options, serialize_video
+from app.services.video_recommendation_service import (
+    SCENE_MAP,
+    list_recommendation_scenes,
+    load_candidate_videos_for_recommendation,
+    normalize_scene,
+    recommend_videos,
+    sanitize_recommendation_payload_for_client,
+    summarize_recommendation_sources,
+)
 from app.services.video_url_import_service import import_remote_video_from_url
 from app.utils.auth_deps import resolve_user_from_request
-from fastapi import APIRouter
-from fastapi import Depends
-from fastapi import Header
-from fastapi import HTTPException
-from fastapi import Query
-from fastapi import Request
-from fastapi import Response
-from sqlalchemy.orm import Session
 
 router = APIRouter()
 

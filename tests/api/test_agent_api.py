@@ -1,8 +1,13 @@
+import json
+import logging
+
 import pytest
+
 from app.agents.exceptions import GovernanceError
+from app.agents.governance import gateway
+from app.agents.governance.context import ensure_in_governance_context
 from app.core.config import settings
-from app.models.note import Note
-from app.models.note import NoteTimestamp
+from app.models.note import Note, NoteTimestamp
 from app.models.qa import Question
 from app.models.subtitle import Subtitle
 from app.models.video import VideoStatus
@@ -42,7 +47,13 @@ def test_execute_agent_creates_note_and_timestamp(client, db, sample_video):
     assert "note_created" in payload["actions"]
     assert "timestamp_attached" in payload["actions"]
     assert payload["result"]["note_id"]
-    assert payload["result"]["category"] in {"知识点", "例题", "思考题", "易错点", "结论"}
+    assert payload["result"]["category"] in {
+        "知识点",
+        "例题",
+        "思考题",
+        "易错点",
+        "结论",
+    }
     meta = payload["result"].get("pipeline_meta") or {}
     assert meta.get("orchestration") == "planner_executor_validator_v1"
     assert meta.get("prompt_version") == "learning_flow_v1"
@@ -97,7 +108,38 @@ def test_execute_agent_governance_error_returns_400(client, monkeypatch):
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "governance_invalid_param"
+    payload = response.json()
+    assert payload["detail"]["detail"] == "governance_invalid_param"
+    assert payload["detail"]["error_code"] == "GOVERNANCE_REJECTED"
+
+
+@pytest.mark.api
+def test_execute_agent_governance_error_returns_recoverable_contract(client, monkeypatch):
+    def _raise_governance(*args, **kwargs):
+        raise GovernanceError("tool_not_allowed:lf_vinci_chat")
+
+    monkeypatch.setattr("app.routers.agent.execute_learning_flow_agent", _raise_governance)
+
+    response = client.post(
+        "/api/agent/execute",
+        json={
+            "video_id": 1,
+            "page_context": "video_detail",
+            "current_time_seconds": 0,
+            "subtitle_text": "x",
+            "recent_qa_messages": [],
+            "user_input": "test",
+        },
+    )
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert isinstance(payload.get("detail"), dict)
+    assert payload["detail"]["detail"] == "tool_not_allowed:lf_vinci_chat"
+    assert payload["detail"]["error_code"] == "GOVERNANCE_REJECTED"
+    assert payload["detail"]["recoverable"] is True
+    assert payload["detail"]["message"]
+    assert payload["detail"]["suggestion"]
 
 
 @pytest.mark.api
@@ -117,4 +159,158 @@ def test_execute_agent_budget_exceeded_returns_400(client, sample_video, monkeyp
     )
 
     assert response.status_code == 400
-    assert "token_budget_exceeded" in response.json()["detail"]
+    payload = response.json()
+    assert "token_budget_exceeded" in payload["detail"]["detail"]
+
+
+@pytest.mark.api
+def test_execute_agent_with_vinci_keeps_response_contract(client, db, sample_video, monkeypatch):
+    """Vinci 接入后仍保持既有 agent 响应契约，不破坏前端字段。"""
+    sample_video.status = VideoStatus.COMPLETED
+    sample_video.summary = "导数课程摘要"
+    db.add(
+        Subtitle(
+            video_id=sample_video.id,
+            start_time=100.0,
+            end_time=110.0,
+            text="导数体现函数变化率。",
+            source="asr",
+            language="zh",
+        )
+    )
+    db.commit()
+    monkeypatch.setattr(settings, "VINCI_ENABLED", True)
+
+    def _fake_vinci_chat(db_session, params):
+        _ = db_session
+        ensure_in_governance_context()
+        return {
+            "answer": "Vinci 总结：导数用于刻画变化率。",
+            "history": [{"role": "assistant", "content": "Vinci 总结：导数用于刻画变化率。"}],
+            "session_id": params.get("session_id", "sess-api"),
+            "trace_id": params.get("trace_id", "trace-api"),
+        }
+
+    monkeypatch.setitem(gateway._TOOL_HANDLERS, "lf_vinci_chat", _fake_vinci_chat)
+
+    response = client.post(
+        "/api/agent/execute",
+        json={
+            "video_id": sample_video.id,
+            "page_context": "video_detail",
+            "current_time_seconds": 103,
+            "subtitle_text": "导数体现函数变化率。",
+            "recent_qa_messages": [{"role": "user", "content": "导数是什么"}],
+            "user_input": "请结合 Vinci 给出学习笔记",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    # 兼容既有契约
+    for field in (
+        "intent",
+        "plan",
+        "actions",
+        "result",
+        "note_id",
+        "video_id",
+        "created_at",
+        "action_records",
+    ):
+        assert field in payload
+    # 新增 Vinci 行为应可观测
+    assert "vinci_summary_generated" in payload["actions"]
+
+
+@pytest.mark.api
+def test_execute_agent_with_vinci_tool_not_whitelisted_returns_400_and_blocks_write(
+    client, db, sample_video, monkeypatch
+):
+    """Vinci 未在治理白名单时必须拒绝，且不能产生写库副作用。"""
+    sample_video.status = VideoStatus.COMPLETED
+    sample_video.summary = "导数课程摘要"
+    db.add(
+        Subtitle(
+            video_id=sample_video.id,
+            start_time=50.0,
+            end_time=60.0,
+            text="导数用于描述变化率。",
+            source="asr",
+            language="zh",
+        )
+    )
+    db.commit()
+    monkeypatch.setattr(settings, "VINCI_ENABLED", True)
+    monkeypatch.delitem(gateway._TOOL_HANDLERS, "lf_vinci_chat", raising=False)
+
+    before = db.query(Note).filter(Note.video_id == sample_video.id).count()
+    response = client.post(
+        "/api/agent/execute",
+        json={
+            "video_id": sample_video.id,
+            "page_context": "video_detail",
+            "current_time_seconds": 55,
+            "subtitle_text": "导数用于描述变化率。",
+            "recent_qa_messages": [{"role": "user", "content": "导数是什么"}],
+            "user_input": "请结合 Vinci 生成学习笔记",
+        },
+    )
+    after = db.query(Note).filter(Note.video_id == sample_video.id).count()
+
+    assert response.status_code == 400
+    assert "tool_not_allowed:lf_vinci_chat" in response.json()["detail"]["detail"]
+    assert after == before
+
+
+@pytest.mark.api
+def test_execute_agent_with_vinci_tool_not_whitelisted_emits_denied_audit_event(
+    client, db, sample_video, monkeypatch, caplog
+):
+    """拒绝 Vinci 调用时必须产生日志审计事件，便于运维追踪。"""
+    sample_video.status = VideoStatus.COMPLETED
+    sample_video.summary = "导数课程摘要"
+    db.add(
+        Subtitle(
+            video_id=sample_video.id,
+            start_time=70.0,
+            end_time=85.0,
+            text="导数是函数变化率的局部刻画。",
+            source="asr",
+            language="zh",
+        )
+    )
+    db.commit()
+    monkeypatch.setattr(settings, "VINCI_ENABLED", True)
+    monkeypatch.delitem(gateway._TOOL_HANDLERS, "lf_vinci_chat", raising=False)
+    caplog.set_level(logging.INFO, logger="app.analytics.telemetry")
+
+    response = client.post(
+        "/api/agent/execute",
+        json={
+            "video_id": sample_video.id,
+            "page_context": "video_detail",
+            "current_time_seconds": 72,
+            "subtitle_text": "导数是函数变化率的局部刻画。",
+            "recent_qa_messages": [{"role": "user", "content": "什么是导数"}],
+            "user_input": "请结合 Vinci 生成学习笔记",
+        },
+    )
+    assert response.status_code == 400
+
+    events = []
+    for record in caplog.records:
+        if record.name != "app.analytics.telemetry":
+            continue
+        try:
+            events.append(json.loads(record.message))
+        except Exception:
+            continue
+    denied = [event for event in events if event.get("event_type") == "agent_tool_denied"]
+    assert denied, "缺少 agent_tool_denied 审计事件"
+    latest = denied[-1]
+    assert latest.get("status") == "error"
+    metadata = latest.get("metadata") or {}
+    assert metadata.get("tool") == "lf_vinci_chat"
+    assert metadata.get("reason") == "not_whitelisted"
+    assert metadata.get("pipeline") == "learning_flow"

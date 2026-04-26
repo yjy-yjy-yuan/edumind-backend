@@ -5,18 +5,11 @@ LLM 模型参数白名单与配置
 - 默认低随机性：temperature 默认 0~0.2，避免分值抖动
 """
 
-from dataclasses import dataclass
-from dataclasses import field
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
-from typing import Dict
-from typing import List
-from typing import Literal
-from typing import Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel
-from pydantic import Field
-from pydantic import field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 # ============================================================================
@@ -263,15 +256,15 @@ class InputValidationConfig:
 
     # 允许的字符范围（黑名单方式）
     FORBIDDEN_CHARS = {
-        '\x00',  # 空字符
-        '\t',
-        '\n',
-        '\r',  # 制表符、换行
-        '\\',  # 反斜杠（可能导致转义问题）
+        "\x00",  # 空字符
+        "\t",
+        "\n",
+        "\r",  # 制表符、换行
+        "\\",  # 反斜杠（可能导致转义问题）
     }
 
     # 分隔符（需要转义）
-    SEPARATORS = {'/', '=', '|', ';', ','}
+    SEPARATORS = {"/", "=", "|", ";", ","}
 
     @classmethod
     def sanitize_tag(cls, tag: str) -> str:
@@ -288,7 +281,7 @@ class InputValidationConfig:
             raise TypeError(f"标签必须是字符串，得到 {type(tag)}")
 
         # 1. 移除禁止字符
-        tag = ''.join(ch for ch in tag if ch not in cls.FORBIDDEN_CHARS)
+        tag = "".join(ch for ch in tag if ch not in cls.FORBIDDEN_CHARS)
 
         # 2. 移除前后空格
         tag = tag.strip()

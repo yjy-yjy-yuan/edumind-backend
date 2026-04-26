@@ -3,16 +3,14 @@
 import hashlib
 import logging
 import os
-from datetime import datetime
-from datetime import timezone
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict
-from typing import List
-from typing import Optional
+from typing import Dict, List, Optional
 
 import chromadb
-from app.core.config import settings
 from chromadb.config import Settings as ChromaClientSettings
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 

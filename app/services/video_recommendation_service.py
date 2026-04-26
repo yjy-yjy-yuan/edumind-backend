@@ -7,25 +7,29 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Iterable
-from typing import Optional
-from urllib.parse import urlencode
-from urllib.parse import urlparse
+from typing import Iterable, Optional
+from urllib.parse import urlencode, urlparse
+
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.user import User
-from app.models.video import Video
-from app.models.video import VideoStatus
-from app.services.external_candidate_service import ExternalCandidate
-from app.services.external_candidate_service import ExternalProviderFetchSummary
-from app.services.external_candidate_service import fetch_external_candidates_report
-from app.services.external_candidate_service import serialize_provider_summary
-from app.services.search.similarity_fusion import fused_similarity_score
-from app.services.search.similarity_fusion import lexical_overlap_score
-from app.services.video_content_service import build_subject_enriched_tags
-from app.services.video_content_service import fallback_primary_topic_name
-from app.services.video_content_service import infer_subject_from_text
-from sqlalchemy.orm import Session
+from app.models.video import Video, VideoStatus
+from app.services.external_candidate_service import (
+    ExternalCandidate,
+    ExternalProviderFetchSummary,
+    fetch_external_candidates_report,
+    serialize_provider_summary,
+)
+from app.services.search.similarity_fusion import (
+    fused_similarity_score,
+    lexical_overlap_score,
+)
+from app.services.video_content_service import (
+    build_subject_enriched_tags,
+    fallback_primary_topic_name,
+    infer_subject_from_text,
+)
 
 SCENE_OPTIONS = [
     {

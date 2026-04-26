@@ -1,9 +1,12 @@
 """Ollama 兼容工具单元测试。"""
 
 import pytest
-from app.utils.ollama_compat import OLLAMA_STOP_TOKENS
-from app.utils.ollama_compat import build_ollama_options
-from app.utils.ollama_compat import sanitize_ollama_response_text
+
+from app.utils.ollama_compat import (
+    OLLAMA_STOP_TOKENS,
+    build_ollama_options,
+    sanitize_ollama_response_text,
+)
 
 
 @pytest.mark.unit

@@ -7,10 +7,8 @@ from typing import Optional
 
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.models.vector_index import VectorIndex
-from app.models.vector_index import VectorIndexStatus
-from app.models.video import Video
-from app.models.video import VideoStatus
+from app.models.vector_index import VectorIndex, VectorIndexStatus
+from app.models.video import Video, VideoStatus
 
 logger = logging.getLogger(__name__)
 

@@ -4,20 +4,18 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
-from typing import Callable
-from typing import Dict
+from typing import Any, Callable, Dict
+
+from sqlalchemy.orm import Session
 
 from app.agents.exceptions import GovernanceError
 from app.analytics.pipeline import get_telemetry
-from app.analytics.schema import AnalyticsEvent
-from app.analytics.schema import AnalyticsStatus
+from app.analytics.schema import AnalyticsEvent, AnalyticsStatus
 from app.core.config import settings
 from app.services.video_content_service import SUPPORTED_SUMMARY_STYLES
-from sqlalchemy.orm import Session
 
-from .context import governance_execution_context
 from . import tools_learning_flow
+from .context import governance_execution_context
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +28,12 @@ MAX_NOTE_CONTENT_CHARS = 50_000
 MAX_NOTE_TAGS_CHARS = 2_000
 MAX_NOTE_KEYWORDS_CHARS = 2_000
 MAX_TIMESTAMP_SUBTITLE_CHARS = 2_000
+MAX_VINCI_PROMPT_CHARS = 20_000
+MAX_VINCI_SESSION_ID_CHARS = 128
+MAX_VINCI_HISTORY_ITEMS = 50
+MAX_VINCI_HISTORY_CONTENT_CHARS = 8_000
+MAX_VINCI_BASE64_FRAMES = 3
+MAX_VINCI_BASE64_FRAME_SIZE_CHARS = 200_000  # ~150KB JPEG at quality=0.6
 ALLOWED_NOTE_TYPES = frozenset({"text", "code", "list"})
 
 
@@ -37,6 +41,8 @@ _TOOL_HANDLERS: Dict[str, Callable[[Session, dict[str, Any]], dict[str, Any]]] =
     "lf_generate_summary_fallback": tools_learning_flow.tool_lf_generate_summary_fallback,
     "lf_persist_note": tools_learning_flow.tool_lf_persist_note,
     "lf_create_timestamp": tools_learning_flow.tool_lf_create_timestamp,
+    "lf_vinci_chat": tools_learning_flow.tool_lf_vinci_chat,
+    "lf_frame_description": tools_learning_flow.tool_lf_frame_description,
 }
 
 
@@ -118,6 +124,85 @@ def _validate_params(tool_name: str, params: dict[str, Any]) -> None:
             raise GovernanceError("subtitle_text_too_long")
         return
 
+    if tool_name == "lf_vinci_chat":
+        prompt = str(params.get("prompt") or "").strip()
+        if not prompt:
+            raise GovernanceError("missing_prompt")
+        if len(prompt) > MAX_VINCI_PROMPT_CHARS:
+            raise GovernanceError("prompt_too_long")
+
+        session_id = str(params.get("session_id") or "").strip()
+        if not session_id:
+            raise GovernanceError("missing_session_id")
+        if len(session_id) > MAX_VINCI_SESSION_ID_CHARS:
+            raise GovernanceError("session_id_too_long")
+
+        history = params.get("history")
+        if history is None:
+            return
+        if not isinstance(history, list):
+            raise GovernanceError("invalid_history")
+        if len(history) > MAX_VINCI_HISTORY_ITEMS:
+            raise GovernanceError("history_too_long")
+        for item in history:
+            if not isinstance(item, dict):
+                raise GovernanceError("invalid_history_item")
+            role = str(item.get("role") or "").strip()
+            content = str(item.get("content") or "")
+            if not role:
+                raise GovernanceError("invalid_history_item")
+            if len(content) > MAX_VINCI_HISTORY_CONTENT_CHARS:
+                raise GovernanceError("history_item_content_too_long")
+        return
+
+    if tool_name == "lf_frame_description":
+        prompt = str(params.get("prompt") or "").strip()
+        if not prompt:
+            raise GovernanceError("missing_prompt")
+        if len(prompt) > MAX_VINCI_PROMPT_CHARS:
+            raise GovernanceError("prompt_too_long")
+
+        session_id = str(params.get("session_id") or "").strip()
+        if not session_id:
+            raise GovernanceError("missing_session_id")
+        if len(session_id) > MAX_VINCI_SESSION_ID_CHARS:
+            raise GovernanceError("session_id_too_long")
+
+        # base64_frames 校验：支持空列表（纯文本描述 / 降级模式）
+        raw_frames = params.get("base64_frames")
+        if raw_frames is None:
+            pass  # 允许为空，降级到纯文本模式
+        elif not isinstance(raw_frames, list):
+            raise GovernanceError("invalid_base64_frames")
+        elif len(raw_frames) > MAX_VINCI_BASE64_FRAMES:
+            raise GovernanceError("too_many_base64_frames")
+        else:
+            for item in raw_frames:
+                if not isinstance(item, str):
+                    raise GovernanceError("invalid_base64_frame_item")
+                if not item.strip():
+                    raise GovernanceError("empty_base64_frame")
+                if len(item) > MAX_VINCI_BASE64_FRAME_SIZE_CHARS:
+                    raise GovernanceError("base64_frame_too_large")
+
+        history = params.get("history")
+        if history is None:
+            return
+        if not isinstance(history, list):
+            raise GovernanceError("invalid_history")
+        if len(history) > MAX_VINCI_HISTORY_ITEMS:
+            raise GovernanceError("history_too_long")
+        for item in history:
+            if not isinstance(item, dict):
+                raise GovernanceError("invalid_history_item")
+            role = str(item.get("role") or "").strip()
+            content = str(item.get("content") or "")
+            if not role:
+                raise GovernanceError("invalid_history_item")
+            if len(content) > MAX_VINCI_HISTORY_CONTENT_CHARS:
+                raise GovernanceError("history_item_content_too_long")
+        return
+
     raise GovernanceError("unknown_tool_validation")
 
 
@@ -137,7 +222,11 @@ def execute_tool(
             trace_id=trace_id,
             event_type="agent_tool_denied",
             status=AnalyticsStatus.ERROR.value,
-            metadata={"tool": tool_name, "reason": "not_whitelisted", "pipeline": pipeline},
+            metadata={
+                "tool": tool_name,
+                "reason": "not_whitelisted",
+                "pipeline": pipeline,
+            },
         )
         raise GovernanceError(f"tool_not_allowed:{tool_name}")
 
@@ -161,7 +250,9 @@ def execute_tool(
 
     try:
         with governance_execution_context():
-            result = handler(db, params)
+            params_with_trace = dict(params or {})
+            params_with_trace.setdefault("trace_id", trace_id)
+            result = handler(db, params_with_trace)
     except Exception as exc:
         _emit_audit(
             trace_id=trace_id,
@@ -175,6 +266,10 @@ def execute_tool(
         trace_id=trace_id,
         event_type="agent_tool_completed",
         status=AnalyticsStatus.OK.value,
-        metadata={"tool": tool_name, "pipeline": pipeline, "keys": sorted((result or {}).keys())},
+        metadata={
+            "tool": tool_name,
+            "pipeline": pipeline,
+            "keys": sorted((result or {}).keys()),
+        },
     )
     return result or {}

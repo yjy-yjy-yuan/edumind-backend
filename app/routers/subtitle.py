@@ -6,17 +6,14 @@ import logging
 import os
 from typing import Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response, StreamingResponse
+from sqlalchemy.orm import Session
+
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.subtitle import Subtitle
 from app.models.video import Video
-from fastapi import APIRouter
-from fastapi import Depends
-from fastapi import HTTPException
-from fastapi import Query
-from fastapi.responses import Response
-from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

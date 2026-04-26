@@ -43,6 +43,7 @@ python run.py
 | `app/services/` | 业务服务 |
 | `app/tasks/` | 后台任务 |
 | `app/utils/` | 通用工具 |
+| `docs/` | 运维与能力文档 |
 | `scripts/` | 运维/迁移/验证脚本 |
 | `tests/` | 后端测试根目录 |
 
@@ -55,6 +56,25 @@ python run.py
 - 推荐系统（含站内/站外候选）
 - 语义搜索（索引、检索、状态查询）
 - 智能体治理、预算控制、集中遥测、轨迹导出
+- Vinci 微服务适配层（HTTP/SSE、统一错误码、降级与 trace_id 透传）
+- Vinci 运维观测接口（`/api/ops/vinci/metrics`）
+
+## Vinci 接入（M1）
+
+已完成能力（M1-1/M1-2）：
+
+- `app/services/vinci_client.py`：Vinci HTTP/SSE 客户端与超时/不可用/非 2xx 异常分类
+- `app/services/vinci_adapter_service.py`：返回契约标准化、错误映射、降级路径、结构化遥测
+- `app/core/config.py` 与 `.env.example`：Vinci 配置项对齐
+- `tests/unit/test_vinci_adapter_service.py`：5 个核心契约测试
+- `app/agents/governance/gateway.py` + `app/agents/governance/tools_learning_flow.py`：M1-3 治理接入（白名单、参数校验、审计、绕过阻断）
+
+当前文档：[`docs/VINCI_INTEGRATION_M1.md`](docs/VINCI_INTEGRATION_M1.md)。
+
+注意：
+
+- M1-3/M1-4 已完成（治理接入 + 指标与 Runbook）。
+- 运行处置指南见 [`docs/VINCI_RUNBOOK.md`](docs/VINCI_RUNBOOK.md)。
 
 ## 语义搜索说明
 
@@ -78,7 +98,7 @@ python run.py
 ## 验证链路（默认）
 
 ```bash
-python scripts/validate_backend_smoke.py
+pytest tests/smoke/test_app_startup.py -v
 mkdir -p .pycache-hook
 PYTHONPYCACHEPREFIX="$PWD/.pycache-hook" python -m compileall app scripts
 python scripts/validate_system_requirements.py
@@ -142,3 +162,6 @@ git push --no-verify
 - 对齐“独立后端仓库”定位，移除旧 `backend_fastapi/` 路径说明。
 - 对齐语义搜索鉴权逻辑（Bearer 优先，兼容 `X-User-ID`）。
 - 对齐 hook 文档与实际配置（pre-push 包含 mypy + unit tests）。
+- 新增 Vinci M1 接入文档并对齐配置/测试入口（`docs/VINCI_INTEGRATION_M1.md`）。
+- 同步 Vinci M1-3 治理接入文档（白名单、参数校验、审计与绕过阻断）。
+- 新增 Vinci M1-4 可观测与运维文档（指标、阈值建议、Runbook）。

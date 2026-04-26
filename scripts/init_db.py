@@ -25,8 +25,10 @@ from app.models import (
     User,
     Video,
 )
+from app.models.agent_trajectory import TrajectoryEpisode, TrajectoryStep
 from app.models.note import NoteTimestamp
 from app.models.similarity_audit_log import SimilarityAuditLogModel
+from app.models.task_checkpoint import TaskCheckpoint
 
 TABLE_DESCRIPTIONS = {
     "users": "用户信息表",
@@ -38,6 +40,9 @@ TABLE_DESCRIPTIONS = {
     "recommendation_ops_events": "推荐运营事件日志表",
     "semantic_search_logs": "语义搜索全局检索日志表",
     "similarity_audit_logs": "标签相似度 LLM 审计日志表",
+    "agent_trajectory_episodes": "Agent 轨迹会话表",
+    "agent_trajectory_steps": "Agent 轨迹步骤表",
+    "task_checkpoints": "任务 Checkpoint 表",
 }
 
 MANAGED_TABLE_NAMES = {
@@ -50,6 +55,9 @@ MANAGED_TABLE_NAMES = {
     RecommendationOpsEvent.__tablename__,
     SemanticSearchLog.__tablename__,
     SimilarityAuditLogModel.__tablename__,
+    TrajectoryEpisode.__tablename__,
+    TrajectoryStep.__tablename__,
+    TaskCheckpoint.__tablename__,
 }
 
 

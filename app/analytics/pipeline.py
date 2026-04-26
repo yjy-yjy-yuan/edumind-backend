@@ -4,13 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
-from typing import Dict
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from app.analytics.alerting import AnalyticsAlertEngine
-from app.analytics.schema import AnalyticsEvent
-from app.analytics.schema import validate_analytics_event
+from app.analytics.schema import AnalyticsEvent, validate_analytics_event
 
 _LOG = logging.getLogger("app.analytics.telemetry")
 
@@ -19,7 +16,11 @@ def _configure_logger_level() -> None:
     try:
         from app.core.config import settings
 
-        lvl = getattr(logging, (getattr(settings, "ANALYTICS_LOG_LEVEL", "INFO") or "INFO").upper(), logging.INFO)
+        lvl = getattr(
+            logging,
+            (getattr(settings, "ANALYTICS_LOG_LEVEL", "INFO") or "INFO").upper(),
+            logging.INFO,
+        )
         _LOG.setLevel(lvl)
     except Exception:
         _LOG.setLevel(logging.INFO)
@@ -65,6 +66,10 @@ class AnalyticsTelemetry:
             metadata=dict(payload.get("metadata") or {}),
         )
         self.emit(ev, skip_alerts=skip_alerts)
+
+    def module_metrics(self, module: str) -> Dict[str, Any]:
+        """返回指定模块的窗口统计快照。"""
+        return self._alerts.get_module_metrics(str(module or "").strip())
 
 
 _telemetry: Optional[AnalyticsTelemetry] = None

@@ -1,12 +1,9 @@
 """视频推荐相关 Schema。"""
 
 from datetime import datetime
-from typing import List
-from typing import Optional
-from typing import Union
+from typing import List, Optional, Union
 
-from pydantic import BaseModel
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 
 class RecommendationSceneOption(BaseModel):

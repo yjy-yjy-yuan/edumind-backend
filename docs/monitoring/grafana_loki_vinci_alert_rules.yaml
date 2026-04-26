@@ -1,0 +1,154 @@
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: vinci-alert-rules
+    folder: EduMind-Vinci
+    interval: 1m
+    rules:
+      - uid: vinci-error-rate-high
+        title: Vinci Error Rate High
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: |
+                sum(rate({app="edumind-backend"} |= "app.analytics.telemetry" |= "\"module\": \"vinci\"" |= "\"status\": \"error\"" [5m]))
+              intervalMs: 60000
+              maxDataPoints: 43200
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: |
+                sum(rate({app="edumind-backend"} |= "app.analytics.telemetry" |= "\"module\": \"vinci\"" [5m]))
+              intervalMs: 60000
+              maxDataPoints: 43200
+          - refId: C
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              expression: ($A / $B) > 0.15
+              type: math
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: Vinci error rate > 15%
+          runbook_url: https://github.com/yjy-yjy-yuan/edumind-backend/blob/main/docs/VINCI_RUNBOOK.md
+        labels:
+          service: vinci
+          severity: warning
+      - uid: vinci-timeout-rate-high
+        title: Vinci Timeout Rate High
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: |
+                sum(rate({app="edumind-backend"} |= "app.analytics.telemetry" |= "\"module\": \"vinci\"" |= "\"status\": \"timeout\"" [5m]))
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: |
+                sum(rate({app="edumind-backend"} |= "app.analytics.telemetry" |= "\"module\": \"vinci\"" [5m]))
+          - refId: C
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              expression: ($A / $B) > 0.10
+              type: math
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: Vinci timeout rate > 10%
+          runbook_url: https://github.com/yjy-yjy-yuan/edumind-backend/blob/main/docs/VINCI_RUNBOOK.md
+        labels:
+          service: vinci
+          severity: warning
+      - uid: vinci-p95-latency-high
+        title: Vinci P95 Latency High
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: |
+                quantile_over_time(0.95, {app="edumind-backend"} |= "app.analytics.telemetry" |= "\"module\": \"vinci\"" | json | unwrap latency_ms [5m])
+          - refId: B
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              expression: $A > 12000
+              type: math
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: Vinci p95 latency > 12s
+          runbook_url: https://github.com/yjy-yjy-yuan/edumind-backend/blob/main/docs/VINCI_RUNBOOK.md
+        labels:
+          service: vinci
+          severity: warning
+      - uid: vinci-degraded-burst
+        title: Vinci Degraded Burst
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: |
+                sum(count_over_time({app="edumind-backend"} |= "app.analytics.telemetry" |= "\"module\": \"vinci\"" |= "\"status\": \"degraded\"" [10m]))
+          - refId: B
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              type: reduce
+          - refId: C
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              expression: $B > 20
+              type: math
+        noDataState: NoData
+        execErrState: Error
+        for: 0m
+        annotations:
+          summary: Vinci degraded count > 20 in 10m
+          runbook_url: https://github.com/yjy-yjy-yuan/edumind-backend/blob/main/docs/VINCI_RUNBOOK.md
+        labels:
+          service: vinci
+          severity: warning

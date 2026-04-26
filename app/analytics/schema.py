@@ -4,15 +4,10 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import asdict
-from dataclasses import dataclass
-from dataclasses import field
-from datetime import datetime
-from datetime import timezone
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
-from typing import Dict
-from typing import Optional
+from typing import Any, Dict, Optional
 
 SCHEMA_VERSION = 1
 

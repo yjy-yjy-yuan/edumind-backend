@@ -1,0 +1,200 @@
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.019157923Z level=info msg="Migration successfully executed" id="add time_selection_enabled column" duration=1.961084ms
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.019769173Z level=info msg="Executing migration" id="delete orphaned public dashboards"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.019823214Z level=info msg="Migration successfully executed" id="delete orphaned public dashboards" duration=53.75µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.020415798Z level=info msg="Executing migration" id="add share column"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.022326339Z level=info msg="Migration successfully executed" id="add share column" duration=1.9105ms
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.022985006Z level=info msg="Executing migration" id="backfill empty share column fields with default of public"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.023017548Z level=info msg="Migration successfully executed" id="backfill empty share column fields with default of public" duration=33µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.023477923Z level=info msg="Executing migration" id="create file table"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.023694173Z level=info msg="Migration successfully executed" id="create file table" duration=216.375µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.024350881Z level=info msg="Executing migration" id="file table idx: path natural pk"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.024624548Z level=info msg="Migration successfully executed" id="file table idx: path natural pk" duration=273.75µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.025303131Z level=info msg="Executing migration" id="file table idx: parent_folder_path_hash fast folder retrieval"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.025578006Z level=info msg="Migration successfully executed" id="file table idx: parent_folder_path_hash fast folder retrieval" duration=274.875µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.026227839Z level=info msg="Executing migration" id="create file_meta table"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.026415131Z level=info msg="Migration successfully executed" id="create file_meta table" duration=187.375µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.027138173Z level=info msg="Executing migration" id="file table idx: path key"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.027407756Z level=info msg="Migration successfully executed" id="file table idx: path key" duration=269.625µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.028072673Z level=info msg="Executing migration" id="set path collation in file table"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.028087048Z level=info msg="Migration successfully executed" id="set path collation in file table" duration=14.584µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.028553214Z level=info msg="Executing migration" id="migrate contents column to mediumblob for MySQL"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.028567423Z level=info msg="Migration successfully executed" id="migrate contents column to mediumblob for MySQL" duration=14.125µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.029156839Z level=info msg="Executing migration" id="managed permissions migration"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.029278256Z level=info msg="Migration successfully executed" id="managed permissions migration" duration=121.541µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.029903964Z level=info msg="Executing migration" id="managed folder permissions alert actions migration"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.029939589Z level=info msg="Migration successfully executed" id="managed folder permissions alert actions migration" duration=35.833µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.030381964Z level=info msg="Executing migration" id="RBAC action name migrator"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.030641089Z level=info msg="Migration successfully executed" id="RBAC action name migrator" duration=259.25µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.031222339Z level=info msg="Executing migration" id="Add UID column to playlist"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.033241089Z level=info msg="Migration successfully executed" id="Add UID column to playlist" duration=2.01875ms
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.033887089Z level=info msg="Executing migration" id="Update uid column values in playlist"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.033914839Z level=info msg="Migration successfully executed" id="Update uid column values in playlist" duration=27.833µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.034375839Z level=info msg="Executing migration" id="Add index for uid in playlist"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.034659131Z level=info msg="Migration successfully executed" id="Add index for uid in playlist" duration=283.458µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.035300173Z level=info msg="Executing migration" id="update group index for alert rules"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.035393798Z level=info msg="Migration successfully executed" id="update group index for alert rules" duration=93.833µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.035987798Z level=info msg="Executing migration" id="managed folder permissions alert actions repeated migration"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.036027298Z level=info msg="Migration successfully executed" id="managed folder permissions alert actions repeated migration" duration=39.708µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.036442798Z level=info msg="Executing migration" id="admin only folder/dashboard permission"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.036568423Z level=info msg="Migration successfully executed" id="admin only folder/dashboard permission" duration=125.625µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.037158923Z level=info msg="Executing migration" id="add action column to seed_assignment"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.039232006Z level=info msg="Migration successfully executed" id="add action column to seed_assignment" duration=2.073125ms
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.039852131Z level=info msg="Executing migration" id="add scope column to seed_assignment"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.041863756Z level=info msg="Migration successfully executed" id="add scope column to seed_assignment" duration=2.011917ms
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.042451256Z level=info msg="Executing migration" id="remove unique index builtin_role_role_name before nullable update"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.042725173Z level=info msg="Migration successfully executed" id="remove unique index builtin_role_role_name before nullable update" duration=274µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.043335339Z level=info msg="Executing migration" id="update seed_assignment role_name column to nullable"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.064615839Z level=info msg="Migration successfully executed" id="update seed_assignment role_name column to nullable" duration=21.28025ms
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.065320256Z level=info msg="Executing migration" id="add unique index builtin_role_name back"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.065609089Z level=info msg="Migration successfully executed" id="add unique index builtin_role_name back" duration=289µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.066312756Z level=info msg="Executing migration" id="add unique index builtin_role_action_scope"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.066618006Z level=info msg="Migration successfully executed" id="add unique index builtin_role_action_scope" duration=305.208µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.067368214Z level=info msg="Executing migration" id="add primary key to seed_assigment"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.073863589Z level=info msg="Migration successfully executed" id="add primary key to seed_assigment" duration=6.495208ms
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.074608131Z level=info msg="Executing migration" id="add origin column to seed_assignment"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.076595923Z level=info msg="Migration successfully executed" id="add origin column to seed_assignment" duration=1.987791ms
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.077192131Z level=info msg="Executing migration" id="add origin to plugin seed_assignment"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.077250423Z level=info msg="Migration successfully executed" id="add origin to plugin seed_assignment" duration=58.417µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.077845298Z level=info msg="Executing migration" id="prevent seeding OnCall access"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.077881131Z level=info msg="Migration successfully executed" id="prevent seeding OnCall access" duration=36µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.078321423Z level=info msg="Executing migration" id="managed folder permissions alert actions repeated fixed migration"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.078359798Z level=info msg="Migration successfully executed" id="managed folder permissions alert actions repeated fixed migration" duration=38.459µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.078944256Z level=info msg="Executing migration" id="managed folder permissions library panel actions migration"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.078978006Z level=info msg="Migration successfully executed" id="managed folder permissions library panel actions migration" duration=33.917µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.079415839Z level=info msg="Executing migration" id="migrate external alertmanagers to datsourcse"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.079452506Z level=info msg="Migration successfully executed" id="migrate external alertmanagers to datsourcse" duration=36.833µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.080041673Z level=info msg="Executing migration" id="create folder table"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.080253089Z level=info msg="Migration successfully executed" id="create folder table" duration=211.666µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.080933298Z level=info msg="Executing migration" id="Add index for parent_uid"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.081204506Z level=info msg="Migration successfully executed" id="Add index for parent_uid" duration=271.209µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.081890548Z level=info msg="Executing migration" id="Add unique index for folder.uid and folder.org_id"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.082148756Z level=info msg="Migration successfully executed" id="Add unique index for folder.uid and folder.org_id" duration=258.209µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.082796798Z level=info msg="Executing migration" id="Update folder title length"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.082804214Z level=info msg="Migration successfully executed" id="Update folder title length" duration=7.5µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.083382673Z level=info msg="Executing migration" id="Add unique index for folder.title and folder.parent_uid"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.083648923Z level=info msg="Migration successfully executed" id="Add unique index for folder.title and folder.parent_uid" duration=266.833µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.084332589Z level=info msg="Executing migration" id="Remove unique index for folder.title and folder.parent_uid"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.084600798Z level=info msg="Migration successfully executed" id="Remove unique index for folder.title and folder.parent_uid" duration=268.25µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.085200131Z level=info msg="Executing migration" id="Add unique index for title, parent_uid, and org_id"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.085452506Z level=info msg="Migration successfully executed" id="Add unique index for title, parent_uid, and org_id" duration=252.375µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.086067506Z level=info msg="Executing migration" id="Sync dashboard and folder table"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.086160714Z level=info msg="Migration successfully executed" id="Sync dashboard and folder table" duration=93.375µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.086599506Z level=info msg="Executing migration" id="Remove ghost folders from the folder table"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.086654339Z level=info msg="Migration successfully executed" id="Remove ghost folders from the folder table" duration=54.958µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.087265548Z level=info msg="Executing migration" id="Remove unique index UQE_folder_uid_org_id"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.087532756Z level=info msg="Migration successfully executed" id="Remove unique index UQE_folder_uid_org_id" duration=267.25µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.088149423Z level=info msg="Executing migration" id="Add unique index UQE_folder_org_id_uid"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.088408173Z level=info msg="Migration successfully executed" id="Add unique index UQE_folder_org_id_uid" duration=258.833µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.089007548Z level=info msg="Executing migration" id="Remove unique index UQE_folder_title_parent_uid_org_id"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.089258631Z level=info msg="Migration successfully executed" id="Remove unique index UQE_folder_title_parent_uid_org_id" duration=251.125µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.089844714Z level=info msg="Executing migration" id="Add unique index UQE_folder_org_id_parent_uid_title"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.090097964Z level=info msg="Migration successfully executed" id="Add unique index UQE_folder_org_id_parent_uid_title" duration=253.334µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.090586756Z level=info msg="Executing migration" id="Remove index IDX_folder_parent_uid_org_id"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.090849589Z level=info msg="Migration successfully executed" id="Remove index IDX_folder_parent_uid_org_id" duration=262.958µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.091448506Z level=info msg="Executing migration" id="create anon_device table"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.091640923Z level=info msg="Migration successfully executed" id="create anon_device table" duration=192.458µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.092232798Z level=info msg="Executing migration" id="add unique index anon_device.device_id"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.092503673Z level=info msg="Migration successfully executed" id="add unique index anon_device.device_id" duration=270.958µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.093198798Z level=info msg="Executing migration" id="add index anon_device.updated_at"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.093483173Z level=info msg="Migration successfully executed" id="add index anon_device.updated_at" duration=284.5µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.094109131Z level=info msg="Executing migration" id="create signing_key table"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.094293131Z level=info msg="Migration successfully executed" id="create signing_key table" duration=184.083µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.094948756Z level=info msg="Executing migration" id="add unique index signing_key.key_id"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.095213131Z level=info msg="Migration successfully executed" id="add unique index signing_key.key_id" duration=264.541µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.095849048Z level=info msg="Executing migration" id="set legacy alert migration status in kvstore"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.096159131Z level=info msg="Migration successfully executed" id="set legacy alert migration status in kvstore" duration=309.834µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.098870923Z level=info msg="Executing migration" id="migrate record of created folders during legacy migration to kvstore"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.098923548Z level=info msg="Migration successfully executed" id="migrate record of created folders during legacy migration to kvstore" duration=52.833µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.099475381Z level=info msg="Executing migration" id="Add folder_uid for dashboard"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.101585298Z level=info msg="Migration successfully executed" id="Add folder_uid for dashboard" duration=2.10975ms
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.102185048Z level=info msg="Executing migration" id="Populate dashboard folder_uid column"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.102316256Z level=info msg="Migration successfully executed" id="Populate dashboard folder_uid column" duration=131.375µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.102903173Z level=info msg="Executing migration" id="Add unique index for dashboard_org_id_folder_uid_title"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.102908256Z level=info msg="Migration successfully executed" id="Add unique index for dashboard_org_id_folder_uid_title" duration=5.25µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.103334339Z level=info msg="Executing migration" id="Delete unique index for dashboard_org_id_folder_id_title"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.103593673Z level=info msg="Migration successfully executed" id="Delete unique index for dashboard_org_id_folder_id_title" duration=259.292µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.104167506Z level=info msg="Executing migration" id="Delete unique index for dashboard_org_id_folder_uid_title"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.104172173Z level=info msg="Migration successfully executed" id="Delete unique index for dashboard_org_id_folder_uid_title" duration=4.833µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.104606964Z level=info msg="Executing migration" id="Add unique index for dashboard_org_id_folder_uid_title_is_folder"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.104892339Z level=info msg="Migration successfully executed" id="Add unique index for dashboard_org_id_folder_uid_title_is_folder" duration=285.458µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.105543631Z level=info msg="Executing migration" id="Restore index for dashboard_org_id_folder_id_title"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.105838048Z level=info msg="Migration successfully executed" id="Restore index for dashboard_org_id_folder_id_title" duration=294.458µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.106408714Z level=info msg="Executing migration" id="create sso_setting table"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.106637339Z level=info msg="Migration successfully executed" id="create sso_setting table" duration=228.75µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.107231256Z level=info msg="Executing migration" id="copy kvstore migration status to each org"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.107410381Z level=info msg="Migration successfully executed" id="copy kvstore migration status to each org" duration=179.333µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.108024673Z level=info msg="Executing migration" id="add back entry for orgid=0 migrated status"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.108069714Z level=info msg="Migration successfully executed" id="add back entry for orgid=0 migrated status" duration=45.541µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.108539006Z level=info msg="Executing migration" id="managed dashboard permissions annotation actions migration"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.108703256Z level=info msg="Migration successfully executed" id="managed dashboard permissions annotation actions migration" duration=164.292µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.109282381Z level=info msg="Executing migration" id="create cloud_migration table v1"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.109476589Z level=info msg="Migration successfully executed" id="create cloud_migration table v1" duration=194.334µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.110083589Z level=info msg="Executing migration" id="create cloud_migration_run table v1"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.110270298Z level=info msg="Migration successfully executed" id="create cloud_migration_run table v1" duration=186.792µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.110898756Z level=info msg="Executing migration" id="add stack_id column"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.113050839Z level=info msg="Migration successfully executed" id="add stack_id column" duration=2.152167ms
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.113653256Z level=info msg="Executing migration" id="add region_slug column"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.115828673Z level=info msg="Migration successfully executed" id="add region_slug column" duration=2.181709ms
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.116399923Z level=info msg="Executing migration" id="add cluster_slug column"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.118502631Z level=info msg="Migration successfully executed" id="add cluster_slug column" duration=2.102834ms
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.119115589Z level=info msg="Executing migration" id="add migration uid column"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.121230298Z level=info msg="Migration successfully executed" id="add migration uid column" duration=2.114917ms
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.121810506Z level=info msg="Executing migration" id="Update uid column values for migration"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.121839381Z level=info msg="Migration successfully executed" id="Update uid column values for migration" duration=29µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.122294589Z level=info msg="Executing migration" id="Add unique index migration_uid"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.122584214Z level=info msg="Migration successfully executed" id="Add unique index migration_uid" duration=289.792µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.123179256Z level=info msg="Executing migration" id="add migration run uid column"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.125405756Z level=info msg="Migration successfully executed" id="add migration run uid column" duration=2.226583ms
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.126011548Z level=info msg="Executing migration" id="Update uid column values for migration run"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.126038631Z level=info msg="Migration successfully executed" id="Update uid column values for migration run" duration=27.5µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.126513381Z level=info msg="Executing migration" id="Add unique index migration_run_uid"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.126816381Z level=info msg="Migration successfully executed" id="Add unique index migration_run_uid" duration=303µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.127460881Z level=info msg="Executing migration" id="alter kv_store.value to longtext"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.127474339Z level=info msg="Migration successfully executed" id="alter kv_store.value to longtext" duration=13.625µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.128072839Z level=info msg="Executing migration" id="add notification_settings column to alert_rule table"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.130196381Z level=info msg="Migration successfully executed" id="add notification_settings column to alert_rule table" duration=2.123209ms
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.130813673Z level=info msg="Executing migration" id="add notification_settings column to alert_rule_version table"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.132974214Z level=info msg="Migration successfully executed" id="add notification_settings column to alert_rule_version table" duration=2.1605ms
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.133560964Z level=info msg="Executing migration" id="removing scope from alert.instances:read action migration"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.133618089Z level=info msg="Migration successfully executed" id="removing scope from alert.instances:read action migration" duration=57.209µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.134183256Z level=info msg="Executing migration" id="managed folder permissions alerting silences actions migration"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.134221464Z level=info msg="Migration successfully executed" id="managed folder permissions alerting silences actions migration" duration=38.25µs
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.134801006Z level=info msg="Executing migration" id="add record column to alert_rule table"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.137034923Z level=info msg="Migration successfully executed" id="add record column to alert_rule table" duration=2.233875ms
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.137670048Z level=info msg="Executing migration" id="add record column to alert_rule_version table"
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.139869214Z level=info msg="Migration successfully executed" id="add record column to alert_rule_version table" duration=2.199334ms
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.140455756Z level=info msg="migrations completed" performed=572 skipped=0 duration=793.789584ms
+edumind-grafana  | logger=migrator t=2026-04-23T04:32:23.140610506Z level=info msg="Unlocking database"
+edumind-grafana  | logger=sqlstore t=2026-04-23T04:32:23.144994798Z level=info msg="Created default admin" user=admin
+edumind-grafana  | logger=sqlstore t=2026-04-23T04:32:23.145051673Z level=info msg="Created default organization"
+edumind-grafana  | logger=secrets t=2026-04-23T04:32:23.147430256Z level=info msg="Envelope encryption state" enabled=true currentprovider=secretKey.v1
+edumind-grafana  | logger=plugin.angulardetectorsprovider.dynamic t=2026-04-23T04:32:23.161395714Z level=info msg="Restored cache from database" duration=164.208µs
+edumind-grafana  | logger=plugin.store t=2026-04-23T04:32:23.162226298Z level=info msg="Loading plugins..."
+edumind-grafana  | logger=plugins.registration t=2026-04-23T04:32:23.173800173Z level=error msg="Could not register plugin" pluginId=xychart error="plugin xychart is already registered"
+edumind-grafana  | logger=plugins.initialization t=2026-04-23T04:32:23.173808256Z level=error msg="Could not initialize plugin" pluginId=xychart error="plugin xychart is already registered"
+edumind-grafana  | logger=local.finder t=2026-04-23T04:32:23.173828923Z level=warn msg="Skipping finding plugins as directory does not exist" path=/usr/share/grafana/plugins-bundled
+edumind-grafana  | logger=plugin.store t=2026-04-23T04:32:23.173832589Z level=info msg="Plugins loaded" count=54 duration=11.606459ms
+edumind-grafana  | logger=query_data t=2026-04-23T04:32:23.175166756Z level=info msg="Query Service initialization"
+edumind-grafana  | logger=live.push_http t=2026-04-23T04:32:23.176160464Z level=info msg="Live Push Gateway initialization"
+edumind-grafana  | logger=ngalert.notifier.alertmanager org=1 t=2026-04-23T04:32:23.177467631Z level=info msg="Applying new configuration to Alertmanager" configHash=d2c56faca6af2a5772ff4253222f7386
+edumind-grafana  | logger=ngalert.state.manager t=2026-04-23T04:32:23.179210339Z level=info msg="Running in alternative execution of Error/NoData mode"
+edumind-grafana  | logger=infra.usagestats.collector t=2026-04-23T04:32:23.179956964Z level=info msg="registering usage stat providers" usageStatsProvidersLen=2
+edumind-grafana  | logger=provisioning.datasources t=2026-04-23T04:32:23.180981964Z level=info msg="inserting datasource from configuration" name=Loki uid=loki
+edumind-grafana  | logger=provisioning.alerting t=2026-04-23T04:32:23.186319048Z level=info msg="starting to provision alerting"
+edumind-grafana  | logger=folder-service t=2026-04-23T04:32:23.186628923Z level=warn msg="User does not belong to a user or service account namespace, using 0 as user ID" namespaceID= userID=
+edumind-grafana  | logger=provisioning.alerting t=2026-04-23T04:32:23.195694798Z level=info msg="finished to provision alerting"
+edumind-grafana  | logger=grafanaStorageLogger t=2026-04-23T04:32:23.197054173Z level=info msg="Storage starting"
+edumind-grafana  | logger=ngalert.multiorg.alertmanager t=2026-04-23T04:32:23.197259381Z level=info msg="Starting MultiOrg Alertmanager"
+edumind-grafana  | logger=ngalert.state.manager t=2026-04-23T04:32:23.196994048Z level=info msg="Warming state cache for startup"
+edumind-grafana  | logger=http.server t=2026-04-23T04:32:23.198808048Z level=info msg="HTTP Server Listen" address=[::]:3000 protocol=http subUrl= socket=
+edumind-grafana  | logger=sqlstore.transactions t=2026-04-23T04:32:23.212102423Z level=info msg="Database locked, sleeping then retrying" error="database is locked" retry=0 code="database is locked"
+edumind-grafana  | logger=provisioning.dashboard t=2026-04-23T04:32:23.232140798Z level=info msg="starting to provision dashboards"
+edumind-grafana  | logger=provisioning.dashboard t=2026-04-23T04:32:23.232152506Z level=info msg="finished to provision dashboards"
+edumind-grafana  | logger=ngalert.state.manager t=2026-04-23T04:32:23.232157173Z level=info msg="State cache has been initialized" states=0 duration=35.159125ms
+edumind-grafana  | logger=ngalert.scheduler t=2026-04-23T04:32:23.232175589Z level=info msg="Starting scheduler" tickInterval=10s maxAttempts=1
+edumind-grafana  | logger=ticker t=2026-04-23T04:32:23.232208964Z level=info msg=starting first_tick=2026-04-23T04:32:30Z
+edumind-grafana  | logger=grafana-apiserver t=2026-04-23T04:32:23.360127506Z level=info msg="Adding GroupVersion playlist.grafana.app v0alpha1 to ResourceManager"
+edumind-grafana  | logger=grafana-apiserver t=2026-04-23T04:32:23.360294423Z level=info msg="Adding GroupVersion featuretoggle.grafana.app v0alpha1 to ResourceManager"
+edumind-grafana  | logger=grafana.update.checker t=2026-04-23T04:32:24.287158215Z level=info msg="Update check succeeded" duration=1.089865001s
+edumind-grafana  | logger=plugins.update.checker t=2026-04-23T04:32:25.323108924Z level=info msg="Update check succeeded" duration=2.125550751s
+edumind-grafana  | logger=plugin.angulardetectorsprovider.dynamic t=2026-04-23T04:32:25.896598841Z level=info msg="Patterns update finished" duration=2.668204793s

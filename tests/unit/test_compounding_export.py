@@ -9,18 +9,20 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+
 from app.compounding.export_service import export_compounding_day
 from app.compounding.quality import validate_feedback_dict
-from app.compounding.sanitization import SanitizerConfig
-from app.compounding.sanitization import default_sanitizer_config
-from app.compounding.sanitization import sanitize_search_features
+from app.compounding.sanitization import (
+    SanitizerConfig,
+    default_sanitizer_config,
+    sanitize_search_features,
+)
 from app.core.config import settings
 from app.models.base import Base
 from app.models.semantic_search_log import SemanticSearchLog
 from app.models.similarity_audit_log import SimilarityAuditLogModel
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
-from sqlalchemy.orm import sessionmaker
 
 
 @pytest.fixture

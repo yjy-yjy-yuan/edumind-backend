@@ -6,15 +6,9 @@
 
 import atexit
 import logging
-from concurrent.futures import Executor
-from concurrent.futures import Future
-from concurrent.futures import ProcessPoolExecutor
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Executor, Future, ProcessPoolExecutor, ThreadPoolExecutor
 from threading import Lock
-from typing import Any
-from typing import Callable
-from typing import Dict
-from typing import Optional
+from typing import Any, Callable, Dict, Optional
 
 from app.core.config import settings
 

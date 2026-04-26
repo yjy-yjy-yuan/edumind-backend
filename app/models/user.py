@@ -3,16 +3,12 @@
 from datetime import datetime
 from typing import Optional
 
+from sqlalchemy import DateTime, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
+from werkzeug.security import check_password_hash, generate_password_hash
+
 from app.models.base import Base
 from app.utils.auth_security import build_password_fingerprint
-from sqlalchemy import DateTime
-from sqlalchemy import Integer
-from sqlalchemy import String
-from sqlalchemy import Text
-from sqlalchemy.orm import Mapped
-from sqlalchemy.orm import mapped_column
-from werkzeug.security import check_password_hash
-from werkzeug.security import generate_password_hash
 
 
 class User(Base):

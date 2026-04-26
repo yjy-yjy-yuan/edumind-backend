@@ -5,11 +5,7 @@ from __future__ import annotations
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Deque
-from typing import Dict
-from typing import List
-from typing import Optional
-from typing import Tuple
+from typing import Deque, Dict, List, Optional, Tuple
 
 from app.core.config import settings
 
@@ -19,6 +15,7 @@ class AlertingThresholds:
     max_failure_rate: float
     max_timeout_rate: float
     latency_timeout_ms: float
+    max_p95_latency_ms: float
     drift_relative_threshold: float
 
 
@@ -27,6 +24,7 @@ def default_thresholds() -> AlertingThresholds:
         max_failure_rate=float(getattr(settings, "ANALYTICS_ALERT_MAX_FAILURE_RATE", 0.15)),
         max_timeout_rate=float(getattr(settings, "ANALYTICS_ALERT_MAX_TIMEOUT_RATE", 0.10)),
         latency_timeout_ms=float(getattr(settings, "ANALYTICS_ALERT_LATENCY_TIMEOUT_MS", 30_000.0)),
+        max_p95_latency_ms=float(getattr(settings, "ANALYTICS_ALERT_MAX_P95_LATENCY_MS", 12_000.0)),
         drift_relative_threshold=float(getattr(settings, "ANALYTICS_ALERT_DRIFT_REL_THRESHOLD", 0.10)),
     )
 
@@ -95,7 +93,62 @@ class AnalyticsAlertEngine:
                 alerts,
             )
 
+        p95 = self._latency_p95(rows)
+        if p95 is not None and p95 > self.thresholds.max_p95_latency_ms:
+            self._append_throttled(
+                f"p95_latency:{module}",
+                f"analytics_alert p95_latency module={module} p95_ms={p95:.3f} "
+                f"threshold={self.thresholds.max_p95_latency_ms:.3f} window={n}",
+                alerts,
+            )
+
         return alerts
+
+    @staticmethod
+    def _latency_p95(rows: List[Tuple[str, str, Optional[float]]]) -> Optional[float]:
+        latencies = sorted(lat for _, _, lat in rows if lat is not None)
+        if not latencies:
+            return None
+        index = max(0, min(len(latencies) - 1, int(round((len(latencies) - 1) * 0.95))))
+        return float(latencies[index])
+
+    def get_module_metrics(self, module: str) -> Dict[str, Optional[float]]:
+        """返回模块观测窗口指标：成功/失败/超时率、P95、降级计数。"""
+        rows = [r for r in self._rows if r[0] == module]
+        n = len(rows)
+        if n == 0:
+            return {
+                "module": module,
+                "total": 0,
+                "success_count": 0,
+                "error_count": 0,
+                "timeout_count": 0,
+                "degraded_count": 0,
+                "success_rate": 0.0,
+                "error_rate": 0.0,
+                "timeout_rate": 0.0,
+                "degraded_rate": 0.0,
+                "p95_latency_ms": None,
+            }
+
+        success_count = sum(1 for _, st, _ in rows if st == "ok")
+        error_count = sum(1 for _, st, _ in rows if st == "error")
+        timeout_count = sum(1 for _, st, _ in rows if st == "timeout")
+        degraded_count = sum(1 for _, st, _ in rows if st == "degraded")
+        p95 = self._latency_p95(rows)
+        return {
+            "module": module,
+            "total": n,
+            "success_count": success_count,
+            "error_count": error_count,
+            "timeout_count": timeout_count,
+            "degraded_count": degraded_count,
+            "success_rate": success_count / n,
+            "error_rate": error_count / n,
+            "timeout_rate": timeout_count / n,
+            "degraded_rate": degraded_count / n,
+            "p95_latency_ms": p95,
+        }
 
     @staticmethod
     def evaluate_drift_report(drift_report: dict) -> Optional[str]:

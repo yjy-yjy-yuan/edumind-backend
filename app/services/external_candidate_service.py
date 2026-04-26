@@ -11,24 +11,22 @@ import json
 import logging
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import wait
+from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import datetime
 from html import unescape
-from time import monotonic
-from time import perf_counter
+from time import monotonic, perf_counter
 from typing import Optional
-from urllib.parse import parse_qs
-from urllib.parse import quote_plus
-from urllib.parse import unquote
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 
 import requests
+
 from app.core.config import settings
-from app.services.video_content_service import build_subject_enriched_tags
-from app.services.video_content_service import fallback_primary_topic_name
-from app.services.video_content_service import infer_subject_from_text
+from app.services.video_content_service import (
+    build_subject_enriched_tags,
+    fallback_primary_topic_name,
+    infer_subject_from_text,
+)
 
 logger = logging.getLogger(__name__)
 

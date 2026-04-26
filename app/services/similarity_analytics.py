@@ -8,15 +8,10 @@
 import json
 import logging
 import uuid
-from dataclasses import asdict
-from dataclasses import dataclass
-from dataclasses import field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any
-from typing import Dict
-from typing import Literal
-from typing import Optional
+from typing import Any, Dict, Literal, Optional
 
 
 class SimilarityEventType(Enum):
@@ -204,7 +199,7 @@ class SimilarityAuditLogger:
         """记录重试"""
         log.event_type = SimilarityEventType.RETRY_START.value
         log.retry_count = attempt
-        log.metadata['retry_reason'] = reason
+        log.metadata["retry_reason"] = reason
         self._emit_unified(log)
 
     def log_fallback(

@@ -3,14 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
-from typing import List
-from typing import Literal
-from typing import Optional
+from typing import Any, List, Literal, Optional
 
-from pydantic import BaseModel
-from pydantic import ConfigDict
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AgentExecuteRequest(BaseModel):
@@ -22,6 +17,8 @@ class AgentExecuteRequest(BaseModel):
     subtitle_text: str = Field(default="")
     recent_qa_messages: List[dict] = Field(default_factory=list)
     user_input: str = Field(..., min_length=1)
+    # user_id 不在前端 payload 中传入，由 auth_deps 从 token 解析
+    user_id: Optional[int] = Field(default=None)
 
 
 class AgentActionRecord(BaseModel):
@@ -43,5 +40,6 @@ class AgentPlanResponse(BaseModel):
     video_id: Optional[int] = None
     created_at: datetime
     action_records: List[AgentActionRecord] = Field(default_factory=list)
+    episode_id: str = Field(default="", description="Agent 轨迹记录会话 ID")
 
     model_config = ConfigDict(from_attributes=True)

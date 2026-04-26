@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-from typing import Any
-from typing import Dict
+from typing import TYPE_CHECKING, Any, Dict
 
 from app.analytics.pipeline import AnalyticsTelemetry
-from app.analytics.schema import AnalyticsEvent
-from app.analytics.schema import AnalyticsStatus
+from app.analytics.schema import AnalyticsEvent, AnalyticsStatus
 
 if TYPE_CHECKING:
     from app.services.similarity_analytics import SimilarityAuditLog

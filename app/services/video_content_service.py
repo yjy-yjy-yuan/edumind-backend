@@ -4,15 +4,14 @@ import json
 import logging
 import re
 from collections import Counter
-from typing import Iterable
-from typing import Optional
+from typing import Iterable, Optional
 
 import jieba
 import jieba.analyse
 import requests
+
 from app.core.config import settings
-from app.utils.ollama_compat import build_ollama_options
-from app.utils.ollama_compat import sanitize_ollama_response_text
+from app.utils.ollama_compat import build_ollama_options, sanitize_ollama_response_text
 
 logger = logging.getLogger(__name__)
 

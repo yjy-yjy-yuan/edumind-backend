@@ -2,19 +2,12 @@
 
 from datetime import datetime
 from decimal import Decimal
-from typing import List
-from typing import Optional
+from typing import List, Optional
+
+from sqlalchemy import JSON, Boolean, DateTime, Integer, Numeric, String, text
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
-from sqlalchemy import JSON
-from sqlalchemy import Boolean
-from sqlalchemy import DateTime
-from sqlalchemy import Integer
-from sqlalchemy import Numeric
-from sqlalchemy import String
-from sqlalchemy import text
-from sqlalchemy.orm import Mapped
-from sqlalchemy.orm import mapped_column
 
 
 class SemanticSearchLog(Base):

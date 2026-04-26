@@ -4,16 +4,14 @@ import hashlib
 import logging
 import os
 import re
-from typing import Optional
-from typing import Tuple
+from typing import Optional, Tuple
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
-from app.models.video import Video
-from app.models.video import VideoStatus
+from app.models.video import Video, VideoStatus
 from app.tasks.video_processing import update_video_status
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
-from sqlalchemy.orm import sessionmaker
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +144,7 @@ def download_video_from_url_task(
     """下载远程视频到本地上传目录"""
     try:
         import yt_dlp
+
         from app.tasks.video_processing import process_video_task
 
         update_video_status(video_id, VideoStatus.DOWNLOADING, DOWNLOAD_PREPARE_PROGRESS, "准备下载")

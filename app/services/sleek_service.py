@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import time
-from typing import Any
-from typing import Dict
-from typing import Iterable
-from typing import Optional
+from typing import Any, Dict, Iterable, Optional
 
 import httpx
+
 from app.core.config import settings
 
 

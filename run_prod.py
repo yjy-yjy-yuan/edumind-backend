@@ -40,8 +40,7 @@ _env_debug = os.environ.get("DEBUG", "").strip().lower()
 _is_explicit_debug = _env_debug in ("true", "1", "yes")
 if _is_explicit_debug:
     sys.stderr.write(
-        "[run_prod.py] WARNING: DEBUG=true is ignored in production mode. "
-        "Set APP_ENV=production instead.\n"
+        "[run_prod.py] WARNING: DEBUG=true is ignored in production mode. " "Set APP_ENV=production instead.\n"
     )
 os.environ["DEBUG"] = "false"
 
@@ -63,14 +62,14 @@ uvicorn.run(
     "app.main:app",
     host=settings.HOST,
     port=settings.PORT,
-    reload=False,          # 生产环境必须关闭，systemd 管理生命周期
+    reload=False,  # 生产环境必须关闭，systemd 管理生命周期
     log_level=_log_level,
     access_log=_access_log,
     # 以下为生产推荐参数
-    workers=1,              # Gunicorn 模式下由 Gunicorn 管理 workers；单进程时保持 1
+    workers=1,  # Gunicorn 模式下由 Gunicorn 管理 workers；单进程时保持 1
     limit_concurrency=100,
     limit_max_requests=8192,
     timeout_keep_alive=60,
-    proxy_headers=True,    # 从 Nginx 读取 X-Forwarded-* 头
+    proxy_headers=True,  # 从 Nginx 读取 X-Forwarded-* 头
     forwarded_allow_ips="*",
 )

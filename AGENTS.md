@@ -15,7 +15,7 @@ python run.py
 - Starts the API locally (default `127.0.0.1:2004`).
 
 ```bash
-python scripts/validate_backend_smoke.py
+pytest tests/smoke/test_app_startup.py -v
 mkdir -p .pycache-hook
 PYTHONPYCACHEPREFIX="$PWD/.pycache-hook" python -m compileall app scripts
 python scripts/validate_system_requirements.py

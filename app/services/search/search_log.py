@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import logging
-from decimal import ROUND_HALF_UP
-from decimal import Decimal
-from decimal import InvalidOperation
-from typing import List
-from typing import Optional
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from typing import List, Optional
+
+from sqlalchemy.orm import Session
 
 from app.models.semantic_search_log import SemanticSearchLog
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

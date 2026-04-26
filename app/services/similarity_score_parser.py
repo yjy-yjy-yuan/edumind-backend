@@ -10,9 +10,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Literal
-from typing import Optional
-from typing import Tuple
+from typing import Literal, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -93,10 +91,10 @@ class SimilarityScoreParser:
 
     # 解析模式
     # 注：所有模式现在支持可选的负号（用于处理 -0.1 这样的应该被拒绝的值）
-    PATTERN_SINGLE_FLOAT = re.compile(r'^(-?\d+(?:\.\d+)?)$')
-    PATTERN_SCORE_PREFIX = re.compile(r'score\s*[:\s=]+\s*(-?\d+(?:\.\d+)?)', re.IGNORECASE)
-    PATTERN_CODE_BLOCK = re.compile(r'```\s*(-?\d+(?:\.\d+)?)\s*```')
-    PATTERN_ANY_FLOAT = re.compile(r'(-?\d+(?:\.\d+)?)')
+    PATTERN_SINGLE_FLOAT = re.compile(r"^(-?\d+(?:\.\d+)?)$")
+    PATTERN_SCORE_PREFIX = re.compile(r"score\s*[:\s=]+\s*(-?\d+(?:\.\d+)?)", re.IGNORECASE)
+    PATTERN_CODE_BLOCK = re.compile(r"```\s*(-?\d+(?:\.\d+)?)\s*```")
+    PATTERN_ANY_FLOAT = re.compile(r"(-?\d+(?:\.\d+)?)")
 
     @staticmethod
     def parse_v2_format(response: str) -> ParseResult:

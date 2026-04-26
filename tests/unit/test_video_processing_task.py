@@ -4,13 +4,13 @@ import json
 from pathlib import Path
 
 import pytest
-from app.models.base import Base
-from app.models.subtitle import Subtitle
-from app.models.video import Video
-from app.models.video import VideoStatus
-from app.tasks.video_processing import process_video_task
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+from app.models.base import Base
+from app.models.subtitle import Subtitle
+from app.models.video import Video, VideoStatus
+from app.tasks.video_processing import process_video_task
 
 
 @pytest.mark.unit

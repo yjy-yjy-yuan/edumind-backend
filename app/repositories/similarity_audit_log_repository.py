@@ -1,13 +1,13 @@
 """Repository 层 - 数据库访问对象"""
 
 from datetime import datetime
-from typing import List
-from typing import Optional
+from typing import List, Optional
+
+from sqlalchemy import desc
+from sqlalchemy.orm import Session
 
 from app.models.similarity_audit_log import SimilarityAuditLogModel
 from app.services.similarity_analytics import SimilarityAuditLog
-from sqlalchemy import desc
-from sqlalchemy.orm import Session
 
 
 class SimilarityAuditLogRepository:

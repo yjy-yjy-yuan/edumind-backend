@@ -4,10 +4,9 @@ import json
 import logging
 
 import pytest
-from app.analytics.pipeline import AnalyticsTelemetry
-from app.analytics.pipeline import reset_telemetry_for_tests
-from app.analytics.schema import AnalyticsEvent
-from app.analytics.schema import AnalyticsStatus
+
+from app.analytics.pipeline import AnalyticsTelemetry, reset_telemetry_for_tests
+from app.analytics.schema import AnalyticsEvent, AnalyticsStatus
 
 
 @pytest.fixture(autouse=True)
@@ -49,3 +48,31 @@ class TestAnalyticsPipeline:
         )
         t.emit(ev, skip_alerts=True)
         assert any(r.levelno == logging.ERROR for r in caplog.records)
+
+    def test_module_metrics_snapshot(self):
+        t = AnalyticsTelemetry()
+        for _ in range(8):
+            t.emit(
+                AnalyticsEvent(
+                    event_type="vinci_ok",
+                    trace_id="tm1",
+                    module="vinci",
+                    status=AnalyticsStatus.OK.value,
+                    latency_ms=100.0,
+                ),
+                skip_alerts=False,
+            )
+        for _ in range(2):
+            t.emit(
+                AnalyticsEvent(
+                    event_type="vinci_degraded",
+                    trace_id="tm2",
+                    module="vinci",
+                    status=AnalyticsStatus.DEGRADED.value,
+                    latency_ms=350.0,
+                ),
+                skip_alerts=False,
+            )
+        metrics = t.module_metrics("vinci")
+        assert metrics["total"] == 10
+        assert metrics["degraded_count"] == 2

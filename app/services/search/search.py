@@ -3,20 +3,18 @@
 import logging
 import os
 import time
-from typing import List
-from typing import Optional
-from typing import Tuple
+from typing import List, Optional, Tuple
+
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.schemas.search import SearchResultChunk
-from app.services.search.chunker import chunk_video
-from app.services.search.chunker import get_video_duration
+from app.services.search.chunker import chunk_video, get_video_duration
 from app.services.search.embedder import get_embedder
 from app.services.search.search_logging import SearchEventLogger
 from app.services.search.similarity_fusion import fused_similarity_score
 from app.services.search.store import EduMindStore
 from app.utils.qa_utils import parse_srt_chunks
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

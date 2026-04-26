@@ -4,6 +4,7 @@ import hashlib
 import hmac
 
 import pytest
+
 from app.core.config import settings
 from app.utils import auth_token
 

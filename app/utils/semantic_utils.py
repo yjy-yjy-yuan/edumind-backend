@@ -11,9 +11,9 @@ from typing import List
 
 import jieba.analyse
 import requests
+
 from app.core.config import settings
-from app.utils.ollama_compat import build_ollama_options
-from app.utils.ollama_compat import sanitize_ollama_response_text
+from app.utils.ollama_compat import build_ollama_options, sanitize_ollama_response_text
 
 logger = logging.getLogger(__name__)
 
