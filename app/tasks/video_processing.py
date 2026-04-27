@@ -129,7 +129,13 @@ def generate_video_info(video_path: str) -> dict:
             duration = frame_count / fps if fps > 0 else 0
             cap.release()
             if width > 0 and height > 0:
-                return {"width": width, "height": height, "fps": fps, "frame_count": frame_count, "duration": duration}
+                return {
+                    "width": width,
+                    "height": height,
+                    "fps": fps,
+                    "frame_count": frame_count,
+                    "duration": duration,
+                }
     except Exception as e:
         logger.warning(f"OpenCV 获取视频信息失败，尝试 ffprobe: {str(e)}")
 
@@ -158,7 +164,12 @@ def generate_video_info(video_path: str) -> dict:
                 break
 
         logger.info(
-            "ffmpeg 提取视频信息成功 | path=%s | dur=%.1fs | %dx%d | %.2ffps", video_path, duration, width, height, fps
+            "ffmpeg 提取视频信息成功 | path=%s | dur=%.1fs | %dx%d | %.2ffps",
+            video_path,
+            duration,
+            width,
+            height,
+            fps,
         )
         return {
             "width": width,
@@ -193,8 +204,26 @@ def generate_preview_image(video_path: str, preview_path: str) -> bool:
             img = np.zeros((360, 640, 3), dtype=np.uint8)
             img[:, :] = (25, 55, 125)
             font = cv2.FONT_HERSHEY_SIMPLEX
-            cv2.putText(img, "Placeholder Video", (160, 180), font, 1, (255, 255, 255), 2, cv2.LINE_AA)
-            cv2.putText(img, "Please replace manually", (140, 220), font, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
+            cv2.putText(
+                img,
+                "Placeholder Video",
+                (160, 180),
+                font,
+                1,
+                (255, 255, 255),
+                2,
+                cv2.LINE_AA,
+            )
+            cv2.putText(
+                img,
+                "Please replace manually",
+                (140, 220),
+                font,
+                0.8,
+                (255, 255, 255),
+                2,
+                cv2.LINE_AA,
+            )
             cv2.imwrite(preview_path, img)
             return True
         except Exception:
@@ -219,7 +248,17 @@ def generate_preview_image(video_path: str, preview_path: str) -> bool:
         import subprocess
 
         result = subprocess.run(
-            ["ffmpeg", "-y", "-i", video_path, "-vframes", "1", "-q:v", "2", preview_path],
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                video_path,
+                "-vframes",
+                "1",
+                "-q:v",
+                "2",
+                preview_path,
+            ],
             capture_output=True,
             text=True,
             timeout=30,
@@ -340,7 +379,12 @@ def transcribe_with_live_progress(
             TRANSCRIPTION_PROGRESS_START + (TRANSCRIPTION_PROGRESS_END - TRANSCRIPTION_PROGRESS_START) * progress_ratio
         )
         step = f"语音识别中（已运行 {format_elapsed_label(elapsed)}）"
-        update_video_status(video_id, "processing", round(min(progress, TRANSCRIPTION_PROGRESS_END), 1), step)
+        update_video_status(
+            video_id,
+            "processing",
+            round(min(progress, TRANSCRIPTION_PROGRESS_END), 1),
+            step,
+        )
         thread.join(timeout=TRANSCRIPTION_POLL_SECONDS)
 
     thread.join()
@@ -391,7 +435,11 @@ def sync_subtitles_to_db(db, video_id: int, result: dict, language: str) -> int:
             logger.warning("数据库缺少 subtitles 表，跳过字幕落库 | video_id=%s", video_id)
             return 0
     except Exception as exc:
-        logger.warning("检查 subtitles 表失败，跳过字幕落库 | video_id=%s | error=%s", video_id, exc)
+        logger.warning(
+            "检查 subtitles 表失败，跳过字幕落库 | video_id=%s | error=%s",
+            video_id,
+            exc,
+        )
         return 0
 
     subtitle_rows = []
@@ -444,10 +492,12 @@ def update_video_status(video_id: int, status: str, progress: float, step: str, 
     engine = create_engine(
         settings.DATABASE_URL,
         pool_pre_ping=True,
-        connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
+        connect_args=({"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}),
     )
     Session = sessionmaker(bind=engine)
     db = Session()
+    video_path = ""
+    temp_audio_path = ""
 
     try:
         video = db.query(Video).filter(Video.id == video_id).first()
@@ -512,7 +562,7 @@ def start_indexing_async(
                 user_id=user_id,
                 collection_name=collection_name,
                 embedding_backend=backend,
-                embedding_model=settings.SEARCH_LOCAL_MODEL if backend == "local" else None,
+                embedding_model=(settings.SEARCH_LOCAL_MODEL if backend == "local" else None),
                 status=VectorIndexStatus.PENDING,
             )
             db.add(vector_index)
@@ -653,7 +703,7 @@ def process_video_task(
     engine = create_engine(
         settings.DATABASE_URL,
         pool_pre_ping=True,
-        connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
+        connect_args=({"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}),
     )
     Session = sessionmaker(bind=engine)
     db = Session()
@@ -665,7 +715,7 @@ def process_video_task(
             logger.error(f"视频不存在 | ID: {video_id}")
             return {"status": "failed", "message": "视频不存在"}
 
-        video_path = video.filepath
+        video_path = str(video.filepath or "")
 
         # 更新状态为处理中
         video.status = VideoStatus.PROCESSING
@@ -752,6 +802,7 @@ def process_video_task(
         input_file = video_path
         if extract_audio(video_path, audio_path):
             input_file = audio_path
+            temp_audio_path = audio_path
             logger.info("音频提取成功")
         else:
             logger.warning("音频提取失败，使用原视频文件")
@@ -870,7 +921,11 @@ def process_video_task(
                     try:
                         resolved_tags = json.loads(video.tags)
                     except Exception as exc:
-                        logger.warning("解析视频标签失败，重命名时忽略标签 | video_id=%s | error=%s", video_id, exc)
+                        logger.warning(
+                            "解析视频标签失败，重命名时忽略标签 | video_id=%s | error=%s",
+                            video_id,
+                            exc,
+                        )
 
                 title_result = generate_primary_topic_name(
                     video.summary or "",
@@ -896,7 +951,11 @@ def process_video_task(
                             )
                     except Exception as exc:
                         db.rollback()
-                        logger.warning("本地上传视频重命名失败 | video_id=%s | error=%s", video_id, exc)
+                        logger.warning(
+                            "本地上传视频重命名失败 | video_id=%s | error=%s",
+                            video_id,
+                            exc,
+                        )
                 else:
                     logger.warning(
                         "视频主标题生成失败，保留原文件名 | video_id=%s | error=%s",
@@ -964,7 +1023,12 @@ def process_video_task(
                 from app.tasks.vector_indexing import index_video_for_search
 
                 logger.info(f"提交异步语义搜索索引任务（after_video_completed 模式）| video_id={video_id}")
-                submit_task(index_video_for_search, video_id, video.user_id, settings.SEARCH_BACKEND)
+                submit_task(
+                    index_video_for_search,
+                    video_id,
+                    video.user_id,
+                    settings.SEARCH_BACKEND,
+                )
             except Exception as e:
                 logger.warning(f"提交索引任务失败（不中断视频处理）| video_id={video_id} | error={e}")
 
@@ -988,6 +1052,15 @@ def process_video_task(
         return {"status": "failed", "message": f"处理视频失败: {str(e)}"}
 
     finally:
+        if temp_audio_path and temp_audio_path != video_path and os.path.exists(temp_audio_path):
+            try:
+                os.remove(temp_audio_path)
+            except Exception as cleanup_exc:  # noqa: BLE001
+                logger.debug(
+                    "清理临时音频失败（忽略）| path=%s | error=%s",
+                    temp_audio_path,
+                    cleanup_exc,
+                )
         db.close()
         engine.dispose()
 
@@ -1014,7 +1087,7 @@ def cleanup_video_task(video_id: int, delete_db_record: bool = True) -> dict:
     engine = create_engine(
         settings.DATABASE_URL,
         pool_pre_ping=True,
-        connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
+        connect_args=({"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}),
     )
     Session = sessionmaker(bind=engine)
     db = Session()
