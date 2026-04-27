@@ -31,6 +31,7 @@ class Note(Base):
     # 标签和关键词
     tags: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # 逗号分隔
     keywords: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # 自动提取的关键词
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
 
     # 关系
     video: Mapped[Optional["Video"]] = relationship("Video", backref="notes")
@@ -46,6 +47,7 @@ class Note(Base):
             "content": self.content,
             "note_type": self.note_type,
             "video_id": self.video_id,
+            "user_id": self.user_id,
             "video_title": self.video.title if self.video else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,

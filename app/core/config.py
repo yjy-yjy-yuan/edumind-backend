@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     AUTH_TOKEN_CLOCK_SKEW_SECONDS: int = 120  # 校验过期时允许的时钟偏差（秒）
     # 为 True 时允许仅凭 query/body 的 user_id 识别用户（迁移/联调）；生产环境应为 False，仅信任 Bearer
     AUTH_ALLOW_LEGACY_USER_ID_ONLY: bool = False
+    # 本地开发默认用户邮箱（仅用于未登录时的开发兜底身份）。
+    DEV_DEFAULT_USER_EMAIL: str = ""
     # 智能体编排：学习流 token 预算（估算）、治理审计开关
     AGENT_LEARNING_FLOW_TOKEN_BUDGET: int = 8000
     AGENT_GOVERNANCE_AUDIT_ENABLED: bool = True

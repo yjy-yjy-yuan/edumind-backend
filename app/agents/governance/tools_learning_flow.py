@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.agents.exceptions import GovernanceError
 from app.agents.governance.context import ensure_in_governance_context
 from app.models.note import Note, NoteTimestamp
+from app.models.video import Video
 from app.services.video_content_service import (
     fallback_summary,
     fallback_tags,
@@ -47,12 +48,16 @@ def tool_lf_persist_note(db: Session, params: dict[str, Any]) -> dict[str, Any]:
     note_type = str(params.get("note_type") or "text")[:32]
     tags = str(params.get("tags") or "")[:2000]
     keywords = str(params.get("keywords") or "")[:2000]
+    video = db.query(Video).filter(Video.id == video_id).first()
+    if video is None:
+        raise GovernanceError("video_not_found")
 
     note = Note(
         title=title,
         content=content,
         note_type=note_type,
         video_id=video_id,
+        user_id=video.user_id,
         tags=tags,
         keywords=keywords,
     )

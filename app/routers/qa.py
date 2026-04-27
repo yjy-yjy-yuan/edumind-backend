@@ -4,7 +4,7 @@ import json
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -12,6 +12,7 @@ from app.core.database import get_db
 from app.models.qa import Question
 from app.models.video import Video
 from app.schemas.qa import AskRequest
+from app.utils.auth_deps import resolve_user_id_from_request
 from app.utils.qa_utils import (
     SUPPORTED_QA_PROVIDERS,
     QAConfigError,
@@ -25,6 +26,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 SUPPORTED_QA_MODES = {"video", "free"}
+
+
+def get_current_user_id(request: Request, db: Session = Depends(get_db)) -> int:
+    return resolve_user_id_from_request(
+        db,
+        authorization=request.headers.get("Authorization"),
+        x_user_id=request.headers.get("X-User-ID"),
+        query_user_id=request.query_params.get("user_id"),
+        allow_default_user=True,
+        default_user_id=1,
+        unauthorized_detail="请先登录后再使用问答功能",
+    )
 
 
 def serialize_stream_event(event: dict) -> str:
@@ -76,11 +89,13 @@ def _debug_qa_context(
 def persist_question_record(
     db: Session,
     *,
+    user_id: int,
     video_id: Optional[int],
     content: str,
     answer: Optional[str],
 ) -> dict:
     question = Question(
+        user_id=user_id,
         video_id=video_id,
         content=content,
         answer=answer,
@@ -113,7 +128,11 @@ def normalize_stream_event(event: dict, *, provider: str, model: str) -> dict:
 
 
 @router.post("/ask")
-async def ask_question(request: AskRequest, db: Session = Depends(get_db)):
+async def ask_question(
+    request: AskRequest,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """提问并获取答案"""
     try:
         normalized_mode = str(request.mode or "").strip().lower() or "video"
@@ -129,9 +148,9 @@ async def ask_question(request: AskRequest, db: Session = Depends(get_db)):
             if not request.video_id:
                 raise HTTPException(status_code=400, detail="视频问答模式需要提供视频ID")
 
-            video = db.query(Video).filter(Video.id == request.video_id).first()
+            video = db.query(Video).filter(Video.id == request.video_id, Video.user_id == current_user_id).first()
             if not video:
-                raise HTTPException(status_code=404, detail="视频不存在")
+                raise HTTPException(status_code=404, detail="视频不存在或无权访问")
         qa_system = QASystem(video=video)
         _debug_qa_context(
             "qa request accepted",
@@ -153,7 +172,11 @@ async def ask_question(request: AskRequest, db: Session = Depends(get_db)):
                 try:
                     stream_video = None
                     if normalized_mode == "video":
-                        stream_video = stream_db.query(Video).filter(Video.id == request.video_id).first()
+                        stream_video = (
+                            stream_db.query(Video)
+                            .filter(Video.id == request.video_id, Video.user_id == current_user_id)
+                            .first()
+                        )
                         if not stream_video:
                             yield serialize_stream_event(
                                 {
@@ -227,6 +250,7 @@ async def ask_question(request: AskRequest, db: Session = Depends(get_db)):
                             )
                             stored_question = persist_question_record(
                                 stream_db,
+                                user_id=current_user_id,
                                 video_id=request.video_id if normalized_mode == "video" else None,
                                 content=request.question,
                                 answer=normalized_event.get("answer"),
@@ -305,6 +329,7 @@ async def ask_question(request: AskRequest, db: Session = Depends(get_db)):
         )
         stored_question = persist_question_record(
             db,
+            user_id=current_user_id,
             video_id=request.video_id if normalized_mode == "video" else None,
             content=request.question,
             answer=result["answer"],
@@ -313,7 +338,7 @@ async def ask_question(request: AskRequest, db: Session = Depends(get_db)):
         response_payload = stored_question
         response_payload.update(
             {
-                "user_id": request.user_id,
+                "user_id": current_user_id,
                 "provider": result["provider"],
                 "mode": normalized_mode,
                 "provider_label": result["provider_label"],
@@ -342,6 +367,7 @@ async def get_qa_history(
     provider: str = Query(..., description="模型提供方: qwen, deepseek"),
     user_id: Optional[int] = Query(default=None, description="当前用户ID，用于隔离问答空间"),
     mode: str = Query(default="video", description="问答模式，视频问答固定为 video"),
+    current_user_id: int = Depends(get_current_user_id),
 ):
     """获取视频的问答历史"""
     try:

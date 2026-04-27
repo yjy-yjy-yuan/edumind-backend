@@ -18,6 +18,7 @@ class Question(Base):
     __tablename__ = "questions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     video_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("videos.id"), nullable=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)  # 问题内容
     answer: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # 回答内容
@@ -31,6 +32,7 @@ class Question(Base):
         """转换为字典"""
         return {
             "id": self.id,
+            "user_id": self.user_id,
             "video_id": self.video_id,
             "content": self.content,
             "answer": self.answer,

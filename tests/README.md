@@ -1,6 +1,6 @@
 # Backend Tests
 
-`backend_fastapi/tests/` 是 EduMind 后端唯一测试目录。
+`tests/` 是 EduMind 后端唯一测试目录。
 
 当前按职责分层：
 
@@ -38,16 +38,17 @@
 
 ## 当前验证约定
 
-当前仓库规则要求修改程序时不要用 `pytest` 作为本次验证手段；优先在仓库根目录执行：
+常规改动的默认验证链路（仓库根目录）：
 
 ```bash
 . .venv/bin/activate
-python scripts/validate_backend_smoke.py
+pytest tests/smoke/test_app_startup.py -v
 mkdir -p .pycache-hook
-PYTHONPYCACHEPREFIX="$PWD/.pycache-hook" python -m compileall backend_fastapi/app backend_fastapi/scripts scripts/hooks scripts/validate_backend_smoke.py
+PYTHONPYCACHEPREFIX="$PWD/.pycache-hook" python -m compileall app scripts
+python scripts/validate_system_requirements.py
 ```
 
 补充说明：
 
-- 本目录仍保留历史 pytest 风格的命名与分层，方便后续维护已有回归用例。
-- 若未来刷新这批历史测试，再决定是否恢复独立测试命令文档；在此之前，以当前 smoke/build/static checks 为准。
+- `pytest` 历史回归用例仍保留并可按需执行（例如 `pytest tests/unit -v`）。
+- 提交和推送阶段以仓库 hooks（`pre-commit` / `pre-push`）校验结果为准。

@@ -70,7 +70,7 @@ from app.services.whisper_runtime import (
     normalize_whisper_model_name,
     transcribe_audio_with_whisper,
 )
-from app.utils.auth_deps import resolve_user_from_request
+from app.utils.auth_deps import resolve_user_from_request, resolve_user_id_from_request
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +81,25 @@ ALLOWED_VIDEO_CONTENT_TYPES = {"application/octet-stream"}
 UPLOAD_CHUNK_SIZE = 1024 * 1024
 STREAM_CHUNK_SIZE = 1024 * 1024
 BYTE_RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)")
+
+
+def get_current_user_id(request: Request, db: Session = Depends(get_db)) -> int:
+    return resolve_user_id_from_request(
+        db,
+        authorization=request.headers.get("Authorization"),
+        x_user_id=request.headers.get("X-User-ID"),
+        query_user_id=request.query_params.get("user_id"),
+        allow_default_user=True,
+        default_user_id=1,
+        unauthorized_detail="请先登录后再使用视频功能",
+    )
+
+
+def get_user_scoped_video(db: Session, *, video_id: int, user_id: int) -> Video:
+    video = db.query(Video).filter(Video.id == video_id, Video.user_id == user_id).first()
+    if not video:
+        raise HTTPException(status_code=404, detail="视频不存在或无权访问")
+    return video
 
 
 def allowed_file(filename: str) -> bool:
@@ -623,11 +642,16 @@ async def upload_video_url(
 
 @router.get("/list", response_model=VideoListResponse)
 async def get_video_list(
-    page: int = Query(1, ge=1), per_page: int = Query(5, ge=1, le=100), db: Session = Depends(get_db)
+    page: int = Query(1, ge=1),
+    per_page: int = Query(5, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
 ):
     """获取视频列表"""
     try:
-        videos = db.query(Video).order_by(Video.upload_time.desc()).limit(100).all()
+        videos = (
+            db.query(Video).filter(Video.user_id == current_user_id).order_by(Video.upload_time.desc()).limit(100).all()
+        )
 
         result = []
         for video in videos:
@@ -717,20 +741,24 @@ async def get_video_processing_options():
 
 
 @router.get("/{video_id}", response_model=VideoDetail)
-async def get_video(video_id: int, db: Session = Depends(get_db)):
+async def get_video(
+    video_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """获取视频详情"""
-    video = db.query(Video).filter(Video.id == video_id).first()
-    if not video:
-        raise HTTPException(status_code=404, detail="视频不存在")
+    video = get_user_scoped_video(db, video_id=video_id, user_id=current_user_id)
     return serialize_video(video)
 
 
 @router.get("/{video_id}/status", response_model=VideoStatusResponse)
-async def get_video_status(video_id: int, db: Session = Depends(get_db)):
+async def get_video_status(
+    video_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """获取视频状态"""
-    video = db.query(Video).filter(Video.id == video_id).first()
-    if not video:
-        raise HTTPException(status_code=404, detail="视频不存在")
+    video = get_user_scoped_video(db, video_id=video_id, user_id=current_user_id)
 
     status = video.status.value if hasattr(video.status, "value") else str(video.status)
 
@@ -752,11 +780,14 @@ async def get_video_status(video_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{video_id}/process")
-async def process_video_route(video_id: int, request: VideoProcessRequest, db: Session = Depends(get_db)):
+async def process_video_route(
+    video_id: int,
+    request: VideoProcessRequest,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """开始处理视频"""
-    video = db.query(Video).filter(Video.id == video_id).first()
-    if not video:
-        raise HTTPException(status_code=404, detail="视频不存在")
+    video = get_user_scoped_video(db, video_id=video_id, user_id=current_user_id)
     if video.processing_origin == VideoProcessingOrigin.IOS_OFFLINE:
         raise HTTPException(status_code=400, detail="该记录来自 iOS 本地离线处理，不能走后端重新处理")
 
@@ -777,22 +808,26 @@ async def process_video_route(video_id: int, request: VideoProcessRequest, db: S
 
 
 @router.delete("/{video_id}/delete")
-async def delete_video(video_id: int, db: Session = Depends(get_db)):
+async def delete_video(
+    video_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """删除视频"""
-    video = db.query(Video).filter(Video.id == video_id).first()
-    if not video:
-        raise HTTPException(status_code=404, detail="视频不存在")
+    video = get_user_scoped_video(db, video_id=video_id, user_id=current_user_id)
 
     # 删除关联的问题记录
     from app.models.note import Note, NoteTimestamp
     from app.models.qa import Question
 
-    db.query(Question).filter(Question.video_id == video_id).delete()
+    db.query(Question).filter(Question.video_id == video_id, Question.user_id == current_user_id).delete()
     db.query(Subtitle).filter(Subtitle.video_id == video_id).delete()
-    note_ids = [row[0] for row in db.query(Note.id).filter(Note.video_id == video_id).all()]
+    note_ids = [
+        row[0] for row in db.query(Note.id).filter(Note.video_id == video_id, Note.user_id == current_user_id).all()
+    ]
     if note_ids:
         db.query(NoteTimestamp).filter(NoteTimestamp.note_id.in_(note_ids)).delete()
-    db.query(Note).filter(Note.video_id == video_id).delete()
+    db.query(Note).filter(Note.video_id == video_id, Note.user_id == current_user_id).delete()
 
     # 提交清理任务
     try:
@@ -816,11 +851,14 @@ async def delete_video(video_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{video_id}/stream")
-async def get_video_stream(video_id: int, request: Request, db: Session = Depends(get_db)):
+async def get_video_stream(
+    video_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """流式传输视频"""
-    video = db.query(Video).filter(Video.id == video_id).first()
-    if not video:
-        raise HTTPException(status_code=404, detail="视频不存在")
+    video = get_user_scoped_video(db, video_id=video_id, user_id=current_user_id)
 
     stream_path = resolve_video_stream_path(video)
     if not stream_path:
@@ -856,11 +894,14 @@ async def get_video_stream(video_id: int, request: Request, db: Session = Depend
 
 
 @router.head("/{video_id}/stream")
-async def head_video_stream(video_id: int, request: Request, db: Session = Depends(get_db)):
+async def head_video_stream(
+    video_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """返回视频流元信息，兼容 iOS/WKWebView 在播放前的 HEAD 预检。"""
-    video = db.query(Video).filter(Video.id == video_id).first()
-    if not video:
-        raise HTTPException(status_code=404, detail="视频不存在")
+    video = get_user_scoped_video(db, video_id=video_id, user_id=current_user_id)
 
     stream_path = resolve_video_stream_path(video)
     if not stream_path:
@@ -889,11 +930,13 @@ async def head_video_stream(video_id: int, request: Request, db: Session = Depen
 
 
 @router.get("/{video_id}/preview")
-async def get_video_preview(video_id: int, db: Session = Depends(get_db)):
+async def get_video_preview(
+    video_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """获取视频预览图"""
-    video = db.query(Video).filter(Video.id == video_id).first()
-    if not video:
-        raise HTTPException(status_code=404, detail="视频不存在")
+    video = get_user_scoped_video(db, video_id=video_id, user_id=current_user_id)
 
     if not video.preview_filepath or not os.path.exists(video.preview_filepath):
         raise HTTPException(status_code=404, detail="预览图不存在")
@@ -902,11 +945,15 @@ async def get_video_preview(video_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{video_id}/subtitle")
-async def get_subtitle(video_id: int, format: str = "srt", download: bool = False, db: Session = Depends(get_db)):
+async def get_subtitle(
+    video_id: int,
+    format: str = "srt",
+    download: bool = False,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """获取字幕文件"""
-    video = db.query(Video).filter(Video.id == video_id).first()
-    if not video:
-        raise HTTPException(status_code=404, detail="视频不存在")
+    video = get_user_scoped_video(db, video_id=video_id, user_id=current_user_id)
 
     if not video.subtitle_filepath or not os.path.exists(video.subtitle_filepath):
         raise HTTPException(status_code=404, detail="字幕文件不存在")
@@ -930,11 +977,14 @@ async def get_subtitle(video_id: int, format: str = "srt", download: bool = Fals
 
 
 @router.post("/{video_id}/generate-summary")
-async def generate_summary(video_id: int, request: VideoSummaryRequest, db: Session = Depends(get_db)):
+async def generate_summary(
+    video_id: int,
+    request: VideoSummaryRequest,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """为视频生成内容摘要"""
-    video = db.query(Video).filter(Video.id == video_id).first()
-    if not video:
-        raise HTTPException(status_code=404, detail="视频不存在")
+    video = get_user_scoped_video(db, video_id=video_id, user_id=current_user_id)
 
     if video.status != VideoStatus.COMPLETED:
         raise HTTPException(status_code=400, detail="视频尚未处理完成，请先处理视频")
@@ -1118,11 +1168,14 @@ async def sync_offline_transcript(
 
 
 @router.post("/{video_id}/generate-tags")
-async def generate_tags(video_id: int, request: VideoTagRequest, db: Session = Depends(get_db)):
+async def generate_tags(
+    video_id: int,
+    request: VideoTagRequest,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
     """为视频生成标签"""
-    video = db.query(Video).filter(Video.id == video_id).first()
-    if not video:
-        raise HTTPException(status_code=404, detail="视频不存在")
+    video = get_user_scoped_video(db, video_id=video_id, user_id=current_user_id)
 
     if video.status != VideoStatus.COMPLETED:
         raise HTTPException(status_code=400, detail="视频尚未处理完成")

@@ -100,6 +100,7 @@ def sample_note(db, sample_video):
         title="测试笔记",
         content="这是测试笔记的内容",
         video_id=sample_video.id,
+        user_id=sample_video.user_id,
         note_type="text",
     )
     db.add(note)
