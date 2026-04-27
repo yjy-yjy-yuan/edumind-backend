@@ -4,7 +4,9 @@ import io
 import json
 import logging
 import os
+import re
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
@@ -19,6 +21,15 @@ from app.utils.subtitle_io import read_subtitle_file_with_fallback
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def build_content_disposition_filename(prefix: str, title: str, ext: str) -> str:
+    """Build RFC 5987 compatible Content-Disposition filename for non-ASCII titles."""
+    safe_ext = (ext or "txt").strip().lower()
+    ascii_fallback_title = re.sub(r"[^A-Za-z0-9._-]+", "_", str(title or "").strip()) or "video"
+    ascii_filename = f"{prefix}-{ascii_fallback_title}.{safe_ext}"
+    utf8_filename = f"{prefix}-{str(title or 'video').strip() or 'video'}.{safe_ext}"
+    return f"attachment; filename=\"{ascii_filename}\"; filename*=UTF-8''{quote(utf8_filename)}"
 
 
 def format_seconds_to_srt_time(seconds: float) -> str:
@@ -218,7 +229,11 @@ async def get_merged_subtitles(
         return Response(
             content=content.encode("utf-8"),
             media_type=mimetype,
-            headers={"Content-Disposition": f"attachment; filename=merged-{video.title or video_id}.{format}"},
+            headers={
+                "Content-Disposition": build_content_disposition_filename(
+                    prefix="merged", title=str(video.title or video_id), ext=format
+                )
+            },
         )
 
     return merged_subtitles
