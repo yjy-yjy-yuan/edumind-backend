@@ -51,3 +51,6 @@ dist/
 build/
 *.egg-info/
 models/whisper/
+
+# Local commit log
+COMMIT_LOG.md

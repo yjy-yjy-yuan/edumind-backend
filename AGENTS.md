@@ -44,7 +44,8 @@ Place tests by scope:
 No fixed coverage threshold is enforced; add or update tests for every changed service, router, or task.
 
 ## Commit & Pull Request Guidelines
-Recent history uses short imperative commit subjects (example: `Harden governance and analytics compliance`). Keep one logical change per commit.  
+Recent history uses short imperative commit subjects (example: `Harden governance and analytics compliance`). Keep one logical change per commit.
+**重要**: 每次提交后，必须将提交记录同步写入 `COMMIT_LOG.md`，按日期倒序排列，格式为日期 + commit hash + 提交信息。
 PRs should include: change summary, affected paths, config/migration impact, and exact validation commands run. For API changes, include sample request/response payloads and link the related issue.
 
 ## Security & Configuration Tips

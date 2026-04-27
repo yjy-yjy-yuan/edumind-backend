@@ -188,6 +188,8 @@ python scripts/validate_system_requirements.py
 
 ## Warnings
 
+- **提交日志**: 每次提交后，必须将提交记录同步写入 `COMMIT_LOG.md`，按日期倒序排列，格式为日期 + commit hash + 提交信息。
+
 - **YOU MUST** 在任务函数内创建新的数据库连接 (ProcessPoolExecutor 限制)
 - **YOU MUST** 使用 `Depends(get_db)` 注入数据库会话
 - **流式响应**: 使用 `StreamingResponse`，不要用 `Response`
