@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import time
 import uuid
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from sqlalchemy.engine.url import make_url
 from sqlalchemy.orm import Session
 
 from app.analytics.pipeline import get_telemetry
@@ -28,6 +30,34 @@ def _resolve_trace_id(request: Request) -> str:
 def _attach_trace_headers(response: Response, trace_id: str) -> None:
     response.headers["X-Trace-Id"] = trace_id
     response.headers["X-Request-Id"] = trace_id
+
+
+def _is_local_database() -> tuple[bool, str, str]:
+    raw = str(getattr(settings, "DATABASE_URL", "") or "").strip()
+    try:
+        url = make_url(raw)
+    except Exception:
+        return False, "unknown", "unknown"
+
+    driver = str(url.drivername or "")
+    host = str(url.host or "")
+    if driver.startswith("sqlite"):
+        return True, driver, host
+    if host in {"127.0.0.1", "localhost"}:
+        return True, driver, host
+    return False, driver, host
+
+
+def _is_local_path(path_value: str) -> bool:
+    raw = str(path_value or "").strip()
+    if not raw:
+        return False
+    try:
+        target = Path(raw).resolve()
+        workspace_root = Path(settings.BASE_DIR).resolve()
+    except Exception:
+        return False
+    return str(target).startswith(str(workspace_root))
 
 
 @router.get("/vinci/metrics")
@@ -74,3 +104,30 @@ async def get_vinci_ops_metrics(
         skip_alerts=True,
     )
     return payload
+
+
+@router.get("/runtime-scope")
+async def get_runtime_scope():
+    """返回当前运行域信息，帮助本地与云端隔离自检。"""
+    app_env = str(getattr(settings, "APP_ENV", "local") or "local").strip().lower()
+    db_is_local, db_driver, db_host = _is_local_database()
+    upload_local = _is_local_path(getattr(settings, "UPLOAD_FOLDER", ""))
+    chroma_local = _is_local_path(getattr(settings, "SEARCH_CHROMA_DB_DIR", ""))
+    local_isolation_ok = bool(db_is_local and upload_local and chroma_local)
+
+    return {
+        "app_env": app_env,
+        "scope_label": ("cloud-runtime" if app_env == "production" else "local-runtime"),
+        "database": {
+            "driver": db_driver,
+            "host": db_host or "n/a",
+            "is_local": db_is_local,
+        },
+        "storage": {
+            "upload_folder": str(getattr(settings, "UPLOAD_FOLDER", "") or ""),
+            "search_chroma_db_dir": str(getattr(settings, "SEARCH_CHROMA_DB_DIR", "") or ""),
+            "upload_in_workspace": upload_local,
+            "chroma_in_workspace": chroma_local,
+        },
+        "local_isolation_ok": local_isolation_ok if app_env == "local" else True,
+    }

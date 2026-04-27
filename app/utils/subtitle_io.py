@@ -11,6 +11,9 @@ SRT_TIME_LINE_RE = re.compile(r"^\s*(\d{2}:\d{2}:\d{2}),(\d{3})\s*-->\s*(\d{2}:\
 SUBTITLE_DECODE_ENCODINGS = (
     "utf-8-sig",
     "utf-8",
+    "utf-16",
+    "utf-16-le",
+    "utf-16-be",
     "gb18030",
     "gbk",
     "big5",

@@ -86,12 +86,19 @@ class Settings(BaseSettings):
     FRAME_DESC_SAMPLE_INTERVAL_SECONDS: float = 3.0
     # 帧描述服务超时（秒）
     FRAME_DESC_TIMEOUT_SECONDS: float = 8.0
+    # 推理前是否快速探测 Vinci 可达性（不可达时直接降级，避免长时间卡在 connecting）
+    FRAME_DESC_PROBE_VINCI_BEFORE_INFER: bool = True
+    FRAME_DESC_PROBE_TIMEOUT_SECONDS: float = 1.5
     # 上下文融合窗口（描述历史条数）
     FRAME_DESC_CONTEXT_WINDOW_SIZE: int = 5
     # 相似度阈值：帧描述文本与上条描述相似度超过此值时跳过推理
     FRAME_DESC_SIMILARITY_THRESHOLD: float = 0.82
     # 场景未变化检测：连续 N 次相似度超过阈值后强制跳过推理
     FRAME_DESC_SCENE_STABLE_THRESHOLD: int = 4
+    # 场景稳定时是否直接跳过 description 事件；默认 False，保证前端每次采样都能收到描述
+    FRAME_DESC_SKIP_STABLE_SCENE: bool = False
+    # 是否开启上下文融合二次推理；默认关闭，优先保障实时性与连接稳定
+    FRAME_DESC_ENABLE_CONTEXT_FUSION: bool = False
     # 降级模式下描述频率（秒）：Vinci 不可用时降为低频描述
     FRAME_DESC_DEGRADED_INTERVAL_SECONDS: float = 10.0
     # 降级模式：描述文本固定前缀（可标注"可能"等置信度词汇）
@@ -159,6 +166,9 @@ class Settings(BaseSettings):
     SEARCH_CHUNK_OVERLAP: int = 5
     SEARCH_EMBEDDING_DIM: int = 768
     SEARCH_SIMILARITY_THRESHOLD: float = 0.5
+    # 关键词搜索增强：允许在排序中引入视频 tags 的词面匹配信号（默认关闭，避免影响线上既有排序）
+    SEARCH_TAG_MATCH_ENABLED: bool = False
+    SEARCH_TAG_MATCH_WEIGHT: float = 0.18
 
     # 标签相似度计算配置（LLM路径）
     SIMILARITY_MAX_RETRIES: int = 2  # 标签相似度LLM计算最多重试次数

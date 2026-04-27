@@ -102,6 +102,22 @@ class TestVideoAPI:
         response = client.get(f"/api/videos/{sample_video.id}")
         assert response.status_code == 404
 
+    def test_delete_video_alias_path(self, client, sample_video):
+        """兼容路径 /api/videos/{id} 也应可删除。"""
+        response = client.delete(f"/api/videos/{sample_video.id}")
+        assert response.status_code == 200
+
+        check = client.get(f"/api/videos/{sample_video.id}")
+        assert check.status_code == 404
+
+    def test_delete_video_legacy_prefix_path(self, client, sample_video):
+        """兼容历史前缀 /api/video/{id}/delete。"""
+        response = client.delete(f"/api/video/{sample_video.id}/delete")
+        assert response.status_code == 200
+
+        check = client.get(f"/api/videos/{sample_video.id}")
+        assert check.status_code == 404
+
     def test_delete_video_cascades_subtitles_notes_and_timestamps(self, client, db, sample_user):
         """删除视频前先清理字幕、笔记时间戳与笔记，避免外键失败。"""
         from app.models.note import Note, NoteTimestamp
@@ -144,7 +160,12 @@ class TestVideoAPI:
         assert db.query(Subtitle).filter(Subtitle.video_id == video_id).count() == 0
         assert db.query(Note).filter(Note.video_id == video_id).count() == 0
         assert db.query(NoteTimestamp).filter(NoteTimestamp.note_id == note_id).count() == 0
-        assert db.query(Video).filter(Video.id == video_id).count() == 0
+        db.expire_all()
+        db_video = db.query(Video).filter(Video.id == video_id).first()
+        assert db_video is not None
+        assert db_video.is_deleted is True
+        assert db_video.filepath is None
+        assert db_video.subtitle_filepath is None
 
     def test_get_video_status(self, client, sample_video):
         """测试获取视频处理状态"""
@@ -263,6 +284,22 @@ class TestVideoAPI:
         assert payload["subtitles"][0]["text"] == "第一句字幕"
         assert payload["subtitles"][0]["start_time"] == 2.0
         assert payload["subtitles"][1]["end_time"] == 11.0
+
+    def test_get_subtitle_defaults_to_vtt_utf8(self, client, db, sample_video, tmp_path):
+        """字幕下载接口默认返回 UTF-8 VTT，降低中文播放器乱码概率。"""
+        subtitle_path = tmp_path / "player-default.srt"
+        subtitle_path.write_text(
+            "1\n00:00:00,000 --> 00:00:02,000\n老师讲解导数定义\n",
+            encoding="utf-8",
+        )
+        sample_video.subtitle_filepath = str(subtitle_path)
+        db.commit()
+
+        response = client.get(f"/api/videos/{sample_video.id}/subtitle")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/vtt")
+        assert "WEBVTT" in response.text
+        assert "老师讲解导数定义" in response.text
 
     def test_upload_video_file(self, client, db, tmp_path, monkeypatch, sample_user):
         """测试本地视频上传"""

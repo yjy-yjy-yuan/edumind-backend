@@ -143,6 +143,7 @@ async def semantic_search(
             user_id=current_user_id,
             limit=request.limit,
             threshold=request.threshold,
+            include_tag_match=bool(request.include_tag_match or settings.SEARCH_TAG_MATCH_ENABLED),
             db=db,
             trace_id=trace_id,
         )

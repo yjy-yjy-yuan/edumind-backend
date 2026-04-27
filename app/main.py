@@ -209,6 +209,8 @@ from app.routers import (
 )
 
 app.include_router(video.router, prefix="/api/videos", tags=["视频管理"])
+# 兼容旧客户端历史路径（/api/video/*）
+app.include_router(video.router, prefix="/api/video", tags=["视频管理(兼容)"])
 app.include_router(subtitle.router, prefix="/api/subtitles", tags=["字幕管理"])
 app.include_router(note.router, prefix="/api/notes", tags=["笔记管理"])
 app.include_router(qa.router, prefix="/api/qa", tags=["问答系统"])

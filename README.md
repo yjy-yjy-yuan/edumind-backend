@@ -174,3 +174,35 @@ git push --no-verify
 - 搜索与视频访问过滤已删除视频（`is_deleted=false`）。
 - 上传接口鉴权与其他路由一致：支持 Bearer、`X-User-ID`、`query user_id` 开发兼容链路。
 - MySQL 迁移脚本：`migrations/add_video_soft_delete_and_user_rebind.sql`。
+
+## Local Patch (2026-04-27)
+
+- 字幕读取增强编码回退（`utf-8/utf-16/gb*`），降低中文字幕乱码概率：
+  - `app/utils/subtitle_io.py`
+- 视频字幕接口默认输出改为 `vtt` 且 `utf-8` 响应：
+  - `GET /api/videos/{video_id}/subtitle`
+  - `app/routers/video.py`
+- 删除视频接口新增兼容路径，适配不同客户端实现：
+  - `DELETE /api/videos/{video_id}/delete`（原路径）
+  - `DELETE /api/videos/{video_id}`（新增别名）
+  - `DELETE /api/video/{video_id}/delete`（历史前缀兼容）
+  - `app/main.py`, `app/routers/video.py`
+- 实时画面描述新增稳定性开关（默认更偏向实时可见结果）：
+  - `FRAME_DESC_SKIP_STABLE_SCENE=false`
+  - `FRAME_DESC_ENABLE_CONTEXT_FUSION=false`
+  - `app/core/config.py`, `app/services/frame_description_service.py`
+- 关键词搜索新增可选标签增强排序（默认关闭，不影响线上现有行为）：
+  - 请求参数：`include_tag_match`
+  - 配置：`SEARCH_TAG_MATCH_ENABLED`、`SEARCH_TAG_MATCH_WEIGHT`
+  - `app/schemas/search.py`, `app/routers/search.py`, `app/services/search/search.py`
+- 本地/云端隔离自检接口：
+  - `GET /api/ops/runtime-scope`
+  - 关键字段：`scope_label`、`local_isolation_ok`
+  - `app/routers/ops.py`
+
+### Cloud Rollout Note (Search)
+
+- 本次“标签部分匹配增强”主要作用于检索排序融合层（`app/services/search/search.py`），
+  **通常不需要**重建既有向量索引。
+- 若历史视频本身尚未构建语义索引（`has_semantic_index=false`）或索引损坏，再按视频执行重建即可：
+  - `POST /api/search/videos/{video_id}/index`

@@ -50,3 +50,13 @@ def test_note_list_endpoint(client):
     """测试笔记列表端点"""
     response = client.get("/api/notes/notes")
     assert response.status_code == 200
+
+
+@pytest.mark.smoke
+def test_runtime_scope_endpoint(client):
+    """测试运行域自检端点可访问。"""
+    response = client.get("/api/ops/runtime-scope")
+    assert response.status_code == 200
+    data = response.json()
+    assert "app_env" in data
+    assert "local_isolation_ok" in data

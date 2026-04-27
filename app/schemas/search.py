@@ -13,6 +13,10 @@ class SemanticSearchRequest(BaseModel):
     video_ids: Optional[List[int]] = Field(None, description="限定搜索的视频 ID 列表（为空时搜索所有用户视频）")
     limit: int = Field(10, description="返回结果数", ge=1, le=100)
     threshold: float = Field(0.5, description="相似度阈值", ge=0.0, le=1.0)
+    include_tag_match: bool = Field(
+        True,
+        description="是否在排序时加入视频标签词面匹配增强（需后端配置 SEARCH_TAG_MATCH_ENABLED=true）",
+    )
 
 
 class SearchResultChunk(BaseModel):

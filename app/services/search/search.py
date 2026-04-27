@@ -1,5 +1,6 @@
 """语义搜索服务 API"""
 
+import json
 import logging
 import os
 import shutil
@@ -14,7 +15,12 @@ from app.schemas.search import SearchResultChunk
 from app.services.search.chunker import chunk_video, get_video_duration
 from app.services.search.embedder import get_embedder
 from app.services.search.search_logging import SearchEventLogger
-from app.services.search.similarity_fusion import fused_similarity_score
+from app.services.search.similarity_fusion import (
+    char_ngrams,
+    fused_similarity_score,
+    lexical_overlap_score,
+    normalize_text,
+)
 from app.services.search.store import EduMindStore
 from app.utils.qa_utils import parse_srt_chunks
 
@@ -23,6 +29,29 @@ logger = logging.getLogger(__name__)
 
 class SemanticSearchBackendUnavailableError(RuntimeError):
     """语义搜索后端不可用（例如索引存储损坏或读取失败）。"""
+
+
+def _partial_tag_match_score(query: str, tags: list[str]) -> float:
+    """标签部分匹配评分（支持“输入标签一部分”命中）。"""
+    normalized_query = normalize_text(query)
+    if not normalized_query:
+        return 0.0
+
+    q_bigrams = char_ngrams(normalized_query, 2)
+    if not q_bigrams:
+        return 0.0
+
+    best = 0.0
+    for tag in tags or []:
+        normalized_tag = normalize_text(tag)
+        if not normalized_tag:
+            continue
+        if normalized_query in normalized_tag:
+            return 1.0
+        overlap = len(q_bigrams & char_ngrams(normalized_tag, 2)) / max(1, len(q_bigrams))
+        if overlap > best:
+            best = overlap
+    return max(0.0, min(1.0, best))
 
 
 def _build_subtitle_chunks(
@@ -332,6 +361,7 @@ def semantic_search_videos(
     user_id: int,
     limit: int = 10,
     threshold: float = 0.5,
+    include_tag_match: bool = False,
     db: Optional[Session] = None,
     trace_id: Optional[str] = None,
 ) -> List[SearchResultChunk]:
@@ -370,11 +400,28 @@ def semantic_search_videos(
     try:
         # 获取视频标题映射（用于补充每条搜索结果）
         video_title_map = {}
+        video_tags_map: dict[int, list[str]] = {}
+        tag_match_active = bool(include_tag_match and settings.SEARCH_TAG_MATCH_ENABLED)
+        tag_weight = max(0.0, min(1.0, float(getattr(settings, "SEARCH_TAG_MATCH_WEIGHT", 0.18) or 0.18)))
         if db:
             from app.models.video import Video
 
             videos = db.query(Video).filter(Video.id.in_(video_ids)).all()
             video_title_map = {v.id: v.title for v in videos}
+            if tag_match_active:
+                for video in videos:
+                    raw_tags = getattr(video, "tags", None)
+                    resolved: list[str] = []
+                    if isinstance(raw_tags, str) and raw_tags.strip():
+                        try:
+                            decoded = json.loads(raw_tags)
+                            if isinstance(decoded, list):
+                                resolved = [str(item).strip() for item in decoded if str(item).strip()]
+                            else:
+                                resolved = [part.strip() for part in raw_tags.split(",") if part.strip()]
+                        except Exception:
+                            resolved = [part.strip() for part in raw_tags.split(",") if part.strip()]
+                    video_tags_map[video.id] = resolved
             logger.info(f"Loaded titles for {len(video_title_map)} videos")
 
         # 获取嵌入器（使用配置的后端）
@@ -421,6 +468,12 @@ def semantic_search_videos(
                         preview_text=result.get("preview_text"),
                         video_title=video_title_map.get(video_id),
                     )
+                    if tag_match_active:
+                        tags = video_tags_map.get(video_id) or []
+                        tag_text = " ".join(tags)
+                        tag_overlap = lexical_overlap_score(query, tag_text)
+                        partial_match = _partial_tag_match_score(query, tags)
+                        fused_similarity = min(1.0, fused_similarity + max(tag_overlap, partial_match) * tag_weight)
                     if fused_similarity < threshold:
                         continue
 

@@ -258,6 +258,20 @@ def resolve_video_stream_path(video: Video) -> Optional[str]:
     return None
 
 
+def _safe_remove_file(path: Optional[str], *, video_id: int, label: str) -> None:
+    target = str(path or "").strip()
+    if not target:
+        return
+    if not os.path.exists(target):
+        return
+    try:
+        os.remove(target)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "删除文件失败（忽略）| video_id=%s | label=%s | path=%s | error=%s", video_id, label, target, exc
+        )
+
+
 def parse_byte_range(range_header: Optional[str], file_size: int) -> Optional[tuple[int, int]]:
     """解析 HTTP Range 头，支持 bytes=start-end 与 bytes=-suffix。"""
     if not range_header:
@@ -923,47 +937,40 @@ async def process_video_route(
     return {"status": "success", "message": "视频处理已开始"}
 
 
-@router.delete("/{video_id}/delete")
-async def delete_video(
+async def _delete_video_impl(
     video_id: int,
     db: Session = Depends(get_db),
     current_user_id: int = Depends(get_current_user_id),
 ):
     """删除视频"""
     video = get_user_scoped_video(db, video_id=video_id, user_id=current_user_id)
-
-    # 删除关联的问题记录
+    original_paths = {
+        "file_path": str(video.filepath or ""),
+        "processed_path": str(video.processed_filepath or ""),
+        "preview_path": str(video.preview_filepath or ""),
+        "subtitle_path": str(video.subtitle_filepath or ""),
+    }
+    # 轻量级关联数据同步清理，保证删除后列表/详情/测试观察到的关联状态立刻一致。
     from app.models.note import Note, NoteTimestamp
     from app.models.qa import Question
 
-    db.query(Question).filter(Question.video_id == video_id).delete()
-    db.query(Subtitle).filter(Subtitle.video_id == video_id).delete()
-    note_ids = [row[0] for row in db.query(Note.id).filter(Note.video_id == video_id).all()]
-    if note_ids:
-        db.query(NoteTimestamp).filter(NoteTimestamp.note_id.in_(note_ids)).delete()
-    db.query(Note).filter(Note.video_id == video_id).delete()
-
-    # 删除该视频关联的语义索引（向量库 + 元数据）
-    index_cleanup = purge_video_semantic_index(db, video=video)
-
-    # 提交文件清理任务
     try:
-        from app.core.executor import submit_task
-        from app.tasks.video_processing import cleanup_video_task
+        db.query(Question).filter(Question.video_id == video_id).delete(synchronize_session=False)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("清理 questions 失败（忽略）| video_id=%s | error=%s", video_id, exc)
+    try:
+        db.query(Subtitle).filter(Subtitle.video_id == video_id).delete(synchronize_session=False)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("清理 subtitles 失败（忽略）| video_id=%s | error=%s", video_id, exc)
+    try:
+        note_ids = [row[0] for row in db.query(Note.id).filter(Note.video_id == video_id).all()]
+        if note_ids:
+            db.query(NoteTimestamp).filter(NoteTimestamp.note_id.in_(note_ids)).delete(synchronize_session=False)
+        db.query(Note).filter(Note.video_id == video_id).delete(synchronize_session=False)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("清理 notes/note_timestamps 失败（忽略）| video_id=%s | error=%s", video_id, exc)
 
-        submit_task(cleanup_video_task, video.id, False)
-    except Exception as exc:
-        logger.warning("提交视频清理任务失败，改为同步删除 | video_id=%s | error=%s", video.id, exc)
-        # 直接删除文件
-        if video.filepath and os.path.exists(video.filepath):
-            os.remove(video.filepath)
-        if video.processed_filepath and os.path.exists(video.processed_filepath):
-            os.remove(video.processed_filepath)
-        if video.preview_filepath and os.path.exists(video.preview_filepath):
-            os.remove(video.preview_filepath)
-        if video.subtitle_filepath and os.path.exists(video.subtitle_filepath):
-            os.remove(video.subtitle_filepath)
-
+    # 先软删除并立即返回，耗时清理转为后台任务，保证前端可快速跳转与列表即时消失。
     video.is_deleted = True
     video.deleted_at = datetime.utcnow()
     video.has_semantic_index = False
@@ -976,12 +983,54 @@ async def delete_video(
     db.commit()
     forget_video_processing_request(video_id)
 
+    cleanup_scheduled = False
+    try:
+        from app.core.executor import submit_task
+        from app.tasks.video_cleanup import cleanup_deleted_video_resources
+
+        submit_task(
+            cleanup_deleted_video_resources,
+            video.id,
+            current_user_id,
+            original_paths["file_path"],
+            original_paths["processed_path"],
+            original_paths["preview_path"],
+            original_paths["subtitle_path"],
+        )
+        cleanup_scheduled = True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("提交异步清理任务失败，回退本地文件删除 | video_id=%s | error=%s", video.id, exc)
+        _safe_remove_file(original_paths["file_path"], video_id=video.id, label="filepath")
+        _safe_remove_file(original_paths["processed_path"], video_id=video.id, label="processed_filepath")
+        _safe_remove_file(original_paths["preview_path"], video_id=video.id, label="preview_filepath")
+        _safe_remove_file(original_paths["subtitle_path"], video_id=video.id, label="subtitle_filepath")
+
     return {
         "message": "视频删除成功",
         "video_id": video_id,
         "soft_deleted": True,
-        "index_cleanup": index_cleanup,
+        "cleanup_scheduled": cleanup_scheduled,
     }
+
+
+@router.delete("/{video_id}/delete")
+async def delete_video(
+    video_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    """删除视频（兼容历史路径 /{video_id}/delete）。"""
+    return await _delete_video_impl(video_id=video_id, db=db, current_user_id=current_user_id)
+
+
+@router.delete("/{video_id}")
+async def delete_video_alias(
+    video_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+):
+    """删除视频（兼容部分客户端使用 /{video_id} 的路径）。"""
+    return await _delete_video_impl(video_id=video_id, db=db, current_user_id=current_user_id)
 
 
 @router.get("/{video_id}/stream")
@@ -1081,7 +1130,7 @@ async def get_video_preview(
 @router.get("/{video_id}/subtitle")
 async def get_subtitle(
     video_id: int,
-    format: str = "srt",
+    format: str = "vtt",
     download: bool = False,
     db: Session = Depends(get_db),
     current_user_id: int = Depends(get_current_user_id),
@@ -1107,18 +1156,18 @@ async def get_subtitle(
     if format.lower() == "vtt":
         vtt_content = srt_to_vtt(content)
         return Response(
-            content=vtt_content.encode("utf-8-sig"),
+            content=vtt_content.encode("utf-8"),
             media_type="text/vtt; charset=utf-8",
         )
     elif format.lower() == "txt":
         txt_content = srt_to_plain_text(content)
         return Response(
-            content=txt_content.encode("utf-8-sig"),
+            content=txt_content.encode("utf-8"),
             media_type="text/plain; charset=utf-8",
         )
     else:
         return Response(
-            content=content.encode("utf-8-sig"),
+            content=content.encode("utf-8"),
             media_type="application/x-subrip; charset=utf-8",
         )
 

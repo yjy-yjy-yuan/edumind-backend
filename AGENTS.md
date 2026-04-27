@@ -46,6 +46,7 @@ No fixed coverage threshold is enforced; add or update tests for every changed s
 ## Commit & Pull Request Guidelines
 Recent history uses short imperative commit subjects (example: `Harden governance and analytics compliance`). Keep one logical change per commit.
 **重要**: 每次提交后，必须将提交记录同步写入 `COMMIT_LOG.md`，按日期倒序排列，格式为日期 + commit hash + 提交信息。
+**重要**: 每次提交后，必须将变更内容同步写入 `CHANGELOG.md`，按日期倒序排列，描述变更模块、涉及文件路径及影响范围（参考 EduMind 前端 CHANGELOG.md 格式）。
 PRs should include: change summary, affected paths, config/migration impact, and exact validation commands run. For API changes, include sample request/response payloads and link the related issue.
 
 ## Security & Configuration Tips

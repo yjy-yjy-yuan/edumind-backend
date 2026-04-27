@@ -54,3 +54,6 @@ models/whisper/
 
 # Local commit log
 COMMIT_LOG.md
+
+# Local change log
+CHANGELOG.md

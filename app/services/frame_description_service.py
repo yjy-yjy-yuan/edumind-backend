@@ -77,6 +77,20 @@ def _safe_history(history: list[str]) -> list[str]:
     return list(history)[-limit:] if limit > 0 else []
 
 
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    return default
+
+
 def _compute_text_similarity(text_a: str, text_b: str) -> float:
     """简易相似度：基于字符级 Jaccard 相似度。"""
     if not text_a or not text_b:
@@ -311,6 +325,11 @@ class FrameDescriptionService:
             min(1.0, float(getattr(settings, "FRAME_DESC_SIMILARITY_THRESHOLD", 0.82) or 0.82)),
         )
         self._stable_threshold = max(1, int(getattr(settings, "FRAME_DESC_SCENE_STABLE_THRESHOLD", 4) or 4))
+        self._skip_stable_scene = _as_bool(getattr(settings, "FRAME_DESC_SKIP_STABLE_SCENE", False), default=False)
+        self._enable_context_fusion = _as_bool(
+            getattr(settings, "FRAME_DESC_ENABLE_CONTEXT_FUSION", False),
+            default=False,
+        )
         self._degraded_interval = max(
             1.0, float(getattr(settings, "FRAME_DESC_DEGRADED_INTERVAL_SECONDS", 10.0) or 10.0)
         )
@@ -319,6 +338,14 @@ class FrameDescriptionService:
         )
         self._timeout = max(1.0, float(getattr(settings, "FRAME_DESC_TIMEOUT_SECONDS", 8.0) or 8.0))
         self._auto_degrade = bool(getattr(settings, "FRAME_DESC_AUTO_DEGRADE", True))
+        self._probe_before_infer = _as_bool(
+            getattr(settings, "FRAME_DESC_PROBE_VINCI_BEFORE_INFER", True),
+            default=True,
+        )
+        self._probe_timeout = max(
+            0.2,
+            float(getattr(settings, "FRAME_DESC_PROBE_TIMEOUT_SECONDS", 1.5) or 1.5),
+        )
 
         # 会话上下文存储（session_id -> 描述历史）
         self._session_histories: dict[str, list[str]] = {}
@@ -435,6 +462,17 @@ class FrameDescriptionService:
             raise FrameDescServiceError("Vinci circuit breaker is open (service layer)")
 
         safe_frames = [str(f or "").strip() for f in list(base64_frames or []) if f]
+
+        # 推理前快速探测上游可达性，避免连续超时导致前端长时间停留在 connecting。
+        if self._probe_before_infer:
+            try:
+                health = self._resolve_vinci_adapter().health_check(timeout_seconds=self._probe_timeout)
+                if not bool(getattr(health, "reachable", False)):
+                    raise FrameDescServiceError("vinci_probe_unreachable")
+            except FrameDescServiceError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                raise FrameDescServiceError(f"vinci_probe_failed:{exc}") from exc
 
         # 2. 通过 governance execute_tool 执行（唯一合法路径）
         try:
@@ -640,7 +678,7 @@ class FrameDescriptionService:
         # 4. 场景变化检测（推理后去重）
         # ------------------------------------------------------------------
         significant, stable_count = self._check_scene_change(safe_session_id, description, previous)
-        if not significant and previous:
+        if not significant and previous and self._skip_stable_scene:
             # 场景稳定，跳过描述推送（但不跳过记录）
             self._push_session_history(safe_session_id, description)
             total_latency_ms = round((perf_counter() - started) * 1000, 3)
@@ -674,7 +712,7 @@ class FrameDescriptionService:
         # 5. 上下文融合（生成动作进展）
         # ------------------------------------------------------------------
         context_summary_out: Optional[str] = None
-        if recent and len(recent) >= 2 and not degraded:
+        if self._enable_context_fusion and recent and len(recent) >= 2 and not degraded:
             yield {
                 "type": "status",
                 "stage": "fusing",
@@ -693,6 +731,7 @@ class FrameDescriptionService:
                     session_id=safe_session_id,
                     trace_id=trace_id,
                     db=db,
+                    base64_frames=base64_frames,
                 )
                 if fused_summary and fused_summary.lower().strip() not in ("none", "无", "暂无"):
                     context_summary_out = fused_summary.strip()

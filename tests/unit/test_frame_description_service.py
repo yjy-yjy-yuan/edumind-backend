@@ -299,6 +299,7 @@ class TestFrameDescriptionService:
                 FRAME_DESC_SCENE_STABLE_THRESHOLD=4,
                 FRAME_DESC_DEGRADED_INTERVAL_SECONDS=10.0,
                 FRAME_DESC_DEGRADED_PREFIX="",
+                FRAME_DESC_PROBE_VINCI_BEFORE_INFER=False,
                 VINCI_CIRCUIT_BREAKER_FAILURE_THRESHOLD=3,
                 VINCI_CIRCUIT_BREAKER_RECOVERY_SECONDS=30.0,
                 VINCI_BASE_URL="http://localhost:8010",
