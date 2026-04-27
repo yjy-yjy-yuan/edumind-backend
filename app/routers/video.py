@@ -23,12 +23,14 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import FileResponse, Response, StreamingResponse
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.subtitle import Subtitle
 from app.models.user import User
+from app.models.vector_index import VectorIndex
 from app.models.video import Video, VideoProcessingOrigin, VideoStatus
 from app.schemas.video import (
     OfflineTranscriptSyncRequest,
@@ -102,6 +104,66 @@ def get_user_scoped_video(db: Session, *, video_id: int, user_id: int) -> Video:
     if not video:
         raise HTTPException(status_code=404, detail="视频不存在或无权访问")
     return video
+
+
+def purge_video_semantic_index(db: Session, *, video: Video) -> dict:
+    """删除视频语义索引（向量库 + 索引元数据表）。"""
+    vector_index_rows = db.query(VectorIndex).filter(VectorIndex.video_id == video.id).all()
+
+    collection_names = {
+        str(row.collection_name).strip() for row in vector_index_rows if getattr(row, "collection_name", None)
+    }
+    # 兼容历史未写入 collection_name 的记录
+    collection_names.add(f"user_{video.user_id}_video_{video.id}_chunks")
+
+    removed_collections = []
+    failed_collections = []
+
+    try:
+        import chromadb
+        from chromadb.config import Settings as ChromaClientSettings
+
+        telemetry_enabled = bool(settings.SEARCH_CHROMA_ANONYMIZED_TELEMETRY)
+        os.environ["ANONYMIZED_TELEMETRY"] = "TRUE" if telemetry_enabled else "FALSE"
+        telemetry_impl = (
+            "chromadb.telemetry.product.posthog.Posthog"
+            if telemetry_enabled
+            else "app.services.search.chroma_telemetry.NoOpTelemetryClient"
+        )
+        client_settings = ChromaClientSettings(
+            anonymized_telemetry=telemetry_enabled,
+            chroma_product_telemetry_impl=telemetry_impl,
+            chroma_telemetry_impl=telemetry_impl,
+        )
+        client = chromadb.PersistentClient(path=settings.SEARCH_CHROMA_DB_DIR, settings=client_settings)
+
+        for collection_name in sorted(name for name in collection_names if name):
+            try:
+                client.delete_collection(name=collection_name)
+                removed_collections.append(collection_name)
+            except Exception as exc:  # noqa: BLE001
+                failed_collections.append({"collection": collection_name, "error": str(exc)[:180]})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("初始化向量库客户端失败，跳过 collection 删除 | video_id=%s | error=%s", video.id, exc)
+        failed_collections.append({"collection": "<client_init>", "error": str(exc)[:180]})
+
+    vector_indexes_deleted = (
+        db.query(VectorIndex).filter(VectorIndex.video_id == video.id).delete(synchronize_session=False)
+    )
+
+    vector_indices_deleted = 0
+    try:
+        result = db.execute(text("DELETE FROM vector_indices WHERE video_id = :video_id"), {"video_id": video.id})
+        vector_indices_deleted = int(getattr(result, "rowcount", 0) or 0)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("删除 vector_indices 失败（可能是历史环境无该表） | video_id=%s | error=%s", video.id, exc)
+
+    return {
+        "vector_indexes_deleted": int(vector_indexes_deleted or 0),
+        "vector_indices_deleted": vector_indices_deleted,
+        "collections_deleted": removed_collections,
+        "collections_delete_failed": failed_collections,
+    }
 
 
 def allowed_file(filename: str) -> bool:
@@ -855,7 +917,10 @@ async def delete_video(
         db.query(NoteTimestamp).filter(NoteTimestamp.note_id.in_(note_ids)).delete()
     db.query(Note).filter(Note.video_id == video_id).delete()
 
-    # 提交清理任务
+    # 删除该视频关联的语义索引（向量库 + 元数据）
+    index_cleanup = purge_video_semantic_index(db, video=video)
+
+    # 提交文件清理任务
     try:
         from app.core.executor import submit_task
         from app.tasks.video_processing import cleanup_video_task
@@ -885,7 +950,7 @@ async def delete_video(
     db.commit()
     forget_video_processing_request(video_id)
 
-    return {"message": "视频删除成功", "video_id": video_id, "soft_deleted": True}
+    return {"message": "视频删除成功", "video_id": video_id, "soft_deleted": True, "index_cleanup": index_cleanup}
 
 
 @router.get("/{video_id}/stream")
