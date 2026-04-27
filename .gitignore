@@ -37,6 +37,7 @@ temp/
 .pytest_cache/
 .coverage
 htmlcov/
+data/chroma/
 
 # pre-commit
 .venv-hook/
