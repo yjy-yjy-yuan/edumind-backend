@@ -137,10 +137,8 @@ def generate_video_info(video_path: str) -> dict:
     try:
         import re
         import subprocess
-        result = subprocess.run(
-            ["ffmpeg", "-i", video_path],
-            capture_output=True, text=True, timeout=30
-        )
+
+        result = subprocess.run(["ffmpeg", "-i", video_path], capture_output=True, text=True, timeout=30)
         stderr = result.stderr
         duration_match = re.search(r"Duration: (\d+):(\d+):(\d+(?:\.\d+)?)", stderr)
         duration = 0
@@ -159,9 +157,16 @@ def generate_video_info(video_path: str) -> dict:
                     fps = float(fps_match.group(1))
                 break
 
-        logger.info("ffmpeg 提取视频信息成功 | path=%s | dur=%.1fs | %dx%d | %.2ffps",
-                     video_path, duration, width, height, fps)
-        return {"width": width, "height": height, "fps": fps, "frame_count": int(duration * fps) if fps > 0 else 0, "duration": duration}
+        logger.info(
+            "ffmpeg 提取视频信息成功 | path=%s | dur=%.1fs | %dx%d | %.2ffps", video_path, duration, width, height, fps
+        )
+        return {
+            "width": width,
+            "height": height,
+            "fps": fps,
+            "frame_count": int(duration * fps) if fps > 0 else 0,
+            "duration": duration,
+        }
     except Exception as e:
         logger.error(f"ffmpeg 获取视频信息失败: {str(e)}")
         return None
@@ -182,8 +187,9 @@ def generate_preview_image(video_path: str, preview_path: str) -> bool:
     # 检查是否为占位文件
     if is_placeholder_file(video_path):
         try:
-            import numpy as np
             import cv2
+            import numpy as np
+
             img = np.zeros((360, 640, 3), dtype=np.uint8)
             img[:, :] = (25, 55, 125)
             font = cv2.FONT_HERSHEY_SIMPLEX
@@ -197,6 +203,7 @@ def generate_preview_image(video_path: str, preview_path: str) -> bool:
     # 尝试 OpenCV
     try:
         import cv2
+
         cap = cv2.VideoCapture(video_path)
         if cap.isOpened():
             ret, frame = cap.read()
@@ -210,9 +217,12 @@ def generate_preview_image(video_path: str, preview_path: str) -> bool:
     # 回退：使用 ffmpeg 提取第一帧
     try:
         import subprocess
+
         result = subprocess.run(
             ["ffmpeg", "-y", "-i", video_path, "-vframes", "1", "-q:v", "2", preview_path],
-            capture_output=True, text=True, timeout=30
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.returncode == 0 and os.path.exists(preview_path):
             return True
@@ -982,7 +992,7 @@ def process_video_task(
         engine.dispose()
 
 
-def cleanup_video_task(video_id: int) -> dict:
+def cleanup_video_task(video_id: int, delete_db_record: bool = True) -> dict:
     """
     清理视频文件任务
 
@@ -1032,11 +1042,19 @@ def cleanup_video_task(video_id: int) -> dict:
                 except Exception as e:
                     logger.warning(f"删除文件失败: {filepath} - {str(e)}")
 
-        # 删除数据库记录
-        db.delete(video)
+        if delete_db_record:
+            # 历史行为：删除数据库记录
+            db.delete(video)
+        else:
+            # 软删除模式：保留数据库记录，仅清空文件路径
+            video.filepath = None
+            video.processed_filepath = None
+            video.preview_filepath = None
+            video.subtitle_filepath = None
+
         db.commit()
 
-        logger.info(f"视频清理完成 | ID: {video_id}")
+        logger.info(f"视频清理完成 | ID: {video_id} | delete_db_record={delete_db_record}")
         return {"status": "success", "message": "视频文件清理完成"}
 
     except Exception as e:

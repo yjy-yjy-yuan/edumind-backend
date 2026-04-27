@@ -86,7 +86,7 @@ repos:
 
       - id: pytest-unit
         name: pytest (unit tests)
-        entry: .venv/bin/pytest tests/unit/test_auth_token.py tests/unit/test_agent_budget.py tests/unit/test_agent_governance_gateway.py tests/unit/test_analytics_schema.py tests/unit/test_compounding_export.py -q
+        entry: .venv/bin/python -m pytest tests/unit/test_auth_token.py tests/unit/test_agent_budget.py tests/unit/test_agent_governance_gateway.py tests/unit/test_analytics_schema.py tests/unit/test_compounding_export.py -q
         language: system
         pass_filenames: false
         stages: [pre-push]

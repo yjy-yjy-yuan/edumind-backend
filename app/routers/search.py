@@ -52,7 +52,7 @@ def get_current_user_id(request: Request, db: Session = Depends(get_db)) -> int:
 
 def verify_user_video_access(user_id: int, video_id: int, db: Session) -> Video:
     """验证用户对视频的访问权限"""
-    video = db.query(Video).filter(Video.id == video_id, Video.user_id == user_id).first()
+    video = db.query(Video).filter(Video.id == video_id, Video.user_id == user_id, Video.is_deleted.is_(False)).first()
     if not video:
         raise HTTPException(status_code=403, detail="无权访问此视频")
     return video
@@ -93,7 +93,15 @@ async def semantic_search(
     video_ids = request.video_ids or []
     if not video_ids:
         # 获取用户所有已索引的视频
-        videos = db.query(Video).filter(Video.user_id == current_user_id, Video.has_semantic_index.is_(True)).all()
+        videos = (
+            db.query(Video)
+            .filter(
+                Video.user_id == current_user_id,
+                Video.is_deleted.is_(False),
+                Video.has_semantic_index.is_(True),
+            )
+            .all()
+        )
         video_ids = [v.id for v in videos]
     else:
         # 验证用户对所有指定视频的访问权限，并仅保留已构建索引的视频
