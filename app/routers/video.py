@@ -8,6 +8,7 @@ import os
 import re
 import tempfile
 import traceback
+from datetime import datetime
 from typing import Optional
 
 from fastapi import (
@@ -22,11 +23,14 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import FileResponse, Response, StreamingResponse
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.subtitle import Subtitle
+from app.models.user import User
+from app.models.vector_index import VectorIndex
 from app.models.video import Video, VideoProcessingOrigin, VideoStatus
 from app.schemas.video import (
     OfflineTranscriptSyncRequest,
@@ -70,7 +74,7 @@ from app.services.whisper_runtime import (
     normalize_whisper_model_name,
     transcribe_audio_with_whisper,
 )
-from app.utils.auth_deps import resolve_user_from_request, resolve_user_id_from_request
+from app.utils.auth_deps import resolve_user_id_from_request
 
 logger = logging.getLogger(__name__)
 
@@ -96,10 +100,70 @@ def get_current_user_id(request: Request, db: Session = Depends(get_db)) -> int:
 
 
 def get_user_scoped_video(db: Session, *, video_id: int, user_id: int) -> Video:
-    video = db.query(Video).filter(Video.id == video_id, Video.user_id == user_id).first()
+    video = db.query(Video).filter(Video.id == video_id, Video.user_id == user_id, Video.is_deleted.is_(False)).first()
     if not video:
         raise HTTPException(status_code=404, detail="视频不存在或无权访问")
     return video
+
+
+def purge_video_semantic_index(db: Session, *, video: Video) -> dict:
+    """删除视频语义索引（向量库 + 索引元数据表）。"""
+    vector_index_rows = db.query(VectorIndex).filter(VectorIndex.video_id == video.id).all()
+
+    collection_names = {
+        str(row.collection_name).strip() for row in vector_index_rows if getattr(row, "collection_name", None)
+    }
+    # 兼容历史未写入 collection_name 的记录
+    collection_names.add(f"user_{video.user_id}_video_{video.id}_chunks")
+
+    removed_collections = []
+    failed_collections = []
+
+    try:
+        import chromadb
+        from chromadb.config import Settings as ChromaClientSettings
+
+        telemetry_enabled = bool(settings.SEARCH_CHROMA_ANONYMIZED_TELEMETRY)
+        os.environ["ANONYMIZED_TELEMETRY"] = "TRUE" if telemetry_enabled else "FALSE"
+        telemetry_impl = (
+            "chromadb.telemetry.product.posthog.Posthog"
+            if telemetry_enabled
+            else "app.services.search.chroma_telemetry.NoOpTelemetryClient"
+        )
+        client_settings = ChromaClientSettings(
+            anonymized_telemetry=telemetry_enabled,
+            chroma_product_telemetry_impl=telemetry_impl,
+            chroma_telemetry_impl=telemetry_impl,
+        )
+        client = chromadb.PersistentClient(path=settings.SEARCH_CHROMA_DB_DIR, settings=client_settings)
+
+        for collection_name in sorted(name for name in collection_names if name):
+            try:
+                client.delete_collection(name=collection_name)
+                removed_collections.append(collection_name)
+            except Exception as exc:  # noqa: BLE001
+                failed_collections.append({"collection": collection_name, "error": str(exc)[:180]})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("初始化向量库客户端失败，跳过 collection 删除 | video_id=%s | error=%s", video.id, exc)
+        failed_collections.append({"collection": "<client_init>", "error": str(exc)[:180]})
+
+    vector_indexes_deleted = (
+        db.query(VectorIndex).filter(VectorIndex.video_id == video.id).delete(synchronize_session=False)
+    )
+
+    vector_indices_deleted = 0
+    try:
+        result = db.execute(text("DELETE FROM vector_indices WHERE video_id = :video_id"), {"video_id": video.id})
+        vector_indices_deleted = int(getattr(result, "rowcount", 0) or 0)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("删除 vector_indices 失败（可能是历史环境无该表） | video_id=%s | error=%s", video.id, exc)
+
+    return {
+        "vector_indexes_deleted": int(vector_indexes_deleted or 0),
+        "vector_indices_deleted": vector_indices_deleted,
+        "collections_deleted": removed_collections,
+        "collections_delete_failed": failed_collections,
+    }
 
 
 def allowed_file(filename: str) -> bool:
@@ -443,12 +507,23 @@ async def upload_video(
     summary_style: str = Form("study"),
     db: Session = Depends(get_db),
     user_id: Optional[int] = Query(default=None, description="兼容旧链路的用户 ID"),
+    x_user_id: Optional[str] = Header(default=None, alias="X-User-ID"),
     authorization: Optional[str] = Header(default=None),
 ):
     """上传视频文件"""
-    user = resolve_user_from_request(db, user_id, authorization)
+    current_user_id = resolve_user_id_from_request(
+        db,
+        authorization=authorization,
+        x_user_id=x_user_id,
+        query_user_id=str(user_id) if user_id is not None else None,
+        allow_default_user=True,
+        default_user_id=1,
+        unauthorized_detail="请先登录后再上传视频",
+    )
+    user = db.query(User).filter(User.id == current_user_id).first()
     if user is None:
         raise HTTPException(status_code=401, detail="请先登录后再上传视频")
+
     logger.info(f"收到文件上传请求: {file.filename}")
 
     if not file.filename or not allowed_file(file.filename):
@@ -605,12 +680,23 @@ async def upload_video_url(
     data: VideoUploadURL,
     db: Session = Depends(get_db),
     user_id: Optional[int] = Query(default=None, description="兼容旧链路的用户 ID"),
+    x_user_id: Optional[str] = Header(default=None, alias="X-User-ID"),
     authorization: Optional[str] = Header(default=None),
 ):
     """通过 URL 上传视频"""
-    user = resolve_user_from_request(db, user_id, authorization)
+    current_user_id = resolve_user_id_from_request(
+        db,
+        authorization=authorization,
+        x_user_id=x_user_id,
+        query_user_id=str(user_id) if user_id is not None else None,
+        allow_default_user=True,
+        default_user_id=1,
+        unauthorized_detail="请先登录后再通过链接导入视频",
+    )
+    user = db.query(User).filter(User.id == current_user_id).first()
     if user is None:
         raise HTTPException(status_code=401, detail="请先登录后再通过链接导入视频")
+
     video_url = data.url
     logger.info(f"处理视频URL: {video_url}")
     process_options = build_processing_options(
@@ -650,7 +736,11 @@ async def get_video_list(
     """获取视频列表"""
     try:
         videos = (
-            db.query(Video).filter(Video.user_id == current_user_id).order_by(Video.upload_time.desc()).limit(100).all()
+            db.query(Video)
+            .filter(Video.user_id == current_user_id, Video.is_deleted.is_(False))
+            .order_by(Video.upload_time.desc())
+            .limit(100)
+            .all()
         )
 
         result = []
@@ -820,34 +910,47 @@ async def delete_video(
     from app.models.note import Note, NoteTimestamp
     from app.models.qa import Question
 
-    db.query(Question).filter(Question.video_id == video_id, Question.user_id == current_user_id).delete()
+    db.query(Question).filter(Question.video_id == video_id).delete()
     db.query(Subtitle).filter(Subtitle.video_id == video_id).delete()
-    note_ids = [
-        row[0] for row in db.query(Note.id).filter(Note.video_id == video_id, Note.user_id == current_user_id).all()
-    ]
+    note_ids = [row[0] for row in db.query(Note.id).filter(Note.video_id == video_id).all()]
     if note_ids:
         db.query(NoteTimestamp).filter(NoteTimestamp.note_id.in_(note_ids)).delete()
-    db.query(Note).filter(Note.video_id == video_id, Note.user_id == current_user_id).delete()
+    db.query(Note).filter(Note.video_id == video_id).delete()
 
-    # 提交清理任务
+    # 删除该视频关联的语义索引（向量库 + 元数据）
+    index_cleanup = purge_video_semantic_index(db, video=video)
+
+    # 提交文件清理任务
     try:
         from app.core.executor import submit_task
         from app.tasks.video_processing import cleanup_video_task
 
-        submit_task(cleanup_video_task, video.id)
+        submit_task(cleanup_video_task, video.id, False)
     except Exception as exc:
         logger.warning("提交视频清理任务失败，改为同步删除 | video_id=%s | error=%s", video.id, exc)
         # 直接删除文件
         if video.filepath and os.path.exists(video.filepath):
             os.remove(video.filepath)
+        if video.processed_filepath and os.path.exists(video.processed_filepath):
+            os.remove(video.processed_filepath)
         if video.preview_filepath and os.path.exists(video.preview_filepath):
             os.remove(video.preview_filepath)
+        if video.subtitle_filepath and os.path.exists(video.subtitle_filepath):
+            os.remove(video.subtitle_filepath)
 
-    db.delete(video)
+    video.is_deleted = True
+    video.deleted_at = datetime.utcnow()
+    video.has_semantic_index = False
+    video.vector_index_id = None
+    video.filepath = None
+    video.processed_filepath = None
+    video.preview_filepath = None
+    video.subtitle_filepath = None
+    video.current_step = "视频已删除"
     db.commit()
     forget_video_processing_request(video_id)
 
-    return {"message": "视频删除成功", "video_id": video_id}
+    return {"message": "视频删除成功", "video_id": video_id, "soft_deleted": True, "index_cleanup": index_cleanup}
 
 
 @router.get("/{video_id}/stream")

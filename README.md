@@ -88,8 +88,8 @@ python run.py
 当前用户识别策略：
 
 1. `Authorization: Bearer <token>`（推荐）
-2. 兼容旧链路 `X-User-ID`
-3. 无认证时默认回退 `user_id=1`（仅开发兜底）
+2. 兼容旧链路 `X-User-ID` / `query user_id`
+3. 开发兜底：优先 `DEV_DEFAULT_USER_EMAIL` 对应用户；若未配置才回退 `user_id=1`
 
 > 注意：若显式携带 Bearer 但 token 无效，接口会返回 `401`，不会再静默回退。
 
@@ -165,3 +165,12 @@ git push --no-verify
 - 新增 Vinci M1 接入文档并对齐配置/测试入口（`docs/VINCI_INTEGRATION_M1.md`）。
 - 同步 Vinci M1-3 治理接入文档（白名单、参数校验、审计与绕过阻断）。
 - 新增 Vinci M1-4 可观测与运维文档（指标、阈值建议、Runbook）。
+
+
+## Cloud Patch (2026-04-27)
+
+- 新增视频软删除（`videos.is_deleted` / `videos.deleted_at`）：删除后前端列表不可见，但数据库保留记录。
+- 删除接口改为软删除语义：清理媒体文件并置空路径，不再物理删除 `videos` 行。
+- 搜索与视频访问过滤已删除视频（`is_deleted=false`）。
+- 上传接口鉴权与其他路由一致：支持 Bearer、`X-User-ID`、`query user_id` 开发兼容链路。
+- MySQL 迁移脚本：`migrations/add_video_soft_delete_and_user_rebind.sql`。

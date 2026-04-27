@@ -86,3 +86,31 @@ Files:
 - `PYTHONPYCACHEPREFIX="$PWD/.pycache-hook" python -m compileall app tests`
 
 提交前/推送前 hooks 以 `.pre-commit-config.yaml` 为准，要求全部通过。
+
+
+## Cloud Follow-up (2026-04-27)
+
+### Additional fixes delivered on server
+
+1. 视频删除从硬删除改为软删除
+- 新增字段：`videos.is_deleted`、`videos.deleted_at`
+- 列表/详情/播放/搜索均过滤 `is_deleted=true`
+- 删除后保留数据库记录，满足审计与回溯需求
+
+2. 上传鉴权链路一致化
+- `/api/videos/upload` 与 `/api/videos/upload-url` 统一接入 `resolve_user_id_from_request`
+- 兼容 Bearer + `X-User-ID` + `query user_id`
+
+3. 云端用户归属修复
+- 执行 `migrations/add_video_soft_delete_and_user_rebind.sql`
+- 将视频/向量索引/搜索日志归并到默认账号 `2702965216@qq.com`（id=9）
+
+4. 搜索索引重建
+- 因 user_id 变更导致历史 collection 名不匹配，已批量重建 active 视频索引（user_id=9）
+
+### Validation summary (server-side)
+
+- 上传：`POST /api/videos/upload` 成功进入 processing
+- 播放：`GET /api/videos/{id}/stream` 返回 200（存在源文件时）
+- 删除：`DELETE /api/videos/{id}/delete` 返回 `soft_deleted=true`，且列表不可见、DB 记录保留
+- 搜索：`POST /api/search/semantic/search` 返回非空结果

@@ -23,6 +23,12 @@ cp .env.example .env
 
 按实际环境填写数据库、模型服务和密钥配置。若修改端口，请同步调整 `PORT` 与 `CORS_ORIGINS`。
 
+开发态默认账号建议配置：
+
+```bash
+DEV_DEFAULT_USER_EMAIL=2702965216@qq.com
+```
+
 数据库说明：
 - 生产/联调默认使用 MySQL（`mysql+pymysql://...`）。
 - 本地快速验证可改为 SQLite（例如 `DATABASE_URL=sqlite:///./edumind_dev.db`）。
@@ -115,3 +121,10 @@ lsof -i :2004
 pip install --upgrade pip
 pip install -r requirements.txt --force-reinstall
 ```
+
+
+## 11. Python 版本建议
+
+- 推荐：Python `3.11`（当前云端已验证）
+- 最低建议：Python `3.9+`
+- 若运行/测试涉及 Chroma，请确保 Python 所链接的 `sqlite3 >= 3.35.0`

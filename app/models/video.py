@@ -5,7 +5,7 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import DateTime
+from sqlalchemy import Boolean, DateTime
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy import Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -62,6 +62,8 @@ class Video(Base):
     # 状态信息
     status: Mapped[VideoStatus] = mapped_column(SQLEnum(VideoStatus), default=VideoStatus.UPLOADED)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     # 时间戳
     upload_time: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

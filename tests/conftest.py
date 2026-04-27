@@ -14,7 +14,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.main import app
 from app.models.base import Base
 
 # 使用内存数据库进行测试
@@ -55,6 +54,9 @@ def db():
 @pytest.fixture(scope="function")
 def client(db):
     """测试客户端 fixture"""
+    # 延迟导入，避免纯单元测试阶段被 app.main 的重依赖（如 chromadb/sqlite 版本）阻塞
+    from app.main import app
+
     original_preload = settings.WHISPER_PRELOAD_ON_STARTUP
     settings.WHISPER_PRELOAD_ON_STARTUP = False
 
