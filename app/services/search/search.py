@@ -2,7 +2,9 @@
 
 import logging
 import os
+import shutil
 import time
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 from sqlalchemy.orm import Session
@@ -153,6 +155,8 @@ def build_video_index_internal(
     """
     logger.info(f"Starting semantic indexing for video {video_id}")
     total_start_time = time.time()
+    chunks: List[dict] = []
+    use_subtitle_chunks = False
 
     try:
         # 初始化存储
@@ -166,7 +170,11 @@ def build_video_index_internal(
         # 检查是否已索引
         if store.is_indexed(video_path):
             removed = store.remove_file(video_path)
-            logger.info("Video %s already indexed, removed %s stale chunks before rebuilding", video_id, removed)
+            logger.info(
+                "Video %s already indexed, removed %s stale chunks before rebuilding",
+                video_id,
+                removed,
+            )
 
         # 获取嵌入器
         model = settings.SEARCH_LOCAL_MODEL if backend == "local" else None
@@ -178,7 +186,10 @@ def build_video_index_internal(
 
         # 记录自适应切片参数选择
         SearchEventLogger.log_adaptive_chunking_selected(
-            video_id=video_id, video_duration_seconds=video_duration, chunk_duration=chunk_duration, overlap=overlap
+            video_id=video_id,
+            video_duration_seconds=video_duration,
+            chunk_duration=chunk_duration,
+            overlap=overlap,
         )
 
         logger.info(
@@ -195,7 +206,10 @@ def build_video_index_internal(
                 overlap=overlap,
             )
             logger.info(
-                "Built subtitle chunks for video %s | subtitle=%s | chunks=%s", video_id, subtitle_path, len(chunks)
+                "Built subtitle chunks for video %s | subtitle=%s | chunks=%s",
+                video_id,
+                subtitle_path,
+                len(chunks),
             )
         else:
             if backend == "local":
@@ -248,14 +262,6 @@ def build_video_index_internal(
         logger.info(f"Storing {len(chunks)} chunks")
         store.add_chunks_batch(chunks)
 
-        # 清理临时文件
-        if not use_subtitle_chunks:
-            for chunk in chunks:
-                try:
-                    os.unlink(chunk["chunk_path"])
-                except Exception as e:
-                    logger.warning(f"Failed to cleanup chunk file: {e}")
-
         logger.info(f"Successfully indexed video {video_id} with {len(chunks)} chunks")
 
         # 记录索引完成
@@ -279,10 +285,45 @@ def build_video_index_internal(
             error_stage = "storage"
 
         SearchEventLogger.log_indexing_failed(
-            video_id=video_id, error_stage=error_stage, error_message=str(e), user_id=user_id
+            video_id=video_id,
+            error_stage=error_stage,
+            error_message=str(e),
+            user_id=user_id,
         )
         logger.error(f"Failed to index video {video_id} at {error_stage}: {e}", exc_info=True)
         raise
+    finally:
+        if not use_subtitle_chunks:
+            chunk_dirs = set()
+            for chunk in chunks:
+                chunk_path = str(chunk.get("chunk_path") or "").strip()
+                if not chunk_path:
+                    continue
+                try:
+                    os.unlink(chunk_path)
+                except FileNotFoundError:
+                    pass
+                except Exception as cleanup_exc:  # noqa: BLE001
+                    logger.warning(
+                        "Failed to cleanup chunk file | path=%s | error=%s",
+                        chunk_path,
+                        cleanup_exc,
+                    )
+
+                parent = Path(chunk_path).parent
+                if parent.name.startswith("edumind_chunks_"):
+                    chunk_dirs.add(parent)
+
+            for chunk_dir in chunk_dirs:
+                try:
+                    if chunk_dir.exists():
+                        shutil.rmtree(chunk_dir)
+                except Exception as cleanup_exc:  # noqa: BLE001
+                    logger.warning(
+                        "Failed to cleanup chunk temp dir | dir=%s | error=%s",
+                        chunk_dir,
+                        cleanup_exc,
+                    )
 
 
 def semantic_search_videos(
@@ -361,7 +402,7 @@ def semantic_search_videos(
                     db_path=settings.SEARCH_CHROMA_DB_DIR,
                     collection_name=collection_name,
                     backend=settings.SEARCH_BACKEND,
-                    model=settings.SEARCH_LOCAL_MODEL if settings.SEARCH_BACKEND == "local" else None,
+                    model=(settings.SEARCH_LOCAL_MODEL if settings.SEARCH_BACKEND == "local" else None),
                 )
 
                 # 搜索

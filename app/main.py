@@ -3,6 +3,7 @@
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from time import perf_counter
 
 from fastapi import FastAPI
@@ -17,6 +18,11 @@ from app.models.semantic_search_log import SemanticSearchLog  # noqa: F401
 from app.models.video import Video, VideoStatus
 from app.services.ollama_runtime import get_ollama_runtime_status
 from app.services.similarity_service_container import init_persistence_service
+from app.services.storage_maintenance import (
+    run_storage_maintenance_once,
+    start_storage_maintenance_worker,
+    stop_storage_maintenance_worker,
+)
 from app.services.whisper_runtime import (
     get_whisper_runtime_status,
     shutdown_whisper_runtime,
@@ -69,7 +75,11 @@ def recover_interrupted_video_tasks():
     """将服务重启前中断的后台任务转为失败，避免状态永久卡住。"""
     db = SessionLocal()
     try:
-        interrupted_statuses = [VideoStatus.PENDING, VideoStatus.PROCESSING, VideoStatus.DOWNLOADING]
+        interrupted_statuses = [
+            VideoStatus.PENDING,
+            VideoStatus.PROCESSING,
+            VideoStatus.DOWNLOADING,
+        ]
         interrupted_videos = db.query(Video).filter(Video.status.in_(interrupted_statuses)).all()
         if not interrupted_videos:
             return
@@ -96,6 +106,8 @@ def recover_interrupted_video_tasks():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
+    storage_maintenance_worker = None
+    storage_maintenance_stop_event = None
     # 启动时执行
     logger.info("启动 %s API...", settings.APP_NAME)
 
@@ -120,11 +132,39 @@ async def lifespan(app: FastAPI):
         "CORS 允许来源（已过滤敏感项）: %s | 全量原始值请查看 settings.CORS_ORIGINS",
         cors_safe,
     )
+
+    if settings.STORAGE_MAINTENANCE_ENABLED:
+        try:
+            run_storage_maintenance_once(
+                base_dir=Path(settings.BASE_DIR),
+                file_max_age_hours=settings.STORAGE_MAINTENANCE_FILE_MAX_AGE_HOURS,
+                chunk_dir_max_age_hours=settings.STORAGE_MAINTENANCE_CHUNK_DIR_MAX_AGE_HOURS,
+                chroma_backup_max_age_hours=settings.STORAGE_MAINTENANCE_CHROMA_BACKUP_MAX_AGE_HOURS,
+                keep_recent_chroma_backups=settings.STORAGE_MAINTENANCE_KEEP_RECENT_CHROMA_BACKUPS,
+            )
+            storage_maintenance_worker, storage_maintenance_stop_event = start_storage_maintenance_worker(
+                base_dir=Path(settings.BASE_DIR),
+                interval_seconds=settings.STORAGE_MAINTENANCE_INTERVAL_SECONDS,
+                file_max_age_hours=settings.STORAGE_MAINTENANCE_FILE_MAX_AGE_HOURS,
+                chunk_dir_max_age_hours=settings.STORAGE_MAINTENANCE_CHUNK_DIR_MAX_AGE_HOURS,
+                chroma_backup_max_age_hours=settings.STORAGE_MAINTENANCE_CHROMA_BACKUP_MAX_AGE_HOURS,
+                keep_recent_chroma_backups=settings.STORAGE_MAINTENANCE_KEEP_RECENT_CHROMA_BACKUPS,
+            )
+            logger.info(
+                "已启用存储维护任务 | interval=%ss | max_age=%sh",
+                settings.STORAGE_MAINTENANCE_INTERVAL_SECONDS,
+                settings.STORAGE_MAINTENANCE_FILE_MAX_AGE_HOURS,
+            )
+        except Exception as exc:
+            logger.warning("初始化存储维护任务失败（忽略，不阻断启动）| error=%s", exc)
+
     start_whisper_background_preload(settings.WHISPER_MODEL, settings.WHISPER_MODEL_PATH)
 
     yield
 
     # 关闭时执行
+    if storage_maintenance_worker is not None and storage_maintenance_stop_event is not None:
+        stop_storage_maintenance_worker(storage_maintenance_worker, storage_maintenance_stop_event)
     shutdown_whisper_runtime()
     logger.info("关闭 %s API...", settings.APP_NAME)
 

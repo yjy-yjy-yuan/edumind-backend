@@ -20,6 +20,7 @@ DOWNLOAD_METADATA_PROGRESS = 15.0
 DOWNLOAD_RUNNING_PROGRESS = 45.0
 DOWNLOAD_VERIFY_PROGRESS = 85.0
 DOWNLOAD_CHUNK_SIZE = 1024 * 1024
+PARTIAL_RESIDUE_SUFFIXES = {".part", ".ytdl", ".tmp", ".temp", ".download"}
 
 
 def secure_filename_with_chinese(filename: str) -> str:
@@ -33,7 +34,7 @@ def get_video_db_session() -> Tuple[object, Session]:
     engine = create_engine(
         settings.DATABASE_URL,
         pool_pre_ping=True,
-        connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
+        connect_args=({"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}),
     )
     session_factory = sessionmaker(bind=engine)
     return engine, session_factory()
@@ -96,7 +97,39 @@ def compute_file_md5(file_path: str) -> str:
     return digest.hexdigest()
 
 
-def finalize_video_record(video_id: int, *, filename: str, filepath: str, title: str, md5: str, model: str = ""):
+def cleanup_download_residue(download_folder: str, output_title: str) -> int:
+    """清理下载过程中可能残留的临时文件（不删除最终视频文件）。"""
+    removed = 0
+    prefix = f"{output_title}."
+    if not os.path.isdir(download_folder):
+        return removed
+
+    for name in os.listdir(download_folder):
+        if not name.startswith(prefix):
+            continue
+        suffix = os.path.splitext(name)[1].lower()
+        if suffix not in PARTIAL_RESIDUE_SUFFIXES:
+            continue
+        file_path = os.path.join(download_folder, name)
+        if not os.path.isfile(file_path):
+            continue
+        try:
+            os.remove(file_path)
+            removed += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("清理下载残留失败 | path=%s | error=%s", file_path, exc)
+    return removed
+
+
+def finalize_video_record(
+    video_id: int,
+    *,
+    filename: str,
+    filepath: str,
+    title: str,
+    md5: str,
+    model: str = "",
+):
     """写回下载完成的视频记录"""
     engine, db = get_video_db_session()
     try:
@@ -142,6 +175,8 @@ def download_video_from_url_task(
     language: str = "zh",
 ):
     """下载远程视频到本地上传目录"""
+    download_folder = settings.UPLOAD_FOLDER
+    output_title = None
     try:
         import yt_dlp
 
@@ -149,10 +184,14 @@ def download_video_from_url_task(
 
         update_video_status(video_id, VideoStatus.DOWNLOADING, DOWNLOAD_PREPARE_PROGRESS, "准备下载")
 
-        download_folder = settings.UPLOAD_FOLDER
         os.makedirs(download_folder, exist_ok=True)
 
-        update_video_status(video_id, VideoStatus.DOWNLOADING, DOWNLOAD_METADATA_PROGRESS, "获取视频信息")
+        update_video_status(
+            video_id,
+            VideoStatus.DOWNLOADING,
+            DOWNLOAD_METADATA_PROGRESS,
+            "获取视频信息",
+        )
         with yt_dlp.YoutubeDL(build_ydl_options(download_folder, source_type)) as ydl:
             info = ydl.extract_info(video_url, download=False)
 
@@ -168,6 +207,13 @@ def download_video_from_url_task(
         update_video_status(video_id, VideoStatus.DOWNLOADING, DOWNLOAD_VERIFY_PROGRESS, "校验视频文件")
         downloaded_path = resolve_downloaded_file_path(download_folder, output_title)
         md5 = compute_file_md5(downloaded_path)
+        cleaned = cleanup_download_residue(download_folder, output_title)
+        if cleaned > 0:
+            logger.info(
+                "下载完成后已清理残留临时文件 | video_id=%s | count=%s",
+                video_id,
+                cleaned,
+            )
 
         finalize_video_record(
             video_id,
@@ -178,7 +224,10 @@ def download_video_from_url_task(
             model=model or settings.WHISPER_MODEL,
         )
         update_video_status(
-            video_id, VideoStatus.PENDING, 0.0, f"下载完成，准备处理（{model or settings.WHISPER_MODEL}）"
+            video_id,
+            VideoStatus.PENDING,
+            0.0,
+            f"下载完成，准备处理（{model or settings.WHISPER_MODEL}）",
         )
         process_video_task(
             video_id,
@@ -191,4 +240,12 @@ def download_video_from_url_task(
         logger.info("链接视频下载完成: id=%s path=%s", video_id, downloaded_path)
     except Exception as exc:
         logger.error("链接视频下载失败: id=%s error=%s", video_id, exc)
+        if output_title:
+            cleaned = cleanup_download_residue(download_folder, output_title)
+            if cleaned > 0:
+                logger.info(
+                    "下载失败后已清理残留临时文件 | video_id=%s | count=%s",
+                    video_id,
+                    cleaned,
+                )
         mark_download_failed(video_id, str(exc))

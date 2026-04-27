@@ -35,6 +35,7 @@ temp/
 
 # Cache
 .pytest_cache/
+.mypy_cache/
 .coverage
 htmlcov/
 data/chroma/
