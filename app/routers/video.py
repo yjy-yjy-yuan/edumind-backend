@@ -75,6 +75,11 @@ from app.services.whisper_runtime import (
     transcribe_audio_with_whisper,
 )
 from app.utils.auth_deps import resolve_user_id_from_request
+from app.utils.subtitle_io import (
+    read_subtitle_file_with_fallback,
+    srt_to_plain_text,
+    srt_to_vtt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +149,11 @@ def purge_video_semantic_index(db: Session, *, video: Video) -> dict:
             except Exception as exc:  # noqa: BLE001
                 failed_collections.append({"collection": collection_name, "error": str(exc)[:180]})
     except Exception as exc:  # noqa: BLE001
-        logger.warning("初始化向量库客户端失败，跳过 collection 删除 | video_id=%s | error=%s", video.id, exc)
+        logger.warning(
+            "初始化向量库客户端失败，跳过 collection 删除 | video_id=%s | error=%s",
+            video.id,
+            exc,
+        )
         failed_collections.append({"collection": "<client_init>", "error": str(exc)[:180]})
 
     vector_indexes_deleted = (
@@ -153,10 +162,17 @@ def purge_video_semantic_index(db: Session, *, video: Video) -> dict:
 
     vector_indices_deleted = 0
     try:
-        result = db.execute(text("DELETE FROM vector_indices WHERE video_id = :video_id"), {"video_id": video.id})
+        result = db.execute(
+            text("DELETE FROM vector_indices WHERE video_id = :video_id"),
+            {"video_id": video.id},
+        )
         vector_indices_deleted = int(getattr(result, "rowcount", 0) or 0)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("删除 vector_indices 失败（可能是历史环境无该表） | video_id=%s | error=%s", video.id, exc)
+        logger.warning(
+            "删除 vector_indices 失败（可能是历史环境无该表） | video_id=%s | error=%s",
+            video.id,
+            exc,
+        )
 
     return {
         "vector_indexes_deleted": int(vector_indexes_deleted or 0),
@@ -591,8 +607,8 @@ async def upload_video(
 
         return VideoUploadResponse(
             id=video.id,
-            status=video.status.value if hasattr(video.status, "value") else str(video.status),
-            message="视频上传成功，已开始后台处理" if task_submitted else "视频上传成功，请手动开始处理",
+            status=(video.status.value if hasattr(video.status, "value") else str(video.status)),
+            message=("视频上传成功，已开始后台处理" if task_submitted else "视频上传成功，请手动开始处理"),
             duplicate=False,
             data=serialize_video(video),
             recommendations=build_upload_recommendations(db, video=video),
@@ -759,7 +775,7 @@ async def get_video_list(
                     "title": video.title or "",
                     "filename": video.filename or "",
                     "status": status,
-                    "upload_time": video.upload_time.isoformat() if video.upload_time else None,
+                    "upload_time": (video.upload_time.isoformat() if video.upload_time else None),
                     "preview_filename": video.preview_filename,
                     "duration": video.duration,
                     "width": video.width,
@@ -820,7 +836,12 @@ async def get_video_processing_options():
 
     if not catalog:
         catalog = [
-            {"value": model_name, "label": model_name, "highlight": "", "downloaded": False}
+            {
+                "value": model_name,
+                "label": model_name,
+                "highlight": "",
+                "downloaded": False,
+            }
             for model_name in get_supported_whisper_models()
         ]
 
@@ -881,7 +902,12 @@ async def process_video_route(
     if video.processing_origin == VideoProcessingOrigin.IOS_OFFLINE:
         raise HTTPException(status_code=400, detail="该记录来自 iOS 本地离线处理，不能走后端重新处理")
 
-    allowed_statuses = [VideoStatus.UPLOADED, VideoStatus.PENDING, VideoStatus.FAILED, VideoStatus.COMPLETED]
+    allowed_statuses = [
+        VideoStatus.UPLOADED,
+        VideoStatus.PENDING,
+        VideoStatus.FAILED,
+        VideoStatus.COMPLETED,
+    ]
     if video.status not in allowed_statuses:
         raise HTTPException(status_code=400, detail=f"视频状态不正确: {video.status}")
 
@@ -950,7 +976,12 @@ async def delete_video(
     db.commit()
     forget_video_processing_request(video_id)
 
-    return {"message": "视频删除成功", "video_id": video_id, "soft_deleted": True, "index_cleanup": index_cleanup}
+    return {
+        "message": "视频删除成功",
+        "video_id": video_id,
+        "soft_deleted": True,
+        "index_cleanup": index_cleanup,
+    }
 
 
 @router.get("/{video_id}/stream")
@@ -1056,27 +1087,40 @@ async def get_subtitle(
     current_user_id: int = Depends(get_current_user_id),
 ):
     """获取字幕文件"""
+    _ = download  # 兼容参数，当前由前端直接内联预览，不单独触发附件下载逻辑
     video = get_user_scoped_video(db, video_id=video_id, user_id=current_user_id)
 
     if not video.subtitle_filepath or not os.path.exists(video.subtitle_filepath):
         raise HTTPException(status_code=404, detail="字幕文件不存在")
 
-    with open(video.subtitle_filepath, "r", encoding="utf-8") as f:
-        content = f.read()
+    try:
+        content = read_subtitle_file_with_fallback(video.subtitle_filepath)
+    except Exception as exc:
+        logger.error(
+            "读取字幕文件失败 | video_id=%s | path=%s | error=%s",
+            video_id,
+            video.subtitle_filepath,
+            exc,
+        )
+        raise HTTPException(status_code=500, detail="读取字幕文件失败") from exc
 
     if format.lower() == "vtt":
-        vtt_content = "WEBVTT\n\n" + content.replace(",", ".")
-        return Response(content=vtt_content, media_type="text/vtt; charset=utf-8")
-    elif format.lower() == "txt":
-        import re
-
-        txt_content = re.sub(
-            r"^\d+\s*\n\d{2}:\d{2}:\d{2},\d{3}\s*-->\s*\d{2}:\d{2}:\d{2},\d{3}\s*\n", "", content, flags=re.MULTILINE
+        vtt_content = srt_to_vtt(content)
+        return Response(
+            content=vtt_content.encode("utf-8-sig"),
+            media_type="text/vtt; charset=utf-8",
         )
-        txt_content = re.sub(r"^\s*\n", "", txt_content, flags=re.MULTILINE)
-        return Response(content=txt_content, media_type="text/plain; charset=utf-8")
+    elif format.lower() == "txt":
+        txt_content = srt_to_plain_text(content)
+        return Response(
+            content=txt_content.encode("utf-8-sig"),
+            media_type="text/plain; charset=utf-8",
+        )
     else:
-        return Response(content=content, media_type="text/plain; charset=utf-8")
+        return Response(
+            content=content.encode("utf-8-sig"),
+            media_type="application/x-subrip; charset=utf-8",
+        )
 
 
 @router.post("/{video_id}/generate-summary")
@@ -1112,7 +1156,11 @@ async def generate_summary(
         video.summary = result["summary"]
         db.commit()
 
-        return {"success": True, "summary": result["summary"], "style": result.get("style")}
+        return {
+            "success": True,
+            "summary": result["summary"],
+            "style": result.get("style"),
+        }
     except HTTPException:
         raise
     except Exception as exc:

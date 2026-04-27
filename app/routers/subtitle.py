@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.subtitle import Subtitle
 from app.models.video import Video
+from app.utils.subtitle_io import read_subtitle_file_with_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -101,8 +102,7 @@ async def get_video_subtitles(video_id: int, db: Session = Depends(get_db)):
         subtitle_list = []
         if video.subtitle_filepath and os.path.exists(video.subtitle_filepath):
             try:
-                with open(video.subtitle_filepath, "r", encoding="utf-8") as handle:
-                    subtitle_content = handle.read()
+                subtitle_content = read_subtitle_file_with_fallback(video.subtitle_filepath)
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=f"读取字幕文件时出错: {str(exc)}")
 
@@ -120,14 +120,17 @@ async def get_video_subtitles(video_id: int, db: Session = Depends(get_db)):
     return {
         "status": "success",
         "video_id": video_id,
-        "video_status": video.status.value if hasattr(video.status, "value") else video.status,
+        "video_status": (video.status.value if hasattr(video.status, "value") else video.status),
         "subtitles": subtitle_list,
     }
 
 
 @router.get("/videos/{video_id}/subtitles/semantic-merged")
 async def get_merged_subtitles(
-    video_id: int, force_refresh: bool = False, format: Optional[str] = None, db: Session = Depends(get_db)
+    video_id: int,
+    force_refresh: bool = False,
+    format: Optional[str] = None,
+    db: Session = Depends(get_db),
 ):
     """获取语义合并后的字幕"""
     video = db.query(Video).filter(Video.id == video_id).first()
@@ -157,8 +160,7 @@ async def get_merged_subtitles(
     # 如果没有缓存，重新生成
     if merged_subtitles is None:
         try:
-            with open(video.subtitle_filepath, "r", encoding="utf-8") as f:
-                subtitle_content = f.read()
+            subtitle_content = read_subtitle_file_with_fallback(video.subtitle_filepath)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"读取字幕文件时出错: {str(e)}")
 
@@ -233,8 +235,7 @@ async def trigger_semantic_merge(video_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="字幕文件不存在")
 
     try:
-        with open(video.subtitle_filepath, "r", encoding="utf-8") as f:
-            subtitle_content = f.read()
+        subtitle_content = read_subtitle_file_with_fallback(video.subtitle_filepath)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"读取字幕文件时出错: {str(e)}")
 
@@ -267,7 +268,11 @@ async def trigger_semantic_merge(video_id: int, db: Session = Depends(get_db)):
     with open(cache_file, "w", encoding="utf-8") as f:
         json.dump(merged_subtitles, f, ensure_ascii=False, indent=2)
 
-    return {"success": True, "message": "语义合并处理完成", "count": len(merged_subtitles)}
+    return {
+        "success": True,
+        "message": "语义合并处理完成",
+        "count": len(merged_subtitles),
+    }
 
 
 @router.get("/videos/{video_id}/subtitles/export")
@@ -334,4 +339,8 @@ async def update_subtitle(
         subtitle.end_time = end_time
 
     db.commit()
-    return {"status": "success", "message": "字幕更新成功", "subtitle": subtitle.to_dict()}
+    return {
+        "status": "success",
+        "message": "字幕更新成功",
+        "subtitle": subtitle.to_dict(),
+    }
