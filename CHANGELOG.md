@@ -9,6 +9,12 @@
 
 ## 2026-04-27
 
+### 实时画面描述降级可用性修复（Vinci 不可达时输出可读内容）
+
+- **backend**：更新 `app/services/frame_description_service.py`，新增字幕驱动的降级描述生成逻辑。
+- **backend**：当 Vinci 熔断打开、适配层降级或推理异常时，不再只返回“服务不可用”占位文案，改为基于当前时间点附近字幕片段生成可读实时描述（若存在字幕）。
+- **impact**：在上游 Vinci 502/不可达场景下，前端实时描述可持续返回有内容文本，降低“连上但无内容”的失败体感。
+
 ### 本地隔离验收与交互稳定性修复
 
 - **backend**：新增运行域自检接口 `GET /api/ops/runtime-scope`，用于明确当前是否本地隔离运行（`scope_label`、`local_isolation_ok`）；涉及 `app/routers/ops.py`、`tests/smoke/test_app_startup.py`。

@@ -21,11 +21,14 @@ from dataclasses import dataclass, field
 from time import monotonic, perf_counter
 from typing import Any, Callable, Generator, Optional
 
+from sqlalchemy.orm import Session
+
 from app.agents.governance import execute_tool
 from app.agents.governance.context import governance_execution_context
 from app.analytics.pipeline import get_telemetry
 from app.analytics.schema import AnalyticsEvent, AnalyticsStatus
 from app.core.config import settings
+from app.models.subtitle import Subtitle
 from app.services.vinci_adapter_service import VinciAdapterError, VinciAdapterService
 
 logger = logging.getLogger(__name__)
@@ -102,6 +105,66 @@ def _compute_text_similarity(text_a: str, text_b: str) -> float:
     intersection = len(a_chars & b_chars)
     union = len(a_chars | b_chars)
     return intersection / union if union > 0 else 0.0
+
+
+def _format_mmss(seconds: float) -> str:
+    total = max(0, int(float(seconds or 0)))
+    minutes = total // 60
+    remain = total % 60
+    return f"{minutes:02d}:{remain:02d}"
+
+
+def _normalize_subtitle_text(text: str, *, limit: int = 80) -> str:
+    compact = " ".join(str(text or "").split()).strip()
+    if not compact:
+        return ""
+    return compact if len(compact) <= limit else f"{compact[:limit].rstrip()}..."
+
+
+def _build_subtitle_fallback_description(
+    *,
+    db: Optional[Session],
+    video_id: int,
+    timestamp: float,
+    previous: Optional[str],
+    degraded_prefix: str,
+) -> str:
+    base_fallback = (
+        f"{degraded_prefix}{previous}" if str(previous or "").strip() else f"{degraded_prefix}画面描述服务暂时不可用。"
+    )
+    if db is None or int(video_id or 0) <= 0:
+        return base_fallback
+
+    subtitles = db.query(Subtitle).filter(Subtitle.video_id == int(video_id)).order_by(Subtitle.start_time.asc()).all()
+    if not subtitles:
+        return base_fallback
+
+    target = float(timestamp or 0)
+    best_index = 0
+    best_distance: Optional[float] = None
+    for index, item in enumerate(subtitles):
+        start_time = float(getattr(item, "start_time", 0) or 0)
+        end_time = float(getattr(item, "end_time", start_time) or start_time)
+        midpoint = (start_time + end_time) / 2
+        distance = abs(midpoint - target)
+        if best_distance is None or distance < best_distance:
+            best_distance = distance
+            best_index = index
+
+    fragment_indexes = range(max(0, best_index - 1), min(len(subtitles), best_index + 2))
+    fragments: list[str] = []
+    for index in fragment_indexes:
+        fragment = subtitles[index]
+        normalized = _normalize_subtitle_text(getattr(fragment, "text", ""))
+        if normalized:
+            fragments.append(normalized)
+
+    if not fragments:
+        return base_fallback
+
+    current_time_text = _format_mmss(target)
+    subtitle_summary = "；".join(fragments)
+    return f"{degraded_prefix}当前约 {current_time_text}，结合附近字幕，讲解内容是：{subtitle_summary}"
 
 
 def _build_description_prompt(
@@ -595,10 +658,12 @@ class FrameDescriptionService:
         blocked, probe_mode, opened_at = self._cb.is_blocked()
         if blocked:
             degraded = True
-            description = (
-                f"{self._degraded_prefix}当前场景：{previous or '暂无'}"
-                if previous
-                else f"{self._degraded_prefix}场景未变化。"
+            description = _build_subtitle_fallback_description(
+                db=db,
+                video_id=video_id,
+                timestamp=timestamp,
+                previous=previous,
+                degraded_prefix=self._degraded_prefix,
             )
             self._emit_telemetry(
                 "frame_desc_circuit_open",
@@ -633,10 +698,23 @@ class FrameDescriptionService:
                 self._cb.record_success()
                 if adapter_degraded:
                     degraded = True
+                    description = _build_subtitle_fallback_description(
+                        db=db,
+                        video_id=video_id,
+                        timestamp=timestamp,
+                        previous=previous,
+                        degraded_prefix=self._degraded_prefix,
+                    )
 
                 if not description:
                     degraded = True
-                    description = f"{self._degraded_prefix}未识别到画面内容。"
+                    description = _build_subtitle_fallback_description(
+                        db=db,
+                        video_id=video_id,
+                        timestamp=timestamp,
+                        previous=previous,
+                        degraded_prefix=self._degraded_prefix,
+                    )
 
             except FrameDescServiceError as exc:
                 logger.warning(
@@ -647,10 +725,12 @@ class FrameDescriptionService:
                 )
                 if allow_degrade and self._auto_degrade:
                     degraded = True
-                    description = (
-                        f"{self._degraded_prefix}{previous or '画面描述服务暂时不可用。'}"
-                        if previous
-                        else f"{self._degraded_prefix}画面描述服务暂时不可用。"
+                    description = _build_subtitle_fallback_description(
+                        db=db,
+                        video_id=video_id,
+                        timestamp=timestamp,
+                        previous=previous,
+                        degraded_prefix=self._degraded_prefix,
                     )
                     self._emit_telemetry(
                         "frame_desc_inference_degraded",

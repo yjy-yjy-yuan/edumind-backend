@@ -13,6 +13,7 @@
 
 ### 2026-04-27
 
+- `PENDING` fix(frame-description): subtitle-driven degraded output when vinci unavailable
 - `f631361` fix: stabilize frame-description/delete flow and improve partial tag search
 - `docs`: sync commit log docs and add commit log sync rule to AGENTS.md/CLAUDE.md; add COMMIT_LOG.md to .gitignore
 - `66367ec` fix(subtitles): use RFC5987 filename for non-ascii export headers
