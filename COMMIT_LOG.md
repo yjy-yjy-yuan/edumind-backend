@@ -11,6 +11,10 @@
 
 ---
 
+### 2026-05-04
+
+- `ea601e7` feat(frame-description): integrate Qwen3-VL local model with dual-backend architecture
+
 ### 2026-04-27
 
 - `91c74a4` fix(frame-description): subtitle-driven degraded output when vinci unavailable
