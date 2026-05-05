@@ -3,6 +3,7 @@
 import logging
 import os
 from contextlib import asynccontextmanager
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from time import perf_counter
 
@@ -42,13 +43,65 @@ logging.getLogger("uvicorn.access").setLevel(LOG_LEVEL)
 logger = logging.getLogger(__name__)
 
 
+def configure_frame_desc_debug_logging() -> str:
+    """Attach a dedicated DEBUG file handler for the realtime description chain."""
+    raw_path = str(
+        getattr(
+            settings, "FRAME_DESC_DEBUG_LOG_FILE", "logs/frame_description_debug.log"
+        )
+        or "logs/frame_description_debug.log"
+    ).strip()
+    log_path = Path(raw_path)
+    if not log_path.is_absolute():
+        log_path = Path(settings.BASE_DIR) / log_path
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    handler_name = "frame_desc_debug_file"
+    target = str(log_path)
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    loggers = [
+        logging.getLogger("app.main"),
+        logging.getLogger("app.routers.frame_description"),
+        logging.getLogger("app.services.frame_description_service"),
+        logging.getLogger("app.services.qwen3vl_realtime_client"),
+        logging.getLogger("app.services.vinci_adapter_service"),
+        logging.getLogger("app.services.vinci_client"),
+        logging.getLogger("httpx"),
+        logging.getLogger("httpcore"),
+    ]
+    for item in loggers:
+        item.setLevel(logging.DEBUG)
+        exists = any(
+            getattr(handler, "name", "") == handler_name
+            and getattr(handler, "baseFilename", "") == target
+            for handler in item.handlers
+        )
+        if exists:
+            continue
+        file_handler = RotatingFileHandler(
+            target,
+            maxBytes=10 * 1024 * 1024,
+            backupCount=5,
+            encoding="utf-8",
+        )
+        file_handler.name = handler_name
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(formatter)
+        item.addHandler(file_handler)
+    return target
+
+
 class RequestTimingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         start = perf_counter()
         response = await call_next(request)
         elapsed_ms = (perf_counter() - start) * 1000
         status_code = int(getattr(response, "status_code", 0) or 0)
-        log_message = "request completed | method=%s | path=%s | status=%s | elapsed_ms=%.2f"
+        log_message = (
+            "request completed | method=%s | path=%s | status=%s | elapsed_ms=%.2f"
+        )
         log_args = (request.method, request.url.path, status_code, elapsed_ms)
         if status_code >= 500:
             logger.error(log_message, *log_args)
@@ -64,10 +117,16 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
-        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        response.headers.setdefault(
+            "Referrer-Policy", "strict-origin-when-cross-origin"
+        )
+        response.headers.setdefault(
+            "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
+        )
         if str(settings.APP_ENV).lower() == "production":
-            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+            response.headers.setdefault(
+                "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+            )
         return response
 
 
@@ -80,7 +139,9 @@ def recover_interrupted_video_tasks():
             VideoStatus.PROCESSING,
             VideoStatus.DOWNLOADING,
         ]
-        interrupted_videos = db.query(Video).filter(Video.status.in_(interrupted_statuses)).all()
+        interrupted_videos = (
+            db.query(Video).filter(Video.status.in_(interrupted_statuses)).all()
+        )
         if not interrupted_videos:
             return
 
@@ -110,12 +171,36 @@ async def lifespan(app: FastAPI):
     storage_maintenance_stop_event = None
     # 启动时执行
     logger.info("启动 %s API...", settings.APP_NAME)
+    if bool(getattr(settings, "FRAME_DESC_DEBUG_LOG", False)):
+        debug_log_file = configure_frame_desc_debug_logging()
+        logger.debug(
+            "[frame_desc_debug] startup config | enabled=%s | backend=%s | qwen3vl_base=%s | qwen3vl_describe_path=%s | qwen3vl_request_timeout=%s | qwen3vl_stream_timeout=%s | frame_max_size=%s | vinci_base=%s | qwen3vl_stream=%s | vinci_stream=%s | allow_external_video=%s | allow_server_frame_fetch=%s | server_frame_hosts=%s | probe=%s | probe_timeout=%s | auto_degrade=%s | debug_log_file=%s",
+            getattr(settings, "FRAME_DESC_ENABLED", None),
+            getattr(settings, "FRAME_DESC_BACKEND", None),
+            getattr(settings, "QWEN3VL_BASE_URL", None),
+            getattr(settings, "QWEN3VL_DESCRIBE_PATH", None),
+            getattr(settings, "QWEN3VL_REQUEST_TIMEOUT_SECONDS", None),
+            getattr(settings, "QWEN3VL_STREAM_TIMEOUT_SECONDS", None),
+            getattr(settings, "FRAME_DESC_MAX_FRAME_SIZE", None),
+            getattr(settings, "VINCI_BASE_URL", None),
+            getattr(settings, "FRAME_DESC_USE_QWEN3VL_STREAM", None),
+            getattr(settings, "FRAME_DESC_USE_VINCI_STREAM", None),
+            getattr(settings, "FRAME_DESC_ALLOW_EXTERNAL_VIDEO", None),
+            getattr(settings, "FRAME_DESC_ALLOW_SERVER_FRAME_FETCH", None),
+            getattr(settings, "FRAME_DESC_SERVER_FRAME_ALLOWED_HOSTS", None),
+            getattr(settings, "FRAME_DESC_PROBE_UPSTREAM_BEFORE_INFER", None),
+            getattr(settings, "FRAME_DESC_PROBE_TIMEOUT_SECONDS", None),
+            getattr(settings, "FRAME_DESC_AUTO_DEGRADE", None),
+            debug_log_file,
+        )
 
     if settings.AUTO_CREATE_TABLES:
         Base.metadata.create_all(bind=engine)
         logger.info("数据库表创建成功")
     else:
-        logger.info("已跳过自动建表；如需初始化数据库，请运行 backend_fastapi/scripts/init_db.py")
+        logger.info(
+            "已跳过自动建表；如需初始化数据库，请运行 backend_fastapi/scripts/init_db.py"
+        )
 
     recover_interrupted_video_tasks()
 
@@ -142,13 +227,15 @@ async def lifespan(app: FastAPI):
                 chroma_backup_max_age_hours=settings.STORAGE_MAINTENANCE_CHROMA_BACKUP_MAX_AGE_HOURS,
                 keep_recent_chroma_backups=settings.STORAGE_MAINTENANCE_KEEP_RECENT_CHROMA_BACKUPS,
             )
-            storage_maintenance_worker, storage_maintenance_stop_event = start_storage_maintenance_worker(
-                base_dir=Path(settings.BASE_DIR),
-                interval_seconds=settings.STORAGE_MAINTENANCE_INTERVAL_SECONDS,
-                file_max_age_hours=settings.STORAGE_MAINTENANCE_FILE_MAX_AGE_HOURS,
-                chunk_dir_max_age_hours=settings.STORAGE_MAINTENANCE_CHUNK_DIR_MAX_AGE_HOURS,
-                chroma_backup_max_age_hours=settings.STORAGE_MAINTENANCE_CHROMA_BACKUP_MAX_AGE_HOURS,
-                keep_recent_chroma_backups=settings.STORAGE_MAINTENANCE_KEEP_RECENT_CHROMA_BACKUPS,
+            storage_maintenance_worker, storage_maintenance_stop_event = (
+                start_storage_maintenance_worker(
+                    base_dir=Path(settings.BASE_DIR),
+                    interval_seconds=settings.STORAGE_MAINTENANCE_INTERVAL_SECONDS,
+                    file_max_age_hours=settings.STORAGE_MAINTENANCE_FILE_MAX_AGE_HOURS,
+                    chunk_dir_max_age_hours=settings.STORAGE_MAINTENANCE_CHUNK_DIR_MAX_AGE_HOURS,
+                    chroma_backup_max_age_hours=settings.STORAGE_MAINTENANCE_CHROMA_BACKUP_MAX_AGE_HOURS,
+                    keep_recent_chroma_backups=settings.STORAGE_MAINTENANCE_KEEP_RECENT_CHROMA_BACKUPS,
+                )
             )
             logger.info(
                 "已启用存储维护任务 | interval=%ss | max_age=%sh",
@@ -158,13 +245,20 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.warning("初始化存储维护任务失败（忽略，不阻断启动）| error=%s", exc)
 
-    start_whisper_background_preload(settings.WHISPER_MODEL, settings.WHISPER_MODEL_PATH)
+    start_whisper_background_preload(
+        settings.WHISPER_MODEL, settings.WHISPER_MODEL_PATH
+    )
 
     yield
 
     # 关闭时执行
-    if storage_maintenance_worker is not None and storage_maintenance_stop_event is not None:
-        stop_storage_maintenance_worker(storage_maintenance_worker, storage_maintenance_stop_event)
+    if (
+        storage_maintenance_worker is not None
+        and storage_maintenance_stop_event is not None
+    ):
+        stop_storage_maintenance_worker(
+            storage_maintenance_worker, storage_maintenance_stop_event
+        )
     shutdown_whisper_runtime()
     logger.info("关闭 %s API...", settings.APP_NAME)
 
@@ -218,10 +312,14 @@ app.include_router(chat.router, prefix="/api/chat", tags=["聊天系统"])
 app.include_router(design.router, prefix="/api/design", tags=["设计助手"])
 app.include_router(auth.router, prefix="/api/auth", tags=["用户认证"])
 app.include_router(ops.router, prefix="/api/ops", tags=["运维观测"])
-app.include_router(recommendation.router, prefix="/api/recommendations", tags=["视频推荐"])
+app.include_router(
+    recommendation.router, prefix="/api/recommendations", tags=["视频推荐"]
+)
 app.include_router(search.router, tags=["语义搜索"])
 app.include_router(agent.router, prefix="/api/agent", tags=["学习流智能体"])
-app.include_router(frame_description.router, prefix="/api/frame_description", tags=["实时画面描述"])
+app.include_router(
+    frame_description.router, prefix="/api/frame_description", tags=["实时画面描述"]
+)
 
 
 # 根路由

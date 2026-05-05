@@ -241,6 +241,44 @@ def test_vinci_sse_events_are_normalized_and_emit_done_event():
 
 
 @pytest.mark.unit
+def test_vinci_vision_sse_events_are_normalized_and_emit_done_event():
+    """Vinci internvl 视觉流事件应被标准化为 delta/done。"""
+    scenario = "视觉 SSE 事件标准化"
+
+    class VisionStreamClient:
+        def stream_vision_chat(
+            self,
+            *,
+            prompt: str,
+            base64_frames: list[str],
+            history: list[dict[str, Any]],
+            session_id: str,
+            trace_id: str,
+            silent: bool = False,
+        ):
+            _ = prompt, base64_frames, history, trace_id, silent
+            yield {"type": "message.delta", "delta": "老师正在讲解"}
+            yield {"type": "message.delta", "delta": "老师正在讲解例题"}
+
+    adapter = _build_adapter(VisionStreamClient(), scenario)
+    with governance_execution_context():
+        events = list(
+            adapter.stream_vision_chat(
+                prompt="描述当前画面",
+                base64_frames=["/9j/4AAQSkZJRg=="],
+                history=[],
+                session_id="sess-vision-stream",
+                trace_id="trace-vision-stream",
+            )
+        )
+
+    assert [e["event"] for e in events] == ["delta", "delta", "done"]
+    assert events[0]["delta"] == "老师正在讲解"
+    assert events[1]["delta"] == "老师正在讲解例题"
+    assert events[-1]["session_id"] == "sess-vision-stream"
+
+
+@pytest.mark.unit
 def test_vinci_unavailable_returns_degraded_response():
     """场景 5：Vinci 不可用时降级响应。"""
     scenario = "Vinci 不可用降级"

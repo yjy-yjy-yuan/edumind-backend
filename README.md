@@ -56,6 +56,7 @@ python run.py
 - 推荐系统（含站内/站外候选）
 - 语义搜索（索引、检索、状态查询）
 - 智能体治理、预算控制、集中遥测、轨迹导出
+- Qwen3-VL 实时画面描述（`app/services/qwen3vl_realtime_client.py`，本地模型默认后端）
 - Vinci 微服务适配层（HTTP/SSE、统一错误码、降级与 trace_id 透传）
 - Vinci 运维观测接口（`/api/ops/vinci/metrics`）
 
@@ -175,7 +176,7 @@ git push --no-verify
 - 上传接口鉴权与其他路由一致：支持 Bearer、`X-User-ID`、`query user_id` 开发兼容链路。
 - MySQL 迁移脚本：`migrations/add_video_soft_delete_and_user_rebind.sql`。
 
-## Local Patch (2026-04-27)
+## Unified Deployment Patch (2026-04-27)
 
 - 字幕读取增强编码回退（`utf-8/utf-16/gb*`），降低中文字幕乱码概率：
   - `app/utils/subtitle_io.py`
@@ -195,10 +196,6 @@ git push --no-verify
   - 请求参数：`include_tag_match`
   - 配置：`SEARCH_TAG_MATCH_ENABLED`、`SEARCH_TAG_MATCH_WEIGHT`
   - `app/schemas/search.py`, `app/routers/search.py`, `app/services/search/search.py`
-- 本地/云端隔离自检接口：
-  - `GET /api/ops/runtime-scope`
-  - 关键字段：`scope_label`、`local_isolation_ok`
-  - `app/routers/ops.py`
 
 ### Cloud Rollout Note (Search)
 

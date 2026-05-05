@@ -17,12 +17,14 @@
          └─► FrameDescriptionService.describe_frames()
                 ├─► governance gateway execute_tool("lf_frame_description")
                 │     └─► tool_lf_frame_description()
-                │           └─► VinciAdapterService.request_chat()
+                │           ├─► Qwen3VLRealtimeClient (FRAME_DESC_BACKEND=qwen3vl, 默认)
+                │           │     └─► qwen3vl_realtime_server.py (本地模型, 127.0.0.1:18082)
+                │           └─► VinciAdapterService (FRAME_DESC_BACKEND=vinci)
                 │                 └─► Vinci 服务 (外部)
                 ├─► 场景去重 (相似度阈值 0.82)
                 └─► 上下文融合 (最近 N 条描述历史)
-                      ├─► 正常: Vinci 推理
-                      └─► 降级: 降级文本 + 熔断器打开
+                      ├─► 正常: 本地/Qwen3VL 或 Vinci 推理
+                      └─► 降级: 字幕驱动描述 + 熔断器打开
 ```
 
 ### 1.2 核心端点
@@ -42,15 +44,28 @@
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
 | `FRAME_DESC_ENABLED` | `false` | 功能总开关 |
-| `FRAME_DESC_SAMPLE_INTERVAL_SECONDS` | `3.0` | 采样间隔（秒），前端实际每 8s 发送一帧 |
-| `FRAME_DESC_TIMEOUT_SECONDS` | `8.0` | Vinci 单次推理超时（秒） |
+| `FRAME_DESC_BACKEND` | `qwen3vl` | 后端切换：`qwen3vl`（本地 Qwen3-VL）或 `vinci`（外部 Vinci） |
+| `FRAME_DESC_TIMEOUT_SECONDS` | `20.0` | 单次推理超时（秒） |
 | `FRAME_DESC_CONTEXT_WINDOW_SIZE` | `5` | 上下文历史窗口大小 |
 | `FRAME_DESC_SIMILARITY_THRESHOLD` | `0.82` | 场景去重相似度阈值 |
 | `FRAME_DESC_SCENE_STABLE_THRESHOLD` | `4` | 连续相似次数达到此值则跳过推理 |
-| `FRAME_DESC_DEGRADED_INTERVAL_SECONDS` | `10.0` | 降级模式下轮询间隔 |
-| `FRAME_DESC_DEGRADED_PREFIX` | `（描述服务暂不可用，仅供参考）` | 降级文本前缀 |
-| `FRAME_DESC_AUTO_DEGRADE` | `true` | 推理失败时是否自动降级 |
-| `VINCI_BASE_URL` | — | Vinci 服务地址 |
+| `FRAME_DESC_SKIP_STABLE_SCENE` | `false` | 跳过稳定场景推理 |
+| `FRAME_DESC_ENABLE_CONTEXT_FUSION` | `false` | 启用上下文融合 |
+| `FRAME_DESC_AUTO_DEGRADE` | `true` | 推理失败时是否自动降级（字幕驱动） |
+| `FRAME_DESC_USE_QWEN3VL_STREAM` | `false` | 是否使用 Qwen3-VL SSE 流式端点 |
+| `FRAME_DESC_USE_VINCI_STREAM` | `false` | 是否使用 Vinci SSE 流式端点 |
+| `FRAME_DESC_ALLOW_EXTERNAL_VIDEO` | `false` | 允许外部视频（非数据库 video_id） |
+| `FRAME_DESC_ALLOW_SERVER_FRAME_FETCH` | `false` | 允许服务端抽帧（iOS file:// WKWebView 兜底） |
+| `FRAME_DESC_SERVER_FRAME_ALLOWED_HOSTS` | — | 服务端抽帧允许的 host 白名单 |
+| `FRAME_DESC_DEBUG_LOG` | `false` | 开启 Frame Description DEBUG 日志 |
+| **Qwen3-VL 本地模型** | | |
+| `QWEN3VL_BASE_URL` | `http://127.0.0.1:18082` | Qwen3-VL 服务地址 |
+| `QWEN3VL_CONNECT_TIMEOUT_SECONDS` | `2.0` | Qwen3-VL 连接超时 |
+| `QWEN3VL_REQUEST_TIMEOUT_SECONDS` | `20.0` | Qwen3-VL 推理超时 |
+| `QWEN3VL_STREAM_TIMEOUT_SECONDS` | `30.0` | Qwen3-VL 流式超时 |
+| `QWEN3VL_MAX_NEW_TOKENS` | `64` | Qwen3-VL 最大生成长度 |
+| **Vinci 微服务** | | |
+| `VINCI_BASE_URL` | `http://127.0.0.1:8010` | Vinci 服务地址 |
 | `VINCI_API_KEY` | — | Vinci API 密钥 |
 | `VINCI_CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `3` | 熔断器失败阈值 |
 | `VINCI_CIRCUIT_BREAKER_RECOVERY_SECONDS` | `30` | 熔断器恢复等待秒数 |
@@ -66,15 +81,19 @@
 **排查步骤**：
 
 ```bash
-# Step 1: 检查功能开关
+# Step 1: 检查功能开关与双后端可达性
 curl http://127.0.0.1:2004/api/frame_description/health
 # 期望: {"enabled": true, "service": "active", "description": "实时画面描述服务"}
+# 查看 backend、qwen3vl_reachable、vinci_reachable 等字段判断具体哪个后端有问题
 
-# Step 2: 检查 Vinci 服务是否可达
-curl -s http://<VINCI_HOST>:8010/health || echo "Vinci unreachable"
+# Step 2: 检查对应后端是否可达
+# Qwen3-VL 本地模型（默认）
+curl -s --max-time 3 http://127.0.0.1:18082/health || echo "Qwen3-VL unreachable"
+# 或 Vinci 外部服务（BACKEND=vinci 时）
+curl -s --max-time 3 http://<VINCI_HOST>:8010/health || echo "Vinci unreachable"
 
 # Step 3: 检查后端日志
-grep -i "frame_desc\|vinci" /var/log/edumind/app.log | tail -50
+grep -i "frame_desc\|qwen3vl\|vinci" /var/log/edumind/app.log | tail -50
 
 # Step 4: 检查熔断器状态（通过遥测日志）
 grep "circuit_open\|circuit_breaker" /var/log/edumind/app.log | tail -20
@@ -92,7 +111,7 @@ pkill -f "uvicorn app.main:app" && python run.py &
 
 ### P1 — 降级模式（30 分钟响应）
 
-**症状**：描述文本显示"描述服务暂不可用"、badge 显示"降级模式"。
+**症状**：描述内容为字幕驱动的降级文本，badge 显示"降级模式"。
 
 **排查步骤**：
 
@@ -114,7 +133,7 @@ grep "frame_desc_inference_degraded\|frame_desc_circuit_open" /var/log/edumind/a
 
 ```bash
 # 检查轨迹缓冲（compounding 导出）
-curl -s http://127.0.0.1:2004/api/ops/metrics | grep frame_desc
+curl -s http://127.0.0.1:2004/api/frame_description/health | python -m json.tool
 
 # 检查 P95 延迟（遥测）
 # 正常: < 4s；如 > 8s 需调整 FRAME_DESC_TIMEOUT_SECONDS
@@ -129,11 +148,25 @@ curl -s http://127.0.0.1:2004/api/ops/metrics | grep frame_desc
 
 ## 4. 运维命令
 
-### 4.1 启用功能
+### 4.1 启用功能（Qwen3-VL 本地推荐）
 
 ```bash
 # 编辑 .env
 FRAME_DESC_ENABLED=true
+FRAME_DESC_BACKEND=qwen3vl
+QWEN3VL_BASE_URL=http://127.0.0.1:18082
+
+# 重启后端
+pkill -f "uvicorn app.main:app"
+python run.py &
+```
+
+### 4.2 启用功能（Vinci 外部）
+
+```bash
+# 编辑 .env
+FRAME_DESC_ENABLED=true
+FRAME_DESC_BACKEND=vinci
 VINCI_BASE_URL=http://your-vinci-host:8010
 VINCI_API_KEY=your_key
 
@@ -142,7 +175,7 @@ pkill -f "uvicorn app.main:app"
 python run.py &
 ```
 
-### 4.2 禁用功能
+### 4.3 禁用功能
 
 ```bash
 # 编辑 .env
@@ -183,11 +216,11 @@ curl -X POST http://127.0.0.1:2004/api/frame_description/describe \
   --no-buffer
 ```
 
-### 4.5 查看轨迹缓冲
+### 4.5 遥测指标（Vinci 窗口）
 
 ```bash
-# 通过遥测指标查看（需有遥测端点）
-curl -s http://127.0.0.1:2004/api/ops/metrics | grep frame_desc
+# 查看 Vinci/Frame Description 遥测窗口快照
+curl -s http://127.0.0.1:2004/api/ops/vinci/metrics | python -m json.tool
 ```
 
 ---

@@ -7,6 +7,31 @@
 
 ---
 
+## 2026-05-04
+
+### 实时画面描述 Qwen3VL 本地模型后端集成与隔离验证
+
+- **backend**：新增 Qwen3-VL 实时画面描述微服务客户端 `app/services/qwen3vl_realtime_client.py`，支持同步描述与 SSE 流式描述，默认对接本地 `127.0.0.1:18082`。
+- **backend**：重构 `app/services/frame_description_service.py`，支持 `qwen3vl` / `vinci` 双后端切换（配置项 `FRAME_DESC_BACKEND`），新增服务端视频帧抽取能力（`app/services/frame_source_extractor.py`），解决 iOS WKWebView `file://` 跨域采帧失败问题。
+- **backend**：增强 Vinci 适配层 `app/services/vinci_adapter_service.py` 与原始客户端 `app/services/vinci_client.py`，统一错误码映射、SSE 事件标准化、独立熔断器与降级遥测。
+- **backend**：扩展 `app/routers/frame_description.py` 路由，新增会话管理、三层健康检查（功能开关/服务实例/上游可达性）、NDJSON 流式响应。
+- **backend**：治理网关 `app/agents/governance/gateway.py` 与学习流 `app/agents/governance/tools_learning_flow.py` 注册 `lf_frame_description` 工具，支持同步与流式调用。
+- **backend**：`app/core/config.py` 新增 Qwen3VL 与 frame description 全量配置项；`app/main.py` 集成 frame description DEBUG 日志与生命周期管理。
+- **backend**：`app/routers/ops.py` 移除硬运行时域自检接口，改为外部验证脚本方式，避免本地调试时配置加载失败。
+- **scripts**：新增 `scripts/verify_local_cloud_isolation.py`，通过静态分析验证本地 `.env` 与前端配置未指向云端生产环境。
+- **tests**：新增 `tests/unit/test_qwen3vl_realtime_client.py`、`tests/unit/test_local_cloud_isolation_verify.py`；扩展 `tests/api/test_frame_description_api.py`、`tests/unit/test_frame_description_service.py`、`tests/unit/test_vinci_adapter_service.py`。
+- **docs**：更新 `docs/LOCAL_CLOUD_ISOLATION_AND_VERIFICATION_2026-04-27.md`，反映 `runtime-scope` 接口移除、新增 Qwen3-VL 本地模型后端说明；更新 `docs/FRAME_DESCRIPTION_RUNBOOK.md`，修正错误端点引用（`/api/ops/metrics` → `/api/frame_description/health`）、更新架构图与配置表以覆盖 Qwen3-VL 双后端架构；更新 `README.md` 移除已下线的运行时自检接口说明。
+- **impact**：本地开发可独立使用 Qwen3-VL 模型进行实时画面描述，不与云端 Vinci 服务耦合；前端可通过配置切换后端或启用服务端抽帧兜底。
+
+### 测试修复与配置清理
+
+- **backend**：修复 `tests/unit/test_vinci_client.py` 中 mock `httpx.Client` 未接受 `trust_env` 关键字参数导致的测试失败。
+- **backend**：修复 `tests/unit/test_video_processing_task.py` 因 `videos.user_id` 新增非空约束导致的插入失败。
+- **backend**：修复 `app/tasks/video_processing.py` 中 `temp_audio_path` 在异常路径下可能触发 `UnboundLocalError` 的问题。
+- **config**：修正 `.env` 中 `VINCI_ENABLED=true` 与 `FRAME_DESC_USE_VINCI_STREAM=true` 为 `false`，消除本地联调时 Vinci 不可达的日志噪音。
+
+---
+
 ## 2026-04-27
 
 ### 实时画面描述降级可用性修复（Vinci 不可达时输出可读内容）

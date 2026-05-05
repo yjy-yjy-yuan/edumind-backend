@@ -152,6 +152,36 @@ def tool_lf_frame_description(db: Session, params: dict[str, Any]) -> dict[str, 
     return payload
 
 
+def tool_lf_frame_description_stream(db: Session, params: dict[str, Any]):
+    """通过治理网关调用 Vinci 适配层执行流式画面描述（不可绕过）。"""
+    ensure_in_governance_context()
+    _ = db
+    prompt = str(params.get("prompt") or "").strip()
+    session_id = str(params.get("session_id") or "").strip()
+    trace_id = str(params.get("trace_id") or "").strip()
+    history = params.get("history")
+    safe_history = history if isinstance(history, list) else []
+    raw_frames = params.get("base64_frames")
+    safe_frames: list[str] = []
+    if isinstance(raw_frames, list) and raw_frames:
+        for f in raw_frames:
+            text = str(f or "").strip()
+            if text:
+                if "," in text:
+                    text = text.split(",", 1)[1]
+                safe_frames.append(text)
+
+    service = VinciAdapterService()
+    yield from service.stream_vision_chat(
+        prompt=prompt,
+        base64_frames=safe_frames,
+        history=safe_history,
+        session_id=session_id,
+        trace_id=trace_id,
+        silent=False,
+    )
+
+
 def tool_lf_vinci_chat(db: Session, params: dict[str, Any]) -> dict[str, Any]:
     """通过治理网关调用 Vinci 适配层（不可绕过）。"""
     ensure_in_governance_context()

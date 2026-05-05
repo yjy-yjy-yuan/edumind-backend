@@ -80,13 +80,17 @@ class Settings(BaseSettings):
 
     # 实时画面描述配置（EduMind Frame Description Service）
     FRAME_DESC_ENABLED: bool = False
+    # 实时画面描述上游: qwen3vl（轻量视觉描述服务）| vinci（历史重型 Vinci 服务）
+    FRAME_DESC_BACKEND: str = "qwen3vl"
     # 采样策略：固定间隔（fixed_interval）| 智能采样（smart）
     FRAME_DESC_SAMPLE_MODE: str = "fixed_interval"
     # 固定间隔模式下的采样周期（秒）；智能模式也会用此值作为兜底最小间隔
     FRAME_DESC_SAMPLE_INTERVAL_SECONDS: float = 3.0
     # 帧描述服务超时（秒）
     FRAME_DESC_TIMEOUT_SECONDS: float = 8.0
-    # 推理前是否快速探测 Vinci 可达性（不可达时直接降级，避免长时间卡在 connecting）
+    # 推理前是否快速探测视觉模型服务可达性（不可达时直接降级，避免长时间卡在 connecting）
+    FRAME_DESC_PROBE_UPSTREAM_BEFORE_INFER: bool = True
+    # 历史配置名，保留兼容旧环境变量
     FRAME_DESC_PROBE_VINCI_BEFORE_INFER: bool = True
     FRAME_DESC_PROBE_TIMEOUT_SECONDS: float = 1.5
     # 上下文融合窗口（描述历史条数）
@@ -106,11 +110,36 @@ class Settings(BaseSettings):
     # 单次推理最大输入帧数
     FRAME_DESC_MAX_FRAMES_PER_REQUEST: int = 3
     # 输入帧最大边长（像素）；超过此值会自动缩放
-    FRAME_DESC_MAX_FRAME_SIZE: int = 640
+    FRAME_DESC_MAX_FRAME_SIZE: int = 320
     # Token 预算上限（估算），超预算时自动降频
     FRAME_DESC_TOKEN_BUDGET: int = 6000
     # 是否自动降级（Vinci 不可用时返回降级描述而非错误）
     FRAME_DESC_AUTO_DEGRADE: bool = True
+    # 是否使用 Vinci internvl SSE 流式端点；本地/灰度可开启，默认关闭以保持线上兼容。
+    FRAME_DESC_USE_VINCI_STREAM: bool = False
+    # 是否使用 Qwen3-VL SSE 流式端点；CPU 推理首 token 较慢，默认走稳定的非流式端点。
+    FRAME_DESC_USE_QWEN3VL_STREAM: bool = False
+    # 本地联调云端视频时，允许实时描述接口仅基于前端传入帧推理，不要求 video_id 存在于本地库。
+    FRAME_DESC_ALLOW_EXTERNAL_VIDEO: bool = False
+    # iOS WKWebView 以 file:// 加载时，云端视频流缺少 CORS 会导致 canvas 采帧失败。
+    # 该开关仅允许实时画面描述后端按白名单 URL 抽取单帧，不影响常规视频播放接口。
+    FRAME_DESC_ALLOW_SERVER_FRAME_FETCH: bool = False
+    FRAME_DESC_SERVER_FRAME_ALLOWED_HOSTS: Union[str, List[str]] = ""
+    FRAME_DESC_SERVER_FRAME_FETCH_TIMEOUT_SECONDS: float = 35.0
+    # 实时描述链路 DEBUG 日志开关（建议本地联调开启）
+    FRAME_DESC_DEBUG_LOG: bool = False
+    # 实时描述链路 DEBUG 文件日志；相对路径基于后端仓库根目录。
+    FRAME_DESC_DEBUG_LOG_FILE: str = "logs/frame_description_debug.log"
+
+    # Qwen3-VL 实时画面描述微服务（推荐用于本地 Mac 跑模型，云端后端远程调用）
+    QWEN3VL_BASE_URL: str = "http://127.0.0.1:18082"
+    QWEN3VL_HEALTH_PATH: str = "/health"
+    QWEN3VL_DESCRIBE_PATH: str = "/api/v1/video/describe"
+    QWEN3VL_STREAM_PATH: str = "/api/v1/video/describe/stream"
+    QWEN3VL_CONNECT_TIMEOUT_SECONDS: float = 2.0
+    QWEN3VL_REQUEST_TIMEOUT_SECONDS: float = 8.0
+    QWEN3VL_STREAM_TIMEOUT_SECONDS: float = 30.0
+    QWEN3VL_MAX_NEW_TOKENS: int = 64
 
     # Ollama 配置
     OLLAMA_BASE_URL: str = "http://localhost:11434/api"
@@ -201,7 +230,9 @@ class Settings(BaseSettings):
     SEARCH_INLINE_INDEX_FAIL_POLICY: str = "mark_completed_without_index"
 
     # 集中式遥测管道（app.analytics）
-    ANALYTICS_LOG_LEVEL: str = "INFO"  # DEBUG|INFO|WARNING|ERROR — 作用于 app.analytics.telemetry
+    ANALYTICS_LOG_LEVEL: str = (
+        "INFO"  # DEBUG|INFO|WARNING|ERROR — 作用于 app.analytics.telemetry
+    )
     ANALYTICS_ALERT_MAX_FAILURE_RATE: float = 0.15
     ANALYTICS_ALERT_MAX_TIMEOUT_RATE: float = 0.10
     ANALYTICS_ALERT_LATENCY_TIMEOUT_MS: float = 30_000.0

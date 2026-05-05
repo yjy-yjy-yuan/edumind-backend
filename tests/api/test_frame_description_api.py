@@ -31,7 +31,7 @@ def test_describe_returns_404_when_video_not_found(client, monkeypatch):
     """视频不存在时返回 404。"""
     monkeypatch.setattr(
         "app.routers.frame_description.settings",
-        MagicMock(FRAME_DESC_ENABLED=True),
+        MagicMock(FRAME_DESC_ENABLED=True, FRAME_DESC_ALLOW_EXTERNAL_VIDEO=False),
     )
     response = client.post(
         "/api/frame_description/describe",
@@ -44,6 +44,110 @@ def test_describe_returns_404_when_video_not_found(client, monkeypatch):
     )
     assert response.status_code == 404
     assert "不存在" in response.json()["detail"]
+
+
+@pytest.mark.api
+def test_describe_allows_external_video_for_isolated_local_qwen(client, monkeypatch):
+    """本地 Qwen 联调可允许云端视频 ID，不因本地库缺记录而提前 404。"""
+    monkeypatch.setattr(
+        "app.routers.frame_description.settings",
+        MagicMock(FRAME_DESC_ENABLED=True, FRAME_DESC_ALLOW_EXTERNAL_VIDEO=True),
+    )
+
+    mock_service = MagicMock()
+
+    def mock_describe(**kwargs):
+        yield {
+            "type": "complete",
+            "stage": "completed",
+            "full_description": "画面中正在播放云端视频",
+            "timestamp": 10.0,
+            "confidence": None,
+            "context_summary": None,
+            "degraded": False,
+            "latency_ms": 456.0,
+            "progress": 100,
+            "message": "描述已完成",
+        }
+
+    mock_service.describe_frames.side_effect = mock_describe
+    monkeypatch.setattr(
+        "app.routers.frame_description.get_frame_desc_service",
+        lambda: mock_service,
+    )
+
+    response = client.post(
+        "/api/frame_description/describe",
+        json={
+            "video_id": 99999,
+            "frames": ["/9j/4AAQSkZJRg=="],
+            "timestamp": 10.0,
+            "video_title": "云端短视频",
+            "detail_level": "standard",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "application/x-ndjson" in response.headers["content-type"]
+    assert "画面中正在播放云端视频" in response.text
+    assert mock_service.describe_frames.call_args.kwargs["video_title"] == "云端短视频"
+
+
+@pytest.mark.api
+def test_describe_can_use_server_frame_source_when_frontend_capture_is_blocked(client, monkeypatch):
+    """iOS file:// WebView 无法 canvas 采帧时，可由本地实时描述后端按白名单抽帧。"""
+    monkeypatch.setattr(
+        "app.routers.frame_description.settings",
+        MagicMock(
+            FRAME_DESC_ENABLED=True,
+            FRAME_DESC_ALLOW_EXTERNAL_VIDEO=True,
+            FRAME_DESC_ALLOW_SERVER_FRAME_FETCH=True,
+            FRAME_DESC_SERVER_FRAME_ALLOWED_HOSTS="47.84.228.226",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.routers.frame_description.extract_frame_from_video_url",
+        lambda **kwargs: "/9j/server-side-frame==",
+    )
+
+    mock_service = MagicMock()
+
+    def mock_describe(**kwargs):
+        yield {
+            "type": "complete",
+            "stage": "completed",
+            "full_description": "服务端抽帧后完成描述",
+            "timestamp": 10.0,
+            "confidence": None,
+            "context_summary": None,
+            "degraded": False,
+            "latency_ms": 789.0,
+            "progress": 100,
+            "message": "描述已完成",
+        }
+
+    mock_service.describe_frames.side_effect = mock_describe
+    monkeypatch.setattr(
+        "app.routers.frame_description.get_frame_desc_service",
+        lambda: mock_service,
+    )
+
+    response = client.post(
+        "/api/frame_description/describe",
+        json={
+            "video_id": 99999,
+            "frames": [],
+            "frame_source_url": "https://47.84.228.226/api/videos/25/stream",
+            "timestamp": 10.0,
+            "video_title": "云端短视频",
+            "detail_level": "standard",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "正在服务端抽取视频帧" in response.text
+    assert "服务端抽帧后完成描述" in response.text
+    assert mock_service.describe_frames.call_args.kwargs["frames"] == ["/9j/server-side-frame=="]
 
 
 @pytest.mark.api
@@ -357,3 +461,119 @@ def test_health_vinci_unreachable_includes_error_detail(client, monkeypatch):
     assert data["vinci"]["reachable"] is False
     assert data["vinci"]["error"] == "connection refused"
     assert data["vinci"]["error_code"] == "VINCI_UNAVAILABLE"
+
+
+@pytest.mark.api
+def test_health_returns_qwen3vl_probe_result(client, monkeypatch):
+    """健康检查端点在 qwen3vl 后端下返回当前上游状态。"""
+    monkeypatch.setattr(
+        "app.routers.frame_description.settings",
+        MagicMock(FRAME_DESC_ENABLED=True, FRAME_DESC_BACKEND="qwen3vl"),
+    )
+    mock_service = MagicMock()
+    monkeypatch.setattr(
+        "app.routers.frame_description.get_frame_desc_service",
+        lambda: mock_service,
+    )
+    from app.services.qwen3vl_realtime_client import Qwen3VLHealthResult
+
+    mock_health = Qwen3VLHealthResult(
+        reachable=True,
+        latency_ms=12.5,
+        loaded=False,
+        model="Qwen/Qwen3-VL-2B-Instruct",
+        device="mps",
+    )
+    monkeypatch.setattr(
+        "app.routers.frame_description.Qwen3VLRealtimeClient.health_check",
+        lambda self, **kw: mock_health,
+    )
+
+    response = client.get("/api/frame_description/health")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["upstream"]["provider"] == "qwen3vl"
+    assert data["upstream"]["reachable"] is True
+    assert data["upstream"]["loaded"] is False
+    assert data["upstream"]["model"] == "Qwen/Qwen3-VL-2B-Instruct"
+    assert data["upstream"]["device"] == "mps"
+
+
+@pytest.mark.api
+def test_describe_service_error_with_allow_degrade_returns_degraded_complete(
+    client, sample_video, monkeypatch
+):
+    """服务层抛错时，allow_degrade=True 应返回降级 complete 事件，而非仅 error。"""
+    from app.services.frame_description_service import FrameDescServiceError
+
+    monkeypatch.setattr(
+        "app.routers.frame_description.settings",
+        MagicMock(FRAME_DESC_ENABLED=True),
+    )
+
+    class _FailingService:
+        def describe_frames(self, **kwargs):
+            raise FrameDescServiceError(
+                "vinci_probe_unreachable:VINCI_UNAVAILABLE:connection refused"
+            )
+            yield  # pragma: no cover
+
+    monkeypatch.setattr(
+        "app.routers.frame_description.get_frame_desc_service",
+        lambda: _FailingService(),
+    )
+
+    response = client.post(
+        "/api/frame_description/describe",
+        json={
+            "video_id": sample_video.id,
+            "frames": ["/9j/4AAQSkZJRg=="],
+            "timestamp": 10.0,
+            "detail_level": "standard",
+            "allow_degrade": True,
+        },
+    )
+    assert response.status_code == 200
+    events = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+    assert any(
+        evt.get("type") == "complete" and evt.get("degraded") is True for evt in events
+    )
+    assert any(evt.get("type") == "description" for evt in events)
+
+
+@pytest.mark.api
+def test_describe_service_error_without_degrade_returns_error_event(
+    client, sample_video, monkeypatch
+):
+    """服务层抛错且 allow_degrade=False 时应返回 error 事件。"""
+    from app.services.frame_description_service import FrameDescServiceError
+
+    monkeypatch.setattr(
+        "app.routers.frame_description.settings",
+        MagicMock(FRAME_DESC_ENABLED=True),
+    )
+
+    class _FailingService:
+        def describe_frames(self, **kwargs):
+            raise FrameDescServiceError("vinci_probe_unreachable")
+            yield  # pragma: no cover
+
+    monkeypatch.setattr(
+        "app.routers.frame_description.get_frame_desc_service",
+        lambda: _FailingService(),
+    )
+
+    response = client.post(
+        "/api/frame_description/describe",
+        json={
+            "video_id": sample_video.id,
+            "frames": ["/9j/4AAQSkZJRg=="],
+            "timestamp": 10.0,
+            "detail_level": "standard",
+            "allow_degrade": False,
+        },
+    )
+    assert response.status_code == 200
+    events = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+    assert any(evt.get("type") == "error" for evt in events)

@@ -16,12 +16,18 @@ class FrameDescriptionRequest(BaseModel):
 
     video_id: int = Field(..., description="视频 ID")
     user_id: Optional[int] = Field(default=None, description="当前用户 ID")
-    # 帧数据：base64 编码的 JPEG 图像列表（避免传输文件路径）
+    # 帧数据：base64 编码的 JPEG 图像列表（避免传输文件路径）。
+    # iOS file:// WebView 遇到无 CORS 云端视频时可能无法 canvas 采帧，此时允许为空，
+    # 后端可在显式开启白名单抽帧后使用 frame_source_url 抽取单帧。
     frames: List[str] = Field(
-        ...,
-        min_length=1,
+        default_factory=list,
         max_length=10,
         description="当前采样周期的帧列表，每帧为 base64 JPEG 字符串",
+    )
+    frame_source_url: str = Field(
+        default="",
+        max_length=2048,
+        description="前端无法采帧时供后端抽帧的只读视频流 URL",
     )
     # 视频元信息（用于提示词组装）
     timestamp: float = Field(..., ge=0, description="当前帧对应视频播放位置（秒）")

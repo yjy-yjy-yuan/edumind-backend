@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Generator
 
 from sqlalchemy.orm import Session
 
@@ -43,6 +43,10 @@ _TOOL_HANDLERS: Dict[str, Callable[[Session, dict[str, Any]], dict[str, Any]]] =
     "lf_create_timestamp": tools_learning_flow.tool_lf_create_timestamp,
     "lf_vinci_chat": tools_learning_flow.tool_lf_vinci_chat,
     "lf_frame_description": tools_learning_flow.tool_lf_frame_description,
+}
+
+_STREAM_TOOL_HANDLERS: Dict[str, Callable[[Session, dict[str, Any]], Any]] = {
+    "lf_frame_description": tools_learning_flow.tool_lf_frame_description_stream,
 }
 
 
@@ -273,3 +277,67 @@ def execute_tool(
         },
     )
     return result or {}
+
+
+def execute_tool_stream(
+    tool_name: str,
+    params: dict[str, Any],
+    *,
+    db: Session,
+    trace_id: str,
+    pipeline: str = "learning_flow",
+) -> Generator[dict[str, Any], None, None]:
+    """流式工具执行入口。保持与 execute_tool 同样的白名单、校验和审计。"""
+    _validate_tool_name(tool_name)
+    handler = _STREAM_TOOL_HANDLERS.get(tool_name)
+    if handler is None:
+        _emit_audit(
+            trace_id=trace_id,
+            event_type="agent_tool_denied",
+            status=AnalyticsStatus.ERROR.value,
+            metadata={"tool": tool_name, "reason": "stream_not_whitelisted", "pipeline": pipeline},
+        )
+        raise GovernanceError(f"stream_tool_not_allowed:{tool_name}")
+
+    try:
+        _validate_params(tool_name, params)
+    except GovernanceError as exc:
+        _emit_audit(
+            trace_id=trace_id,
+            event_type="agent_tool_param_invalid",
+            status=AnalyticsStatus.ERROR.value,
+            metadata={"tool": tool_name, "error": str(exc), "pipeline": pipeline},
+        )
+        raise
+
+    _emit_audit(
+        trace_id=trace_id,
+        event_type="agent_tool_stream_started",
+        status=AnalyticsStatus.STARTED.value,
+        metadata={"tool": tool_name, "pipeline": pipeline},
+    )
+
+    event_count = 0
+    try:
+        with governance_execution_context():
+            params_with_trace = dict(params or {})
+            params_with_trace.setdefault("trace_id", trace_id)
+            for event in handler(db, params_with_trace):
+                if isinstance(event, dict):
+                    event_count += 1
+                    yield event
+    except Exception as exc:
+        _emit_audit(
+            trace_id=trace_id,
+            event_type="agent_tool_stream_failed",
+            status=AnalyticsStatus.ERROR.value,
+            metadata={"tool": tool_name, "error": str(exc)[:500], "pipeline": pipeline},
+        )
+        raise
+
+    _emit_audit(
+        trace_id=trace_id,
+        event_type="agent_tool_stream_completed",
+        status=AnalyticsStatus.OK.value,
+        metadata={"tool": tool_name, "pipeline": pipeline, "event_count": event_count},
+    )

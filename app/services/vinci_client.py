@@ -274,7 +274,7 @@ class VinciClient:
             )
             url = _build_url(base_url, path)
             try:
-                with httpx.Client(timeout=timeout) as client:
+                with httpx.Client(timeout=timeout, trust_env=False) as client:
                     response = client.post(url, json=payload, headers=self._headers(trace_id=trace_id))
             except httpx.TimeoutException as exc:
                 timeout_errors += 1
@@ -357,9 +357,10 @@ class VinciClient:
         url = _build_url(self.base_url, self.stream_path)
 
         try:
-            with httpx.Client(timeout=timeout) as client:
+            with httpx.Client(timeout=timeout, trust_env=False) as client:
                 with client.stream("POST", url, json=payload, headers=self._headers(trace_id=trace_id)) as response:
                     if response.status_code < 200 or response.status_code >= 300:
+                        response.read()
                         message, error_code = _extract_error_message(response)
                         raise VinciHTTPError(
                             message,
@@ -391,6 +392,90 @@ class VinciClient:
         except httpx.RequestError as exc:
             raise VinciUnavailableError(f"vinci stream unavailable: {exc}") from exc
 
+    @staticmethod
+    def _normalize_vinci_sse_payload(event_payload: dict[str, Any]) -> dict[str, Any]:
+        """Normalize Vinci named SSE events into the adapter's delta/done shape."""
+        event_type = str(event_payload.get("event") or event_payload.get("type") or "").strip().lower()
+        data = event_payload.get("data")
+        if event_type == "end":
+            return {"type": "done"}
+        if event_type == "message" and data is not None:
+            if isinstance(data, str):
+                try:
+                    nested = json.loads(data)
+                except ValueError:
+                    return {"type": "message.delta", "delta": data}
+            else:
+                nested = data
+            if isinstance(nested, dict):
+                answer = str(nested.get("answer") or nested.get("delta") or nested.get("content") or "").strip()
+                return {
+                    "type": "message.delta",
+                    "delta": answer,
+                    "session_id": str(nested.get("session_id") or ""),
+                    "history": nested.get("history"),
+                }
+        return event_payload
+
+    def stream_vision_chat(
+        self,
+        *,
+        prompt: str,
+        base64_frames: list[str],
+        history: list[dict[str, Any]],
+        session_id: str,
+        trace_id: str,
+        silent: bool = False,
+    ) -> Generator[dict[str, Any], None, None]:
+        """调用 Vinci internvl SSE 推理接口（含图像帧）。"""
+        path = "/api/v1/inference/internvl/stream"
+        payload = self._build_vision_payload(
+            prompt=prompt,
+            base64_frames=base64_frames,
+            history=history,
+            session_id=session_id,
+            silent=silent,
+            path=path,
+        )
+        timeout = httpx.Timeout(self.stream_timeout_seconds, connect=self.connect_timeout_seconds)
+        url = _build_url(self.base_url, path)
+
+        try:
+            with httpx.Client(timeout=timeout, trust_env=False) as client:
+                with client.stream("POST", url, json=payload, headers=self._headers(trace_id=trace_id)) as response:
+                    if response.status_code < 200 or response.status_code >= 300:
+                        response.read()
+                        message, error_code = _extract_error_message(response)
+                        raise VinciHTTPError(
+                            message,
+                            status_code=response.status_code,
+                            error_code=error_code,
+                            response_body=str(response.text or "")[:2000],
+                        )
+
+                    for payload_line in self._iter_sse_payload_lines(response.iter_lines()):
+                        raw = str(payload_line or "").strip()
+                        if not raw:
+                            continue
+                        if raw == "[DONE]":
+                            yield {"type": "done"}
+                            return
+                        try:
+                            event_payload = json.loads(raw)
+                        except ValueError:
+                            yield {"type": "message.delta", "delta": raw}
+                            continue
+                        if isinstance(event_payload, dict):
+                            yield self._normalize_vinci_sse_payload(event_payload)
+                        else:
+                            yield {"type": "message.delta", "delta": str(event_payload)}
+        except VinciHTTPError:
+            raise
+        except httpx.TimeoutException as exc:
+            raise VinciTimeoutError(f"vinci vision stream timed out: {exc}") from exc
+        except httpx.RequestError as exc:
+            raise VinciUnavailableError(f"vinci vision stream unavailable: {exc}") from exc
+
     def request_vision_chat(
         self,
         *,
@@ -419,7 +504,7 @@ class VinciClient:
         url = _build_url(self.base_url, path)
 
         try:
-            with httpx.Client(timeout=timeout) as client:
+            with httpx.Client(timeout=timeout, trust_env=False) as client:
                 response = client.post(url, json=payload, headers=self._headers(trace_id=trace_id))
         except httpx.TimeoutException as exc:
             raise VinciTimeoutError(f"vinci vision request timed out: {exc}") from exc
