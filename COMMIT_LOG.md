@@ -11,6 +11,10 @@
 
 ---
 
+### 2026-05-06
+
+- `daa9949` fix(frame-description): remove "degraded" UI text and simplify chat system for cloud deployment
+
 ### 2026-05-04
 
 - `ea601e7` feat(frame-description): integrate Qwen3-VL local model with dual-backend architecture

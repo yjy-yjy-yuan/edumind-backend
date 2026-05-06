@@ -24,7 +24,7 @@
                 ├─► 场景去重 (相似度阈值 0.82)
                 └─► 上下文融合 (最近 N 条描述历史)
                       ├─► 正常: 本地/Qwen3VL 或 Vinci 推理
-                      └─► 降级: 字幕驱动描述 + 熔断器打开
+                      └─► 字幕模式: 字幕驱动描述 + 熔断器打开
 ```
 
 ### 1.2 核心端点
@@ -109,14 +109,14 @@ FRAME_DESC_ENABLED=false
 pkill -f "uvicorn app.main:app" && python run.py &
 ```
 
-### P1 — 降级模式（30 分钟响应）
+### P1 — 字幕模式（30 分钟响应）
 
-**症状**：描述内容为字幕驱动的降级文本，badge 显示"降级模式"。
+**症状**：描述内容为字幕驱动的文本，badge 显示"字幕模式"。
 
 **排查步骤**：
 
 ```bash
-# 检查遥测日志中的降级事件
+# 检查遥测日志中的字幕模式事件
 grep "frame_desc_inference_degraded\|frame_desc_circuit_open" /var/log/edumind/app.log | tail -20
 
 # 检查 Vinci 响应延迟
@@ -241,7 +241,7 @@ curl -s http://127.0.0.1:2004/api/ops/vinci/metrics | python -m json.tool
 ```bash
 # 关键日志标签
 frame_desc_circuit_open       # 熔断器打开
-frame_desc_inference_degraded  # 降级触发
+frame_desc_inference_degraded  # 字幕模式触发
 frame_desc_completed           # 正常完成（遥测）
 frame_desc_session_started     # 会话开启
 frame_desc_session_stopped     # 会话关闭

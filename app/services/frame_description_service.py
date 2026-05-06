@@ -30,11 +30,10 @@ from app.analytics.pipeline import get_telemetry
 from app.analytics.schema import AnalyticsEvent, AnalyticsStatus
 from app.core.config import settings
 from app.models.subtitle import Subtitle
-from app.services.qwen3vl_realtime_client import (
-    Qwen3VLClientError,
-    Qwen3VLRealtimeClient,
-)
-from app.services.vinci_adapter_service import VinciAdapterError, VinciAdapterService
+from app.services.qwen3vl_realtime_client import (Qwen3VLClientError,
+                                                  Qwen3VLRealtimeClient)
+from app.services.vinci_adapter_service import (VinciAdapterError,
+                                                VinciAdapterService)
 
 logger = logging.getLogger(__name__)
 
@@ -160,15 +159,11 @@ def _build_subtitle_fallback_description(
     video_id: int,
     timestamp: float,
     previous: Optional[str],
-    degraded_prefix: str,
 ) -> str:
-    base_fallback = (
-        f"{degraded_prefix}{previous}"
-        if str(previous or "").strip()
-        else f"{degraded_prefix}画面描述服务暂时不可用。"
-    )
+    """构建字幕驱动的降级描述（不显示"降级"等字样）。"""
+    # 如果有最近的描述，返回字幕内容（自然过渡）
     if db is None or int(video_id or 0) <= 0:
-        return base_fallback
+        return str(previous or "").strip() if previous else "暂无字幕信息"
 
     subtitles = (
         db.query(Subtitle)
@@ -177,7 +172,7 @@ def _build_subtitle_fallback_description(
         .all()
     )
     if not subtitles:
-        return base_fallback
+        return str(previous or "").strip() if previous else "暂无字幕信息"
 
     target = float(timestamp or 0)
     best_index = 0
@@ -202,11 +197,11 @@ def _build_subtitle_fallback_description(
             fragments.append(normalized)
 
     if not fragments:
-        return base_fallback
+        return str(previous or "").strip() if previous else "暂无字幕信息"
 
     current_time_text = _format_mmss(target)
     subtitle_summary = "；".join(fragments)
-    return f"{degraded_prefix}当前约 {current_time_text}，结合附近字幕，讲解内容是：{subtitle_summary}"
+    return f"当前约 {current_time_text}，结合附近字幕，讲解内容是：{subtitle_summary}"
 
 
 def _safe_setting_str(name: str, default: str) -> str:
@@ -1038,7 +1033,6 @@ class FrameDescriptionService:
                 video_id=video_id,
                 timestamp=timestamp,
                 previous=previous,
-                degraded_prefix=self._degraded_prefix,
             )
             self._debug(
                 "degrade by circuit open | session=%s | trace=%s | opened_at=%.3f",
@@ -1138,7 +1132,6 @@ class FrameDescriptionService:
                         video_id=video_id,
                         timestamp=timestamp,
                         previous=previous,
-                        degraded_prefix=self._degraded_prefix,
                     )
 
                 if not description:
@@ -1149,7 +1142,6 @@ class FrameDescriptionService:
                         video_id=video_id,
                         timestamp=timestamp,
                         previous=previous,
-                        degraded_prefix=self._degraded_prefix,
                     )
 
             except FrameDescServiceError as exc:
@@ -1167,7 +1159,6 @@ class FrameDescriptionService:
                         video_id=video_id,
                         timestamp=timestamp,
                         previous=previous,
-                        degraded_prefix=self._degraded_prefix,
                     )
                     self._emit_telemetry(
                         "frame_desc_inference_degraded",
@@ -1198,18 +1189,16 @@ class FrameDescriptionService:
                     return
 
         if degraded:
-            user_reason = degraded_reason or f"{self._backend}_unavailable"
             yield {
                 "type": "status",
-                "stage": "degraded",
-                "message": f"{self._backend_label} 实时描述服务不可用，已降级输出（{user_reason}）",
+                "stage": "subtitle",
+                "message": "正在根据字幕内容提供描述",
                 "progress": 85,
             }
             self._debug(
-                "degraded output ready | session=%s | trace=%s | reason=%s | desc_len=%d",
+                "subtitle output ready | session=%s | trace=%s | desc_len=%d",
                 safe_session_id,
                 trace_id,
-                user_reason,
                 len(description),
             )
 
@@ -1354,11 +1343,7 @@ class FrameDescriptionService:
             "degraded": degraded,
             "latency_ms": total_latency_ms,
             "progress": 100,
-            "message": (
-                "描述已完成"
-                if not degraded
-                else f"降级描述已完成（{degraded_reason or f'{self._backend}_unavailable'}）"
-            ),
+            "message": "描述已完成",
         }
         self._debug(
             "describe_frames complete | session=%s | trace=%s | degraded=%s | stable_count=%s | latency_ms=%.3f",

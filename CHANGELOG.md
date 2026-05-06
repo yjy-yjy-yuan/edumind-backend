@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-05-06
+
+### 实时画面描述用户体验优化（移除"降级"字样）
+
+- **backend**：更新 `app/services/frame_description_service.py`，移除所有"降级"相关显示文字。当画面描述服务不可用时，改为输出字幕内容，显示更友好的"字幕模式"提示。
+- **backend**：简化 `app/utils/chat_system.py`，移除本地 Qwen 模型优先调用逻辑，保留云端 Qwen API 调用，适配云端部署场景。
+- **frontend**：更新 `mobile-frontend/src/views/Player.vue`，删除"降级模式"徽章，将 `degraded` 状态改为 `subtitle`，移除描述文字中的"（降级）"前缀。
+- **frontend**：更新 `mobile-frontend/src/api/frameDescription.js`，将超时提示从"已切换到降级描述"改为"已切换到字幕描述"。
+- **docs**：删除本地/云端隔离验证相关文档 `docs/LOCAL_CLOUD_ISOLATION_AND_VERIFICATION_2026-04-27.md` 及相关脚本 `scripts/verify_local_cloud_isolation.py`。
+- **tests**：删除 `tests/unit/test_local_cloud_isolation_verify.py`；更新 `tests/smoke/test_app_startup.py`。
+- **impact**：用户在画面描述服务不可用时，看到的是自然的字幕内容，而非"降级模式"等提示，体验更流畅。
+
+---
+
 ## 2026-05-04
 
 ### 实时画面描述 Qwen3VL 本地模型后端集成与隔离验证
