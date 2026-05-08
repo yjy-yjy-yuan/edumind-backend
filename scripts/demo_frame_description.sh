@@ -42,7 +42,7 @@ if echo "$HEALTH" | grep -q '"enabled"'; then
   ENABLED=$(echo "$HEALTH" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('enabled','?'))" 2>/dev/null || echo "?")
   log "健康检查通过 | enabled=${ENABLED}"
 else
-  warn "后端未响应，使用模拟模式演示"
+  warn "后端未响应，使用模拟模式演示（请确认后端已启动）"
 fi
 
 # -----------------------------------------------------------------------
@@ -126,7 +126,7 @@ echo "$STOP" | python3 -m json.tool 2>/dev/null || echo "$STOP"
 ok "会话已关闭"
 
 # -----------------------------------------------------------------------
-# 场景 5：降级模式测试（Vinci 不可用时）
+# 场景 5：降级模式测试（视觉模型不可用时）
 # -----------------------------------------------------------------------
 echo ""
 hr

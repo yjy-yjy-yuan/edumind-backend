@@ -1,7 +1,7 @@
 # Frame Description 服务运维手册（Runbook）
 
 > 适用版本：EduMind Backend v2.0+
-> 最后更新：2026-04-24
+> 最后更新：2026-05-08
 
 ---
 
@@ -15,16 +15,14 @@
 前端 Player.vue
   └─► /api/frame_description/describe  (POST, NDJSON 流式)
          └─► FrameDescriptionService.describe_frames()
-                ├─► governance gateway execute_tool("lf_frame_description")
-                │     └─► tool_lf_frame_description()
-                │           ├─► Qwen3VLRealtimeClient (FRAME_DESC_BACKEND=qwen3vl, 默认)
-                │           │     └─► qwen3vl_realtime_server.py (本地模型, 127.0.0.1:18082)
-                │           └─► VinciAdapterService (FRAME_DESC_BACKEND=vinci)
-                │                 └─► Vinci 服务 (外部)
+                ├─► Qwen3VLRealtimeClient (FRAME_DESC_BACKEND=qwen3vl, 默认)
+                │     └─► qwen3vl_realtime_server.py (本地模型, 127.0.0.1:18082)
+                ├─► QwenVLCloudClient (本地 Qwen3VL 不可用时，可选)
+                │     └─► DashScope / OpenAI-compatible Qwen-VL API
+                ├─► VinciAdapterService (仅 FRAME_DESC_BACKEND=vinci 历史兼容)
                 ├─► 场景去重 (相似度阈值 0.82)
                 └─► 上下文融合 (最近 N 条描述历史)
-                      ├─► 正常: 本地/Qwen3VL 或 Vinci 推理
-                      └─► 字幕模式: 字幕驱动描述 + 熔断器打开
+                      └─► Fallback: Cloud Qwen-VL -> 字幕描述 -> 最小安全响应
 ```
 
 ### 1.2 核心端点
@@ -58,6 +56,13 @@
 | `FRAME_DESC_ALLOW_SERVER_FRAME_FETCH` | `false` | 允许服务端抽帧（iOS file:// WKWebView 兜底） |
 | `FRAME_DESC_SERVER_FRAME_ALLOWED_HOSTS` | — | 服务端抽帧允许的 host 白名单 |
 | `FRAME_DESC_DEBUG_LOG` | `false` | 开启 Frame Description DEBUG 日志 |
+| `FRAME_DESC_DEBUG_LOG_FILE` | `logs/frame_description_debug.log` | 独立 debug 文件日志路径 |
+| **Cloud Qwen-VL fallback** | | |
+| `FRAME_DESC_CLOUD_FALLBACK_ENABLED` | `false` | 本地 Qwen3VL 不可用时是否调用通义千问视觉 API |
+| `FRAME_DESC_CLOUD_PROVIDER` | `qwen` | 当前支持 `qwen` |
+| `FRAME_DESC_CLOUD_QWEN_MODEL` | `qwen3-vl-plus` | Cloud Qwen-VL 模型名 |
+| `FRAME_DESC_CLOUD_QWEN_TIMEOUT_SECONDS` | `45.0` | Cloud Qwen-VL 请求超时 |
+| `FRAME_DESC_CLOUD_QWEN_MAX_TOKENS` | `256` | Cloud Qwen-VL 最大输出 token |
 | **Qwen3-VL 本地模型** | | |
 | `QWEN3VL_BASE_URL` | `http://127.0.0.1:18082` | Qwen3-VL 服务地址 |
 | `QWEN3VL_CONNECT_TIMEOUT_SECONDS` | `2.0` | Qwen3-VL 连接超时 |
@@ -92,8 +97,8 @@ curl -s --max-time 3 http://127.0.0.1:18082/health || echo "Qwen3-VL unreachable
 # 或 Vinci 外部服务（BACKEND=vinci 时）
 curl -s --max-time 3 http://<VINCI_HOST>:8010/health || echo "Vinci unreachable"
 
-# Step 3: 检查后端日志
-grep -i "frame_desc\|qwen3vl\|vinci" /var/log/edumind/app.log | tail -50
+# Step 3: 检查专用 debug 日志
+tail -f logs/frame_description_debug.log
 
 # Step 4: 检查熔断器状态（通过遥测日志）
 grep "circuit_open\|circuit_breaker" /var/log/edumind/app.log | tail -20
@@ -109,9 +114,9 @@ FRAME_DESC_ENABLED=false
 pkill -f "uvicorn app.main:app" && python run.py &
 ```
 
-### P1 — 字幕模式（30 分钟响应）
+### P1 — Cloud / 字幕 fallback（30 分钟响应）
 
-**症状**：描述内容为字幕驱动的文本，badge 显示"字幕模式"。
+**症状**：本地 Qwen3VL 不可用后进入 Cloud Qwen-VL；如果 Cloud 也失败，则进入字幕描述或最小安全响应。
 
 **排查步骤**：
 
@@ -119,11 +124,11 @@ pkill -f "uvicorn app.main:app" && python run.py &
 # 检查遥测日志中的字幕模式事件
 grep "frame_desc_inference_degraded\|frame_desc_circuit_open" /var/log/edumind/app.log | tail -20
 
-# 检查 Vinci 响应延迟
-# 正常 P95 < 4s；如延迟高则需扩容或联系 Vinci 团队
+# 检查本地 Qwen3VL 与 Cloud Qwen-VL fallback
+grep "fallback_target=cloud_qwen_vl\|fallback_target=subtitle_description" logs/frame_description_debug.log | tail -20
 ```
 
-**自动恢复**：熔断器 30s 后自动进入探针模式，成功一次则恢复正常。
+**自动恢复**：熔断器 30s 后自动进入探针模式，本地 Qwen3VL 成功一次则恢复正常主路径。
 
 ### P2 — 描述质量差（4 小时响应）
 
@@ -161,7 +166,24 @@ pkill -f "uvicorn app.main:app"
 python run.py &
 ```
 
-### 4.2 启用功能（Vinci 外部）
+### 4.2 启用 Cloud Qwen-VL fallback（可选）
+
+```bash
+# 编辑 .env
+FRAME_DESC_CLOUD_FALLBACK_ENABLED=true
+FRAME_DESC_CLOUD_PROVIDER=qwen
+FRAME_DESC_CLOUD_QWEN_MODEL=qwen3-vl-plus
+QWEN_API_KEY=your_dashscope_key
+QWEN_API_BASE=https://dashscope.aliyuncs.com/compatible-mode/v1
+
+# 重启后端
+pkill -f "uvicorn app.main:app"
+python run.py &
+```
+
+注意：开启后，抽取后的画面帧会发送到通义千问视觉 API。生产环境需确认隐私、合规、成本和限流策略。
+
+### 4.3 启用功能（Vinci 历史兼容）
 
 ```bash
 # 编辑 .env
@@ -175,7 +197,7 @@ pkill -f "uvicorn app.main:app"
 python run.py &
 ```
 
-### 4.3 禁用功能
+### 4.4 禁用功能
 
 ```bash
 # 编辑 .env
@@ -186,7 +208,7 @@ pkill -f "uvicorn app.main:app"
 python run.py &
 ```
 
-### 4.3 健康检查
+### 4.5 健康检查
 
 ```bash
 # 基础健康检查
@@ -200,7 +222,7 @@ curl -s http://127.0.0.1:2004/api/frame_description/health | python -m json.tool
 }
 ```
 
-### 4.4 测试流式端点
+### 4.6 测试流式端点
 
 ```bash
 # 测试流式端点（返回 NDJSON）
@@ -216,11 +238,11 @@ curl -X POST http://127.0.0.1:2004/api/frame_description/describe \
   --no-buffer
 ```
 
-### 4.5 遥测指标（Vinci 窗口）
+### 4.7 遥测指标（Frame Description 窗口）
 
 ```bash
-# 查看 Vinci/Frame Description 遥测窗口快照
-curl -s http://127.0.0.1:2004/api/ops/vinci/metrics | python -m json.tool
+# 查看 Frame Description 遥测窗口快照
+curl -s http://127.0.0.1:2004/api/ops/frame-desc/metrics | python -m json.tool
 ```
 
 ---
@@ -231,9 +253,9 @@ curl -s http://127.0.0.1:2004/api/ops/vinci/metrics | python -m json.tool
 
 | 指标 | 告警条件 | 严重性 | 动作 |
 |------|----------|--------|------|
-| `frame_desc_inference_degraded` 事件数 | 5min > 10 次 | P1 | 检查 Vinci 服务 |
-| P95 推理延迟 | > 8s | P1 | 检查网络/Vinci 负载 |
-| `frame_desc_circuit_open` 事件数 | 1h > 3 次 | P0 | 立即检查 Vinci 可用性 |
+| `frame_desc_inference_degraded` 事件数 | 5min > 10 次 | P1 | 检查 Qwen3VL / Cloud Qwen-VL |
+| P95 推理延迟 | > 8s | P1 | 检查本地模型、网络与 Cloud API |
+| `frame_desc_circuit_open` 事件数 | 1h > 3 次 | P0 | 立即检查本地 Qwen3VL 可用性 |
 | 功能启用率 | < 80% | P2 | 检查配置是否正确 |
 
 ### 5.2 日志关键词
@@ -246,6 +268,8 @@ frame_desc_completed           # 正常完成（遥测）
 frame_desc_session_started     # 会话开启
 frame_desc_session_stopped     # 会话关闭
 lf_frame_description          # governance gateway 调用
+fallback_target=cloud_qwen_vl # Cloud Qwen-VL fallback
+fallback_target=subtitle_description # 字幕 fallback
 ```
 
 ---

@@ -57,8 +57,9 @@ python run.py
 - 语义搜索（索引、检索、状态查询）
 - 智能体治理、预算控制、集中遥测、轨迹导出
 - Qwen3-VL 实时画面描述（`app/services/qwen3vl_realtime_client.py`，本地模型默认后端）
-- Vinci 微服务适配层（HTTP/SSE、统一错误码、降级与 trace_id 透传）
-- Vinci 运维观测接口（`/api/ops/vinci/metrics`）
+- Cloud Qwen-VL 画面描述补偿层（`app/services/qwen_vl_cloud_client.py`，本地 Qwen3VL 不可用时可选启用）
+- Vinci 微服务适配层（legacy，仅 `FRAME_DESC_BACKEND=vinci` 时使用）
+- Frame Description 运维观测接口（`/api/ops/frame-desc/metrics`，旧 `/api/ops/vinci/metrics` 已废弃）
 
 ## Vinci 接入（M1）
 
@@ -192,6 +193,10 @@ git push --no-verify
   - `FRAME_DESC_SKIP_STABLE_SCENE=false`
   - `FRAME_DESC_ENABLE_CONTEXT_FUSION=false`
   - `app/core/config.py`, `app/services/frame_description_service.py`
+- 实时画面描述主链路为 `Local Qwen3VL -> Cloud Qwen-VL API -> Caption Fallback -> Minimal Safe Response`：
+  - `FRAME_DESC_BACKEND=qwen3vl`
+  - `FRAME_DESC_CLOUD_FALLBACK_ENABLED=false`（默认关闭，开启后会发送抽帧结果到通义千问视觉 API）
+  - `docs/FRAME_DESCRIPTION_QWEN3VL_CLOUD_FALLBACK.md`
 - 关键词搜索新增可选标签增强排序（默认关闭，不影响线上现有行为）：
   - 请求参数：`include_tag_match`
   - 配置：`SEARCH_TAG_MATCH_ENABLED`、`SEARCH_TAG_MATCH_WEIGHT`

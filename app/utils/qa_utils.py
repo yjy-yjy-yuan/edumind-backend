@@ -509,6 +509,23 @@ def resolve_answering_status(provider: str, *, deep_thinking: bool) -> tuple[str
     return "answering", "正在调用通义千问回答"
 
 
+def _check_local_qwen_available() -> tuple[bool, str]:
+    """检测本地 Qwen 模型服务是否可用。
+
+    Returns:
+        (是否可用, 服务地址)
+    """
+    try:
+        base_url = settings.QWEN3VL_BASE_URL or "http://127.0.0.1:18082"
+        health_url = f"{base_url.rstrip('/')}/health"
+        response = requests.get(health_url, timeout=3)
+        if response.status_code == 200:
+            return True, base_url
+        return False, base_url
+    except Exception:
+        return False, ""
+
+
 def call_provider_chat(messages: list[dict], *, provider: str, model: str) -> str:
     normalized_provider = normalize_provider(provider, model)
     api_key, base_url = resolve_provider_credentials(normalized_provider)
@@ -618,6 +635,8 @@ class QASystem:
     ) -> Generator[tuple[str, str, str], None, None]:
         """流式调用模型，yield (thinking_chunk, answer_chunk, provider_info)。
 
+        优先级：本地 Qwen 模型 -> 云端 Qwen API -> DeepSeek API
+
         - deep_thinking=True: 强制使用 DeepSeek Reasoner 流式调用
         - deep_thinking=False: 非流式（复用水印逻辑）
         """
@@ -630,6 +649,40 @@ class QASystem:
                 yield thinking_chunk, answer_chunk, ""
             return
 
+        # 1. 优先尝试本地 Qwen 模型
+        local_available, local_base_url = _check_local_qwen_available()
+        if local_available:
+            from app.services.video_content_service import clean_multiline_text
+            from app.utils.ollama_compat import (
+                build_ollama_options,
+                sanitize_ollama_response_text,
+            )
+
+            local_model = model or "qwen3-vl"
+            try:
+                logger.info("直接回答模式-本地 Qwen 模型: url=%s, model=%s", local_base_url, local_model)
+                response = requests.post(
+                    f"{local_base_url.rstrip('/')}/chat",
+                    json={
+                        "model": local_model,
+                        "messages": messages,
+                        "stream": False,
+                        "options": build_ollama_options(temperature=0.3, num_predict=1024),
+                    },
+                    timeout=120,
+                )
+                response.raise_for_status()
+                payload = response.json()
+                answer = clean_multiline_text(
+                    sanitize_ollama_response_text(payload.get("message", {}).get("content", ""))
+                )
+                logger.info("直接回答模式-本地 Qwen 模型成功: model=%s", local_model)
+                yield "", answer, f"local_qwen:{local_model}"
+                return
+            except Exception as local_error:
+                logger.warning("直接回答模式-本地 Qwen 模型失败: %s", local_error)
+
+        # 2. 尝试云端通义千问 API
         primary_provider = "qwen"
         primary_model = model or resolve_model(primary_provider, "", deep_thinking=False)
         try:
@@ -637,13 +690,8 @@ class QASystem:
             yield "", answer, f"{primary_provider}:{primary_model}"
             return
         except Exception as primary_error:
-            logger.warning("直接回答模式-主模型(%s)调用失败，触发兜底: %s", primary_model, primary_error)
-
-        fallback_provider = "deepseek"
-        fallback_model = resolve_model(fallback_provider, "deepseek-chat", deep_thinking=False)
-        logger.info("直接回答模式-兜底模型: provider=%s, model=%s", fallback_provider, fallback_model)
-        answer = call_provider_chat(messages, provider=fallback_provider, model=fallback_model)
-        yield "", answer, f"{fallback_provider}:{fallback_model}"
+            logger.warning("直接回答模式-云端主模型(%s)调用失败: %s", primary_model, primary_error)
+            raise primary_error
 
     def _build_result(self, answer: str, provider: str, model: str, references: list[KnowledgeChunk]) -> dict:
         normalized_provider = normalize_provider(provider, model)
@@ -696,18 +744,47 @@ class QASystem:
                 payload_answer, payload_thinking = answer, ""
                 return self._build_result(payload_answer, "deepseek", resolved_model, ranked_chunks)
 
+            # 1. 优先尝试本地 Qwen 模型
+            local_available, local_base_url = _check_local_qwen_available()
+            if local_available:
+                from app.services.video_content_service import clean_multiline_text
+                from app.utils.ollama_compat import (
+                    build_ollama_options,
+                    sanitize_ollama_response_text,
+                )
+
+                local_model = model or "qwen3-vl"
+                try:
+                    logger.info("QASystem ask - 本地 Qwen 模型: url=%s, model=%s", local_base_url, local_model)
+                    response = requests.post(
+                        f"{local_base_url.rstrip('/')}/chat",
+                        json={
+                            "model": local_model,
+                            "messages": messages,
+                            "stream": False,
+                            "options": build_ollama_options(temperature=0.3, num_predict=1024),
+                        },
+                        timeout=120,
+                    )
+                    response.raise_for_status()
+                    payload = response.json()
+                    answer = clean_multiline_text(
+                        sanitize_ollama_response_text(payload.get("message", {}).get("content", ""))
+                    )
+                    logger.info("QASystem ask - 本地 Qwen 模型成功: model=%s", local_model)
+                    return self._build_result(answer, "local_qwen", local_model, ranked_chunks)
+                except Exception as local_error:
+                    logger.warning("QASystem ask - 本地 Qwen 模型失败: %s", local_error)
+
+            # 2. 尝试云端通义千问 API
             primary_provider = "qwen"
             primary_model = model or resolve_model(primary_provider, "", deep_thinking=False)
             try:
                 answer = call_provider_chat(messages, provider=primary_provider, model=primary_model)
                 return self._build_result(answer, primary_provider, primary_model, ranked_chunks)
             except Exception as primary_error:
-                logger.warning("直接回答模式-主模型(%s)调用失败，触发兜底: %s", primary_model, primary_error)
-
-            fallback_provider = "deepseek"
-            fallback_model = resolve_model(fallback_provider, "deepseek-chat", deep_thinking=False)
-            answer = call_provider_chat(messages, provider=fallback_provider, model=fallback_model)
-            return self._build_result(answer, fallback_provider, fallback_model, ranked_chunks)
+                logger.warning("QASystem ask - 云端主模型(%s)调用失败: %s", primary_model, primary_error)
+                raise primary_error
 
         messages = build_free_qa_messages(question, history_messages=history_messages)
         if deep_thinking:
@@ -715,18 +792,47 @@ class QASystem:
             answer = call_provider_chat(messages, provider="deepseek", model=resolved_model)
             return self._build_result(answer, "deepseek", resolved_model, [])
 
+        # 1. 优先尝试本地 Qwen 模型
+        local_available, local_base_url = _check_local_qwen_available()
+        if local_available:
+            from app.services.video_content_service import clean_multiline_text
+            from app.utils.ollama_compat import (
+                build_ollama_options,
+                sanitize_ollama_response_text,
+            )
+
+            local_model = model or "qwen3-vl"
+            try:
+                logger.info("QASystem ask free - 本地 Qwen 模型: url=%s, model=%s", local_base_url, local_model)
+                response = requests.post(
+                    f"{local_base_url.rstrip('/')}/chat",
+                    json={
+                        "model": local_model,
+                        "messages": messages,
+                        "stream": False,
+                        "options": build_ollama_options(temperature=0.3, num_predict=1024),
+                    },
+                    timeout=120,
+                )
+                response.raise_for_status()
+                payload = response.json()
+                answer = clean_multiline_text(
+                    sanitize_ollama_response_text(payload.get("message", {}).get("content", ""))
+                )
+                logger.info("QASystem ask free - 本地 Qwen 模型成功: model=%s", local_model)
+                return self._build_result(answer, "local_qwen", local_model, [])
+            except Exception as local_error:
+                logger.warning("QASystem ask free - 本地 Qwen 模型失败: %s", local_error)
+
+        # 2. 尝试云端通义千问 API
         primary_provider = "qwen"
         primary_model = model or resolve_model(primary_provider, "", deep_thinking=False)
         try:
             answer = call_provider_chat(messages, provider=primary_provider, model=primary_model)
             return self._build_result(answer, primary_provider, primary_model, [])
         except Exception as primary_error:
-            logger.warning("直接回答模式-主模型(%s)调用失败，触发兜底: %s", primary_model, primary_error)
-
-        fallback_provider = "deepseek"
-        fallback_model = resolve_model(fallback_provider, "deepseek-chat", deep_thinking=False)
-        answer = call_provider_chat(messages, provider=fallback_provider, model=fallback_model)
-        return self._build_result(answer, fallback_provider, fallback_model, [])
+            logger.warning("QASystem ask free - 云端主模型(%s)调用失败: %s", primary_model, primary_error)
+            raise primary_error
 
     def answer_stream(
         self,

@@ -16,9 +16,10 @@ env/
 .DS_Store
 
 # Environment files (contain secrets)
-.env
-.env.local
-.env.*.local
+.env                # 本地运行时 cp .env.local .env
+.env.local          # 本地开发覆盖（gitignore）
+.env.*.local        # 本地环境覆盖
+.env.cloud          # 云端部署覆盖模板（gitignore）
 
 # Database
 *.db

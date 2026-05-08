@@ -7,7 +7,7 @@ import logging
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -31,10 +31,12 @@ from app.services.frame_source_extractor import (
 )
 from app.services.qwen3vl_realtime_client import Qwen3VLRealtimeClient
 from app.services.vinci_adapter_service import VinciAdapterService, VinciHealthResult
+from app.utils.frame_description_debug import get_frame_description_debug_logger
 
 logger = logging.getLogger(__name__)
 if bool(getattr(settings, "FRAME_DESC_DEBUG_LOG", False)):
     logger.setLevel(logging.DEBUG)
+frame_desc_debug_logger = get_frame_description_debug_logger()
 
 router = APIRouter()
 
@@ -51,9 +53,7 @@ def get_frame_desc_service() -> FrameDescriptionService:
 
 def set_frame_desc_service(service: FrameDescriptionService) -> None:
     global _frame_desc_service
-    _frame_desc_service = (
-        service  # noqa: WPS437 (global statement required for test injection)
-    )
+    _frame_desc_service = service  # noqa: WPS437 (global statement required for test injection)
 
 
 def serialize_stream_event(event: dict) -> str:
@@ -65,15 +65,8 @@ def _format_mmss(seconds: float) -> str:
     return f"{total // 60:02d}:{total % 60:02d}"
 
 
-def _build_router_degraded_text(
-    db: Session, video_id: int, timestamp: float, error_detail: str
-) -> str:
-    subtitles = (
-        db.query(Subtitle)
-        .filter(Subtitle.video_id == int(video_id))
-        .order_by(Subtitle.start_time.asc())
-        .all()
-    )
+def _build_router_degraded_text(db: Session, video_id: int, timestamp: float, error_detail: str) -> str:
+    subtitles = db.query(Subtitle).filter(Subtitle.video_id == int(video_id)).order_by(Subtitle.start_time.asc()).all()
     if subtitles:
         target = float(timestamp or 0)
         best_idx = 0
@@ -88,18 +81,14 @@ def _build_router_degraded_text(
                 best_idx = idx
         snippets: list[str] = []
         for idx in range(max(0, best_idx - 1), min(len(subtitles), best_idx + 2)):
-            text = " ".join(
-                str(getattr(subtitles[idx], "text", "") or "").split()
-            ).strip()
+            text = " ".join(str(getattr(subtitles[idx], "text", "") or "").split()).strip()
             if text:
                 snippets.append(text if len(text) <= 60 else f"{text[:60].rstrip()}...")
         if snippets:
             return f"（降级）当前约 {_format_mmss(timestamp)}，结合附近字幕：{'；'.join(snippets)}"
     detail = str(error_detail or "").strip()
     if detail:
-        return (
-            f"（降级）当前约 {_format_mmss(timestamp)}，描述服务暂不可用（{detail}）。"
-        )
+        return f"（降级）当前约 {_format_mmss(timestamp)}，描述服务暂不可用（{detail}）。"
     return f"（降级）当前约 {_format_mmss(timestamp)}，描述服务暂不可用。"
 
 
@@ -121,7 +110,7 @@ def _settings_bool(name: str, default: bool = False) -> bool:
 @router.post("/describe")
 async def describe_frame(
     request: FrameDescriptionRequest,
-    authorization: Optional[str] = Query(default=None),
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
     db: Session = Depends(get_db),
 ):
     """实时画面描述流式端点。
@@ -132,8 +121,8 @@ async def describe_frame(
     """
     trace_id = str(uuid.uuid4())[:32]
     if bool(getattr(settings, "FRAME_DESC_DEBUG_LOG", False)):
-        logger.debug(
-            "[frame_desc_debug] describe request received | trace_id=%s | video_id=%s | session_id=%s | timestamp=%.3f | frames=%d | frame_source=%s | allow_degrade=%s",
+        frame_desc_debug_logger.debug(
+            "describe request received | trace_id=%s | video_id=%s | session_id=%s | timestamp=%.3f | base64_frames_count=%d | frame_source=%s | allow_degrade=%s | backend=%s",
             trace_id,
             request.video_id,
             request.session_id,
@@ -141,6 +130,7 @@ async def describe_frame(
             len(request.frames or []),
             bool(str(request.frame_source_url or "").strip()),
             request.allow_degrade,
+            _frame_desc_backend(),
         )
 
     if not _settings_bool("FRAME_DESC_ENABLED", False):
@@ -163,9 +153,37 @@ async def describe_frame(
     def generate():
         service = get_frame_desc_service()
 
+        # 认证 token 优先级：1. Authorization header  2. 请求体 frame_source_auth_token
+        auth_token = ""
+        if authorization and str(authorization).strip():
+            raw_auth = str(authorization).strip()
+            if raw_auth.lower().startswith("bearer "):
+                auth_token = raw_auth[7:].strip()
+            else:
+                auth_token = raw_auth
+        if not auth_token and request.frame_source_auth_token:
+            auth_token = str(request.frame_source_auth_token).strip()
+
+        frame_desc_debug_logger.debug(
+            "auth token resolved | trace_id=%s | has_token=%s | token_prefix=%s",
+            trace_id,
+            bool(auth_token),
+            (auth_token[:8] + "***" if len(auth_token) > 8 else (auth_token if auth_token else "")),
+        )
+
         try:
             frames = list(request.frames or [])
             if not frames and str(request.frame_source_url or "").strip():
+                frame_desc_debug_logger.debug(
+                    "start extract frames from stream | trace_id=%s | url=%s | stream_url=%s | video_id=%s | session_id=%s | timestamp=%.3f | has_auth_token=%s",
+                    trace_id,
+                    request.frame_source_url,
+                    request.frame_source_url,
+                    request.video_id,
+                    request.session_id,
+                    float(request.timestamp or 0),
+                    bool(auth_token),
+                )
                 yield serialize_stream_event(
                     {
                         "type": "status",
@@ -180,15 +198,26 @@ async def describe_frame(
                             video_url=request.frame_source_url,
                             timestamp=request.timestamp,
                             trace_id=trace_id,
+                            auth_token=auth_token,
                         )
                     ]
-                    logger.debug(
-                        "[frame_desc_debug] server frame extracted for describe | trace_id=%s | video_id=%s | frames=%d",
+                    frame_desc_debug_logger.debug(
+                        "server frame extracted for describe | trace_id=%s | video_id=%s | session_id=%s | base64_frames_count=%d",
                         trace_id,
                         request.video_id,
+                        request.session_id,
                         len(frames),
                     )
                 except FrameSourceExtractionError as exc:
+                    frame_desc_debug_logger.debug(
+                        "frame extract failed | error_type=server_frame_extract_failed | error=%s | stream_url=%s | url=%s | session_id=%s | trace_id=%s | fallback_reason=frame_extract_failed | fallback_target=subtitle_description",
+                        str(exc),
+                        request.frame_source_url,
+                        request.frame_source_url,
+                        request.session_id,
+                        trace_id,
+                        exc_info=True,
+                    )
                     raise FrameDescServiceError(f"server_frame_extract_failed:{exc}") from exc
 
             for event in service.describe_frames(
@@ -205,7 +234,7 @@ async def describe_frame(
                 allow_degrade=request.allow_degrade,
                 db=db,
             ):
-                logger.debug(
+                frame_desc_debug_logger.debug(
                     "frame_desc event | trace_id=%s | type=%s | stage=%s",
                     trace_id,
                     event.get("type"),
@@ -213,9 +242,7 @@ async def describe_frame(
                 )
                 yield serialize_stream_event(event)
         except FrameDescConfigError as exc:
-            logger.error(
-                "frame desc config error | trace_id=%s | error=%s", trace_id, exc
-            )
+            logger.error("frame desc config error | trace_id=%s | error=%s", trace_id, exc)
             yield serialize_stream_event(
                 {
                     "type": "error",
@@ -227,13 +254,16 @@ async def describe_frame(
                 }
             )
         except FrameDescServiceError as exc:
-            logger.error(
-                "frame desc service error | trace_id=%s | error=%s", trace_id, exc
-            )
+            logger.error("frame desc service error | trace_id=%s | error=%s", trace_id, exc)
             if bool(request.allow_degrade):
-                degraded_text = _build_router_degraded_text(
-                    db, request.video_id, request.timestamp, str(exc)
+                frame_desc_debug_logger.debug(
+                    "fallback_reason=%s | fallback_target=subtitle_description | trace_id=%s | session_id=%s",
+                    str(exc)[:200],
+                    trace_id,
+                    request.session_id,
+                    exc_info=True,
                 )
+                degraded_text = _build_router_degraded_text(db, request.video_id, request.timestamp, str(exc))
                 yield serialize_stream_event(
                     {
                         "type": "status",
@@ -276,13 +306,16 @@ async def describe_frame(
                 }
             )
         except Exception as exc:
-            logger.error(
-                "frame desc unexpected error | trace_id=%s | error=%s", trace_id, exc
-            )
+            logger.error("frame desc unexpected error | trace_id=%s | error=%s", trace_id, exc)
             if bool(request.allow_degrade):
-                degraded_text = _build_router_degraded_text(
-                    db, request.video_id, request.timestamp, str(exc)
+                frame_desc_debug_logger.debug(
+                    "fallback_reason=unexpected_error:%s | fallback_target=subtitle_description | trace_id=%s | session_id=%s",
+                    str(exc)[:200],
+                    trace_id,
+                    request.session_id,
+                    exc_info=True,
                 )
+                degraded_text = _build_router_degraded_text(db, request.video_id, request.timestamp, str(exc))
                 yield serialize_stream_event(
                     {
                         "type": "status",
@@ -381,21 +414,17 @@ async def frame_desc_health():
     backend = _frame_desc_backend()
     service = get_frame_desc_service()
 
-    health_result: VinciHealthResult = VinciHealthResult(
-        reachable=False, latency_ms=-1.0
-    )
+    health_result: VinciHealthResult = VinciHealthResult(reachable=False, latency_ms=-1.0)
     if enabled and service is not None:
         start = time.perf_counter()
         try:
             if backend == "qwen3vl":
-                health_result = Qwen3VLRealtimeClient().health_check(
-                    timeout_seconds=5.0
-                )
+                health_result = Qwen3VLRealtimeClient().health_check(timeout_seconds=5.0)
             else:
                 health_result = VinciAdapterService().health_check(timeout_seconds=5.0)
             if bool(getattr(settings, "FRAME_DESC_DEBUG_LOG", False)):
-                logger.debug(
-                    "[frame_desc_debug] health probe | backend=%s | reachable=%s | loaded=%s | latency_ms=%s | error_code=%s | error=%s",
+                frame_desc_debug_logger.debug(
+                    "health probe | backend=%s | reachable=%s | loaded=%s | latency_ms=%s | error_code=%s | error=%s",
                     backend,
                     getattr(health_result, "reachable", None),
                     getattr(health_result, "loaded", None),
@@ -411,9 +440,7 @@ async def frame_desc_health():
                 error_code="INTERNAL_ERROR",
             )
             if bool(getattr(settings, "FRAME_DESC_DEBUG_LOG", False)):
-                logger.debug(
-                    "[frame_desc_debug] health probe internal error", exc_info=True
-                )
+                frame_desc_debug_logger.debug("health probe internal error", exc_info=True)
 
     return {
         "enabled": enabled,

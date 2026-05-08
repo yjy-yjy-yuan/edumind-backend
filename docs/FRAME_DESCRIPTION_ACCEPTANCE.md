@@ -1,14 +1,14 @@
 # Frame Description 功能验收报告
 
 > 项目：EduMind 实时画面描述
-> 日期：2026-04-24
-> 版本：EduMind Backend v2.0 + Mobile Frontend
+> 日期：2026-05-08
+> 版本：EduMind Backend v2.1 + Qwen3VL Cloud Fallback
 
 ---
 
 ## 1. 功能概述
 
-在 EduMind 视频播放页面实现"实时画面描述"能力：在视频播放过程中持续采样视频帧，通过 Vinci 模型推理当前画面内容，结合短时上下文理解"正在发生什么"，以流式方式输出给前端展示。
+在 EduMind 视频播放页面实现"实时画面描述"能力：在视频播放过程中持续采样视频帧，默认通过本地 Qwen3-VL 推理当前画面内容。本地 Qwen3-VL 不可用时，可按配置调用通义千问 Cloud Qwen-VL；Cloud 也失败时再进入字幕描述，最后返回最小安全响应。
 
 ### 1.1 实现范围
 
@@ -19,6 +19,8 @@
 | Service | `app/services/frame_description_service.py` | ✅ |
 | Router | `app/routers/frame_description.py` | ✅ |
 | Governance | `app/agents/governance/tools_learning_flow.py` | ✅ |
+| Local Qwen3VL Client | `app/services/qwen3vl_realtime_client.py` | ✅ |
+| Cloud Qwen-VL Client | `app/services/qwen_vl_cloud_client.py` | ✅ |
 | Frontend API Client | `mobile-frontend/src/api/frameDescription.js` | ✅ |
 | Frontend Player | `mobile-frontend/src/views/Player.vue` | ✅ |
 
@@ -60,7 +62,7 @@
 
 ## 3. 后端服务验收
 
-### 3.1 单元测试 (24 个用例)
+### 3.1 单元测试 (30 个用例)
 
 | 测试类 | 用例数 | 状态 |
 |--------|--------|------|
@@ -69,8 +71,8 @@
 | `TestSafeHistory` | 1 | ✅ |
 | `TestBuildDescriptionPrompt` | 4 | ✅ |
 | `TestVinciCircuitBreaker` | 3 | ✅ |
-| `TestFrameDescriptionService` | 3 | ✅ |
-| `TestFrameDescriptionDegradedMode` | 2 | ✅ |
+| `TestFrameDescriptionService` | 7 | ✅ |
+| `TestFrameDescriptionDegradedMode` | 5 | ✅ |
 | `TestPromptTemplates` | 2 | ✅ |
 | `TestFusionPrompt` | 1 | ✅ |
 
@@ -100,7 +102,7 @@
 | 实时描述面板 | 播放页新增"实时画面描述"面板，默认隐藏 | ✅ |
 | 开关切换 | 一键开启/关闭实时描述 | ✅ |
 | 详细度档位 | 支持 简洁/标准/详细 三档 | ✅ |
-| 状态徽章 | 显示 就绪/连接中/推理中/已完成/降级中/恢复中 | ✅ |
+| 状态徽章 | 显示 就绪/连接中/推理中/已完成/恢复中，降级时有明确原因 | ✅ |
 | 进度条 | 实时显示推理进度 | ✅ |
 | 描述文本区 | 展示画面描述内容，支持滚动 | ✅ |
 | 上下文历史 | 可展开查看最近 5 条历史描述 | ✅ |
@@ -132,31 +134,32 @@
 | Governance 白名单 | `lf_frame_description` 工具注册 | ✅ |
 | 参数校验 | Pydantic schema 强制校验 | ✅ |
 | 敏感配置 | 仅环境变量注入 | ✅ |
-| 日志脱敏 | trace_id/session_id 结构化 | ✅ |
+| 日志脱敏 | trace_id/session_id 结构化，仅记录 `base64_frames_count`，不打印完整 base64 | ✅ |
 
 ### 5.2 可观测性需求
 
 | 需求 | 实现 | 状态 |
 |------|------|------|
 | 集中式遥测 | `app.analytics.pipeline` 接入 | ✅ |
-| 事件类型 | `frame_desc_completed`, `frame_desc_inference_degraded`, `frame_desc_circuit_open` | ✅ |
-| 结构化日志 | 含 trace_id, session_id | ✅ |
+| 事件类型 | `frame_desc_completed`, `frame_desc_inference_degraded`, `frame_desc_circuit_open`, `frame_desc_cloud_fallback_used` | ✅ |
+| 结构化日志 | 独立 `frame_description_debug` logger，写入 `logs/frame_description_debug.log` | ✅ |
 
 ### 5.3 可更新性需求
 
 | 需求 | 实现 | 状态 |
 |------|------|------|
 | 提示词版本化 | `PromptTemplate` dataclass + `PROMPT_TEMPLATES` | ✅ |
-| 熔断器 | `_VinciCircuitBreaker` 类 | ✅ |
+| 熔断器 | 服务层熔断器；Qwen3VL path 打开时可先进入 Cloud Qwen-VL | ✅ |
 | 配置热切换 | 通过 `.env` 修改，无需代码变更 | ✅ |
 
 ### 5.4 稳健性需求
 
 | 需求 | 实现 | 状态 |
 |------|------|------|
-| 自动降级 | `allow_degrade=True` 时自动降级 | ✅ |
+| 自动降级 | `allow_degrade=True` 时按 Local Qwen3VL -> Cloud Qwen-VL -> Caption -> Minimal Safe Response 降级 | ✅ |
 | 场景去重 | 相似度阈值 0.82 + 连续次数 4 | ✅ |
 | 资源清理 | `stopFdStream` 正确清理 AbortController | ✅ |
+| 空帧文本模式 | `base64_frames=[]` 不再直接 validation error，Qwen3VL/Cloud 可按文本上下文推理 | ✅ |
 
 ---
 
@@ -174,6 +177,7 @@
 | Runbook | `docs/FRAME_DESCRIPTION_RUNBOOK.md` |
 | 回滚指南 | `docs/FRAME_DESCRIPTION_ROLLBACK.md` |
 | 验收报告 | `docs/FRAME_DESCRIPTION_ACCEPTANCE.md` (本文件) |
+| Cloud fallback 文档 | `docs/FRAME_DESCRIPTION_QWEN3VL_CLOUD_FALLBACK.md` |
 
 ---
 
@@ -182,7 +186,7 @@
 | 维度 | 结论 |
 |------|------|
 | 功能完整性 | ✅ 全部实现 |
-| 测试覆盖 | ✅ 34 个测试用例通过 |
+| 测试覆盖 | ✅ Frame Description 单元测试 30 个用例通过；smoke test 6 个用例通过 |
 | 代码质量 | ✅ 编译通过，语法检查通过 |
 | 安全合规 | ✅ Governance 白名单 + 参数校验 |
 | 可观测性 | ✅ 集中式遥测 + 结构化日志 |
@@ -197,6 +201,6 @@
 
 1. **长期记忆摘要**：引入分钟级事件线（当前仅支持短时上下文）
 2. **Compounding 导出**：对接 `app/compounding/` 导出链路，闭环优化提示词
-3. **性能压测**：在真实 Vinci 环境下进行 P95 延迟压测
+3. **性能压测**：分别在本地 Qwen3VL 与 Cloud Qwen-VL 环境下进行 P95 延迟压测
 4. **用户反馈面板**：将 `submitFdFeedback` 对接后端记录
 5. **多语言支持**：扩展提示词模板支持中英双语

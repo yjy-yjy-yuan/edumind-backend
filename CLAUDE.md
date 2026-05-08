@@ -139,7 +139,23 @@ def process_video_task(video_id: int, language: str, model: str):
 
 配置通过 `app/core/config.py` 的 `Settings` 类管理，支持 `.env` 文件。
 
-关键配置项:
+### 环境文件隔离策略
+
+```
+.env.example  — Git 跟踪：统一配置模板（不含敏感值）
+.env.local   — Git 忽略：本地开发配置（本地数据库、API 密钥等）
+.env.cloud   — Git 忽略：云端部署配置模板
+.env         — Git 忽略：运行时配置（由 .env.local 或 .env.cloud 复制而来）
+
+# 本地开发
+cp .env.local .env
+
+# 云端部署
+cp .env.cloud .env
+# 或直接在部署平台设置环境变量
+```
+
+### 关键配置项:
 - `DATABASE_URL`: MySQL 连接字符串
 - `OLLAMA_BASE_URL`, `OLLAMA_MODEL`: 本地 LLM 配置
 - `OPENAI_API_KEY`, `QWEN_API_KEY`, `DEEPSEEK_API_KEY`: 外部 LLM 配置
@@ -147,6 +163,8 @@ def process_video_task(video_id: int, language: str, model: str):
 - `SEARCH_ENABLED`, `SEARCH_BACKEND`: 语义搜索开关和后端
 - `AGENT_GOVERNANCE_AUDIT_ENABLED`: 智能体治理审计
 - `RECOMMENDATION_*`: 推荐系统配置
+- `FRAME_DESC_BACKEND`: 实时画面描述后端（`qwen3vl` 优先，`vinci` 备选）
+- `QWEN3VL_BASE_URL`: Qwen3-VL 视觉描述服务地址
 
 ## Development Environment
 

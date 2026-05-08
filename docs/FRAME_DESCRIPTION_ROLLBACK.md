@@ -1,7 +1,7 @@
 # Frame Description 服务回滚操作指南
 
 > 适用版本：EduMind Backend v2.0+
-> 最后更新：2026-04-24
+> 最后更新：2026-05-08
 
 ---
 
@@ -44,6 +44,25 @@ curl -s http://127.0.0.1:2004/api/frame_description/health
 
 **影响**：功能关闭，不影响视频播放和字幕功能。
 
+### 场景：Cloud Qwen-VL fallback 异常或不希望画面帧出本机
+
+**操作步骤**：
+
+```bash
+# Step 1: 编辑 .env，仅关闭云端 fallback
+FRAME_DESC_CLOUD_FALLBACK_ENABLED=false
+
+# Step 2: 保持本地 Qwen3VL 主路径
+FRAME_DESC_BACKEND=qwen3vl
+
+# Step 3: 重启后端
+cd /Users/yuan/final-work/edumind-backend
+pkill -f "uvicorn app.main:app"
+python run.py &
+```
+
+**影响**：本地 Qwen3VL 仍可用；本地不可用时直接走字幕描述和最小安全响应，不再调用通义千问视觉 API。
+
 ---
 
 ## 3. 回滚最新代码 Commit
@@ -66,13 +85,14 @@ git diff HEAD~1 --name-only | grep frame_desc
 git checkout HEAD~1 -- \
     app/schemas/frame_description.py \
     app/services/frame_description_service.py \
+    app/services/qwen_vl_cloud_client.py \
     app/routers/frame_description.py
 
 # Step 4: 如需要，回滚 governance gateway 变更
 git checkout HEAD~1 -- app/agents/governance/tools_learning_flow.py
 
-# Step 5: 回滚配置文件（如果有）
-git checkout HEAD~1 -- app/core/config.py
+# Step 5: 回滚配置文件与日志启动配置（如果有）
+git checkout HEAD~1 -- app/core/config.py app/main.py .env.example
 
 # Step 6: 关闭功能作为双重保险
 vim .env
@@ -174,6 +194,8 @@ npm run build
 - [ ] `curl http://127.0.0.1:2004/api/frame_description/health` 返回 200
 - [ ] `python run.py` 启动无报错
 - [ ] `python -m compileall app` 编译通过
+- [ ] `pytest tests/smoke/test_app_startup.py -v` 通过
+- [ ] `python scripts/validate_system_requirements.py` 通过
 - [ ] 视频播放页面正常加载
 - [ ] 视频播放、字幕、笔记功能正常
 - [ ] 后端日志无 ERROR 级别异常

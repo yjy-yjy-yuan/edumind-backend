@@ -43,9 +43,7 @@ class _QwenHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if self.path == "/api/v1/video/describe/stream":
-            body = "data: 老师正在\n\ndata: 写字\n\nevent: end\ndata: done\n\n".encode(
-                "utf-8"
-            )
+            body = "data: 老师正在\n\ndata: 写字\n\nevent: end\ndata: done\n\n".encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Content-Length", str(len(body)))
@@ -85,9 +83,7 @@ def test_qwen3vl_health_check_allows_lazy_model(qwen_server):
 def test_qwen3vl_describe_and_stream_accumulates_delta(qwen_server):
     client = Qwen3VLRealtimeClient(base_url=qwen_server)
 
-    assert (
-        client.describe(base64_frames=["/9j/4AAQ"], prompt="描述画面") == "老师正在写字"
-    )
+    assert client.describe(base64_frames=["/9j/4AAQ"], prompt="描述画面") == "老师正在写字"
 
     events = list(client.stream_describe(base64_frames=["/9j/4AAQ"], prompt="描述画面"))
 

@@ -84,14 +84,8 @@ class Qwen3VLRealtimeClient:
     ):
         self.base_url = _normalize_base_url(base_url or settings.QWEN3VL_BASE_URL)
         self.health_path = str(health_path or settings.QWEN3VL_HEALTH_PATH or "/health")
-        self.describe_path = str(
-            describe_path or settings.QWEN3VL_DESCRIBE_PATH or "/api/v1/video/describe"
-        )
-        self.stream_path = str(
-            stream_path
-            or settings.QWEN3VL_STREAM_PATH
-            or "/api/v1/video/describe/stream"
-        )
+        self.describe_path = str(describe_path or settings.QWEN3VL_DESCRIBE_PATH or "/api/v1/video/describe")
+        self.stream_path = str(stream_path or settings.QWEN3VL_STREAM_PATH or "/api/v1/video/describe/stream")
         self.connect_timeout_seconds = float(
             connect_timeout_seconds
             if connect_timeout_seconds is not None
@@ -108,9 +102,7 @@ class Qwen3VLRealtimeClient:
             else getattr(settings, "QWEN3VL_STREAM_TIMEOUT_SECONDS", 30.0)
         )
         self.max_new_tokens = int(
-            max_new_tokens
-            if max_new_tokens is not None
-            else getattr(settings, "QWEN3VL_MAX_NEW_TOKENS", 64)
+            max_new_tokens if max_new_tokens is not None else getattr(settings, "QWEN3VL_MAX_NEW_TOKENS", 64)
         )
         if bool(getattr(settings, "FRAME_DESC_DEBUG_LOG", False)):
             logger.setLevel(logging.DEBUG)
@@ -119,9 +111,7 @@ class Qwen3VLRealtimeClient:
         if bool(getattr(settings, "FRAME_DESC_DEBUG_LOG", False)):
             logger.debug("[frame_desc_debug] " + message, *args)
 
-    def health_check(
-        self, *, timeout_seconds: Optional[float] = None
-    ) -> Qwen3VLHealthResult:
+    def health_check(self, *, timeout_seconds: Optional[float] = None) -> Qwen3VLHealthResult:
         started = perf_counter()
         timeout_value = float(timeout_seconds or self.connect_timeout_seconds)
         url = _build_url(self.base_url, self.health_path)
@@ -178,11 +168,7 @@ class Qwen3VLRealtimeClient:
         max_new_tokens: Optional[int] = None,
     ) -> dict[str, Any]:
         return {
-            "base64_frames": [
-                str(item or "").strip()
-                for item in list(base64_frames or [])
-                if str(item or "").strip()
-            ],
+            "base64_frames": [str(item or "").strip() for item in list(base64_frames or []) if str(item or "").strip()],
             "prompt": str(prompt or "").strip() or None,
             "max_new_tokens": int(max_new_tokens or self.max_new_tokens),
         }
@@ -194,9 +180,7 @@ class Qwen3VLRealtimeClient:
         prompt: str,
         max_new_tokens: Optional[int] = None,
     ) -> str:
-        timeout = httpx.Timeout(
-            self.request_timeout_seconds, connect=self.connect_timeout_seconds
-        )
+        timeout = httpx.Timeout(self.request_timeout_seconds, connect=self.connect_timeout_seconds)
         url = _build_url(self.base_url, self.describe_path)
         started = perf_counter()
         self._debug(
@@ -237,9 +221,7 @@ class Qwen3VLRealtimeClient:
                 (perf_counter() - started) * 1000,
                 exc,
             )
-            raise Qwen3VLUnavailableError(
-                f"qwen3vl request unavailable: {exc}"
-            ) from exc
+            raise Qwen3VLUnavailableError(f"qwen3vl request unavailable: {exc}") from exc
 
         if response.status_code < 200 or response.status_code >= 300:
             self._debug(
@@ -249,9 +231,7 @@ class Qwen3VLRealtimeClient:
                 (perf_counter() - started) * 1000,
                 _response_detail(response)[:300],
             )
-            raise Qwen3VLHTTPError(
-                _response_detail(response), status_code=response.status_code
-            )
+            raise Qwen3VLHTTPError(_response_detail(response), status_code=response.status_code)
         try:
             payload = response.json()
         except ValueError as exc:
@@ -261,9 +241,7 @@ class Qwen3VLRealtimeClient:
                 (perf_counter() - started) * 1000,
                 str(response.text or "")[:300],
             )
-            raise Qwen3VLHTTPError(
-                "qwen3vl returned invalid json", status_code=502
-            ) from exc
+            raise Qwen3VLHTTPError("qwen3vl returned invalid json", status_code=502) from exc
         description = str(payload.get("description") or "").strip()
         self._debug(
             "qwen3vl describe response | url=%s | status=%s | elapsed_ms=%.2f | description_chars=%d | empty=%s",
@@ -304,14 +282,10 @@ class Qwen3VLRealtimeClient:
         prompt: str,
         max_new_tokens: Optional[int] = None,
     ) -> Generator[dict[str, Any], None, None]:
-        timeout = httpx.Timeout(
-            self.stream_timeout_seconds, connect=self.connect_timeout_seconds
-        )
+        timeout = httpx.Timeout(self.stream_timeout_seconds, connect=self.connect_timeout_seconds)
         accumulated = ""
         url = _build_url(self.base_url, self.stream_path)
-        self._debug(
-            "qwen3vl stream request | url=%s | frames=%d", url, len(base64_frames or [])
-        )
+        self._debug("qwen3vl stream request | url=%s | frames=%d", url, len(base64_frames or []))
         try:
             with httpx.Client(timeout=timeout, trust_env=False) as client:
                 with client.stream(
@@ -329,13 +303,9 @@ class Qwen3VLRealtimeClient:
                 ) as response:
                     if response.status_code < 200 or response.status_code >= 300:
                         response.read()
-                        raise Qwen3VLHTTPError(
-                            _response_detail(response), status_code=response.status_code
-                        )
+                        raise Qwen3VLHTTPError(_response_detail(response), status_code=response.status_code)
 
-                    for event_name, data in self._iter_sse_payload_lines(
-                        response.iter_lines()
-                    ):
+                    for event_name, data in self._iter_sse_payload_lines(response.iter_lines()):
                         if event_name == "end":
                             yield {"event": "done"}
                             return
@@ -351,10 +321,7 @@ class Qwen3VLRealtimeClient:
                             payload = json.loads(data)
                             if isinstance(payload, dict):
                                 token = str(
-                                    payload.get("delta")
-                                    or payload.get("description")
-                                    or payload.get("text")
-                                    or ""
+                                    payload.get("delta") or payload.get("description") or payload.get("text") or ""
                                 )
                         except ValueError:
                             pass

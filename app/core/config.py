@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     SLEEK_POLL_BACKOFF_INTERVAL_SECONDS: int = 5
 
     # Vinci 微服务接入配置（独立部署，不与主后端共环境）
+    # [Deprecated] VINCI_ENABLED: Vinci 已降级为历史兼容路径，默认禁用
     VINCI_ENABLED: bool = False
     VINCI_BASE_URL: str = "http://127.0.0.1:8010"
     VINCI_API_KEY: str = ""
@@ -80,7 +81,7 @@ class Settings(BaseSettings):
 
     # 实时画面描述配置（EduMind Frame Description Service）
     FRAME_DESC_ENABLED: bool = False
-    # 实时画面描述上游: qwen3vl（轻量视觉描述服务）| vinci（历史重型 Vinci 服务）
+    # 实时画面描述上游: qwen3vl（推荐：轻量视觉描述服务）| vinci（历史兼容重型服务）
     FRAME_DESC_BACKEND: str = "qwen3vl"
     # 采样策略：固定间隔（fixed_interval）| 智能采样（smart）
     FRAME_DESC_SAMPLE_MODE: str = "fixed_interval"
@@ -115,7 +116,7 @@ class Settings(BaseSettings):
     FRAME_DESC_TOKEN_BUDGET: int = 6000
     # 是否自动降级（Vinci 不可用时返回降级描述而非错误）
     FRAME_DESC_AUTO_DEGRADE: bool = True
-    # 是否使用 Vinci internvl SSE 流式端点；本地/灰度可开启，默认关闭以保持线上兼容。
+    # 是否使用 Vinci internvl SSE 流式端点；[废弃兼容] 保留给 FRAME_DESC_BACKEND=vinci 场景，默认关闭。
     FRAME_DESC_USE_VINCI_STREAM: bool = False
     # 是否使用 Qwen3-VL SSE 流式端点；CPU 推理首 token 较慢，默认走稳定的非流式端点。
     FRAME_DESC_USE_QWEN3VL_STREAM: bool = False
@@ -130,6 +131,12 @@ class Settings(BaseSettings):
     FRAME_DESC_DEBUG_LOG: bool = False
     # 实时描述链路 DEBUG 文件日志；相对路径基于后端仓库根目录。
     FRAME_DESC_DEBUG_LOG_FILE: str = "logs/frame_description_debug.log"
+    # 本地 Qwen3-VL 不可用时，是否使用通义千问视觉模型作为 Qwen-family 云端补偿层。
+    FRAME_DESC_CLOUD_FALLBACK_ENABLED: bool = False
+    FRAME_DESC_CLOUD_PROVIDER: str = "qwen"
+    FRAME_DESC_CLOUD_QWEN_MODEL: str = "qwen3-vl-plus"
+    FRAME_DESC_CLOUD_QWEN_TIMEOUT_SECONDS: float = 45.0
+    FRAME_DESC_CLOUD_QWEN_MAX_TOKENS: int = 256
 
     # Qwen3-VL 实时画面描述微服务（推荐用于本地 Mac 跑模型，云端后端远程调用）
     QWEN3VL_BASE_URL: str = "http://127.0.0.1:18082"
@@ -230,9 +237,7 @@ class Settings(BaseSettings):
     SEARCH_INLINE_INDEX_FAIL_POLICY: str = "mark_completed_without_index"
 
     # 集中式遥测管道（app.analytics）
-    ANALYTICS_LOG_LEVEL: str = (
-        "INFO"  # DEBUG|INFO|WARNING|ERROR — 作用于 app.analytics.telemetry
-    )
+    ANALYTICS_LOG_LEVEL: str = "INFO"  # DEBUG|INFO|WARNING|ERROR — 作用于 app.analytics.telemetry
     ANALYTICS_ALERT_MAX_FAILURE_RATE: float = 0.15
     ANALYTICS_ALERT_MAX_TIMEOUT_RATE: float = 0.10
     ANALYTICS_ALERT_LATENCY_TIMEOUT_MS: float = 30_000.0

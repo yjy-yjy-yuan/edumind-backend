@@ -11,7 +11,8 @@ class FrameDescriptionRequest(BaseModel):
     """实时画面描述流式请求。
 
     前端以固定间隔采样视频帧并发送到此端点。
-    后端调用 Vinci 模型推理，返回 NDJSON 流式描述。
+    后端默认调用本地 Qwen3-VL；本地不可用时可按配置降级到 Cloud Qwen-VL，
+    再降级到字幕描述或最小安全响应，返回 NDJSON 流式描述。
     """
 
     video_id: int = Field(..., description="视频 ID")
@@ -29,6 +30,13 @@ class FrameDescriptionRequest(BaseModel):
         max_length=2048,
         description="前端无法采帧时供后端抽帧的只读视频流 URL",
     )
+    # 视频流认证 token（仅当视频流需要认证且 Authorization header 不足以传递时使用）
+    # 会与 Authorization header 配合，共同发送给视频流服务
+    frame_source_auth_token: str = Field(
+        default="",
+        max_length=1024,
+        description="视频流认证 token（Bearer token）",
+    )
     # 视频元信息（用于提示词组装）
     timestamp: float = Field(..., ge=0, description="当前帧对应视频播放位置（秒）")
     video_title: str = Field(default="", description="视频标题（用于上下文提示）")
@@ -44,8 +52,8 @@ class FrameDescriptionRequest(BaseModel):
     )
     # 会话 ID（用于追踪同一播放会话）
     session_id: str = Field(default="", description="播放会话 ID，用于追踪同一会话内的描述历史")
-    # 是否启用降级模式（Vinci 不可用时返回降级文本而非错误）
-    allow_degrade: bool = Field(default=True, description="Vinci 不可用时是否允许降级返回")
+    # 是否启用降级模式（Qwen3-VL/Cloud Qwen-VL 不可用时返回字幕/安全响应而非错误）
+    allow_degrade: bool = Field(default=True, description="视觉描述服务不可用时是否允许降级返回")
 
     model_config = ConfigDict(str_strip_whitespace=True)
 

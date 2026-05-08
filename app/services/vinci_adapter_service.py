@@ -946,7 +946,9 @@ class VinciAdapterService:
             api_key = str(getattr(client, "api_key", "") or "").strip()
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
-            with httpx.Client(timeout=httpx.Timeout(timeout_seconds, connect=min(timeout_seconds, 3.0)), trust_env=False) as http:
+            with httpx.Client(
+                timeout=httpx.Timeout(timeout_seconds, connect=min(timeout_seconds, 3.0)), trust_env=False
+            ) as http:
                 response = http.get(url, headers=headers)
             latency_ms = round((_time.perf_counter() - started) * 1000, 3)
             if 200 <= response.status_code < 300:

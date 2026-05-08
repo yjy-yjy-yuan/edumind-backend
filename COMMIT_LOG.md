@@ -11,6 +11,10 @@
 
 ---
 
+### 2026-05-08
+
+- `PENDING` feat(frame-description): add cloud qwen-vl fallback and sync docs
+
 ### 2026-05-06
 
 - `daa9949` fix(frame-description): remove "degraded" UI text and simplify chat system for cloud deployment

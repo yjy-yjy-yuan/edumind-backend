@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-05-08
+
+### Frame Description Qwen3VL Cloud Fallback 与文档同步
+
+- **backend**：新增 `app/services/qwen_vl_cloud_client.py`，通过 DashScope/OpenAI-compatible 接口调用 Cloud Qwen-VL；本地 `Qwen3VLRealtimeClient` 不可用时，按配置进入 `cloud_qwen_vl` 补偿层。
+- **backend**：更新 `app/services/frame_description_service.py`，将 fallback 链调整为 `Local Qwen3VL -> Cloud Qwen-VL API -> Caption Fallback -> Minimal Safe Response`；空帧统一允许以 `base64_frames=[]` 进入 Qwen3VL/Cloud 文本模式。
+- **backend**：更新 `app/agents/governance/tools_learning_flow.py`，Learning Flow 的同步与流式 frame description 路径在 `FRAME_DESC_BACKEND=qwen3vl` 下先走 Qwen3VL，失败后可进入 Cloud Qwen-VL，不再默认回落到 Vinci。
+- **backend**：更新 `app/core/config.py`、`.env.example`、`app/main.py`，新增 `FRAME_DESC_CLOUD_*` 配置并在 `frame_description_debug` startup 日志中输出 cloud fallback 状态。
+- **backend**：更新 `app/routers/frame_description.py`、`app/services/frame_source_extractor.py`、`app/utils/frame_description_debug.py`，保留独立 debug 文件日志、stream 403/抽帧失败日志，并使用 PNG 抽帧再转 JPEG 避免 ffmpeg MJPEG 编码失败。
+- **docs**：新增 `docs/FRAME_DESCRIPTION_QWEN3VL_CLOUD_FALLBACK.md`；更新 `docs/FRAME_DESCRIPTION_RUNBOOK.md`、`docs/FRAME_DESCRIPTION_ACCEPTANCE.md`、`docs/FRAME_DESCRIPTION_ROLLBACK.md`、`README.md`，修正旧 Vinci 主路径、旧 ops endpoint 与降级链路表述。
+- **tests**：更新 `tests/unit/test_frame_description_service.py`，覆盖空帧文本模式与本地 Qwen3VL 不可用时先使用 Cloud Qwen-VL 的行为。
+- **impact**：本地 Qwen3VL 不稳定或未运行时，Frame Description 不会直接掉到“暂无字幕信息”；在显式开启 `FRAME_DESC_CLOUD_FALLBACK_ENABLED=true` 后，会先使用通义千问视觉 API 生成画面描述。Vinci 保持 legacy 兼容路径，仅在 `FRAME_DESC_BACKEND=vinci` 时使用。
+
+---
+
 ## 2026-05-06
 
 ### 实时画面描述用户体验优化（移除"降级"字样）

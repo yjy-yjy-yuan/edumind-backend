@@ -501,9 +501,7 @@ def test_health_returns_qwen3vl_probe_result(client, monkeypatch):
 
 
 @pytest.mark.api
-def test_describe_service_error_with_allow_degrade_returns_degraded_complete(
-    client, sample_video, monkeypatch
-):
+def test_describe_service_error_with_allow_degrade_returns_degraded_complete(client, sample_video, monkeypatch):
     """服务层抛错时，allow_degrade=True 应返回降级 complete 事件，而非仅 error。"""
     from app.services.frame_description_service import FrameDescServiceError
 
@@ -514,9 +512,7 @@ def test_describe_service_error_with_allow_degrade_returns_degraded_complete(
 
     class _FailingService:
         def describe_frames(self, **kwargs):
-            raise FrameDescServiceError(
-                "vinci_probe_unreachable:VINCI_UNAVAILABLE:connection refused"
-            )
+            raise FrameDescServiceError("vinci_probe_unreachable:VINCI_UNAVAILABLE:connection refused")
             yield  # pragma: no cover
 
     monkeypatch.setattr(
@@ -536,16 +532,12 @@ def test_describe_service_error_with_allow_degrade_returns_degraded_complete(
     )
     assert response.status_code == 200
     events = [json.loads(line) for line in response.text.splitlines() if line.strip()]
-    assert any(
-        evt.get("type") == "complete" and evt.get("degraded") is True for evt in events
-    )
+    assert any(evt.get("type") == "complete" and evt.get("degraded") is True for evt in events)
     assert any(evt.get("type") == "description" for evt in events)
 
 
 @pytest.mark.api
-def test_describe_service_error_without_degrade_returns_error_event(
-    client, sample_video, monkeypatch
-):
+def test_describe_service_error_without_degrade_returns_error_event(client, sample_video, monkeypatch):
     """服务层抛错且 allow_degrade=False 时应返回 error 事件。"""
     from app.services.frame_description_service import FrameDescServiceError
 

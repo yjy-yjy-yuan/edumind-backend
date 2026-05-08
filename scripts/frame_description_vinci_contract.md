@@ -1,4 +1,13 @@
-# 画面描述 Vinci 契约与适配层文档
+# 画面描述服务契约文档（历史 Vinci 版本 — 已废弃）
+
+> **⚠️ 本文档已废弃，不再维护。**
+>
+> EduMind 实时画面描述已于 2026-05 全面切换至 Qwen3-VL 作为默认后端。
+> - **默认 backend**: `qwen3vl`（`FRAME_DESC_BACKEND=qwen3vl`）
+> - **Vinci 路径**: 仅在 `FRAME_DESC_BACKEND=vinci` 时保留，作为历史兼容路径
+> - 当前活跃文档请参考: `app/services/frame_description_service.py` 及配置注释
+>
+> 本文档保留作为历史实现参考，不应用于新功能开发。
 
 > 本文档定义了 EduMind 实时画面描述服务与 Vinci 模型服务之间的完整适配层契约，
 > 包括：数据流、两种操作模式、错误处理、统一配置项、版本历史。

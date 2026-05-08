@@ -6,8 +6,7 @@ from typing import Generator, List
 
 import requests
 
-from app.utils.qa_utils import (call_provider_chat, normalize_provider,
-                                resolve_model)
+from app.utils.qa_utils import call_provider_chat, normalize_provider, resolve_model
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +37,7 @@ def stream_chat(
     - direct: 使用通义千问
     - deep_think: 强制使用 deepseek-reasoner
     """
-    content, final_provider, final_model = _execute_chat(
-        messages, mode, provider, model
-    )
+    content, final_provider, final_model = _execute_chat(messages, mode, provider, model)
     result = json.dumps(
         {"content": content, "provider": final_provider, "model": final_model},
         ensure_ascii=False,
@@ -48,18 +45,14 @@ def stream_chat(
     yield f"{result}\n"
 
 
-def get_chat_response(
-    messages: List[dict], mode: str = "direct", provider: str = "qwen", model: str = ""
-) -> dict:
+def get_chat_response(messages: List[dict], mode: str = "direct", provider: str = "qwen", model: str = "") -> dict:
     """在线模型聊天非流式响应。
 
     对话模式:
     - direct: 使用通义千问
     - deep_think: 强制使用 deepseek-reasoner
     """
-    content, final_provider, final_model = _execute_chat(
-        messages, mode, provider, model
-    )
+    content, final_provider, final_model = _execute_chat(messages, mode, provider, model)
     return {
         "content": content,
         "provider": final_provider,
@@ -67,9 +60,7 @@ def get_chat_response(
     }
 
 
-def _execute_chat(
-    messages: List[dict], mode: str, provider: str, model: str
-) -> tuple[str, str, str]:
+def _execute_chat(messages: List[dict], mode: str, provider: str, model: str) -> tuple[str, str, str]:
     """执行聊天请求。
 
     Args:
@@ -87,12 +78,8 @@ def _execute_chat(
         # 深度思考模式：强制使用 deepseek-reasoner
         resolved_provider = "deepseek"
         resolved_model = resolve_model(resolved_provider, model, deep_thinking=True)
-        logger.info(
-            "深度思考模式调用: provider=%s, model=%s", resolved_provider, resolved_model
-        )
-        content = call_provider_chat(
-            normalized_messages, provider=resolved_provider, model=resolved_model
-        )
+        logger.info("深度思考模式调用: provider=%s, model=%s", resolved_provider, resolved_model)
+        content = call_provider_chat(normalized_messages, provider=resolved_provider, model=resolved_model)
         return content, resolved_provider, resolved_model
 
     # 直接回答模式：使用云端通义千问 API
@@ -109,7 +96,5 @@ def _execute_chat(
         primary_provider,
         primary_model,
     )
-    content = call_provider_chat(
-        normalized_messages, provider=primary_provider, model=primary_model
-    )
+    content = call_provider_chat(normalized_messages, provider=primary_provider, model=primary_model)
     return content, primary_provider, primary_model

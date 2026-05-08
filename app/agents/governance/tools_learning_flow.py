@@ -8,19 +8,78 @@ from sqlalchemy.orm import Session
 
 from app.agents.exceptions import GovernanceError
 from app.agents.governance.context import ensure_in_governance_context
+from app.core.config import settings
 from app.models.note import Note, NoteTimestamp
 from app.models.video import Video
+from app.services.qwen_vl_cloud_client import QwenVLCloudClient, QwenVLCloudClientError
 from app.services.video_content_service import (
     fallback_summary,
     fallback_tags,
     normalize_summary_style,
 )
 from app.services.vinci_adapter_service import VinciAdapterError, VinciAdapterService
+from app.utils.frame_description_debug import get_frame_description_debug_logger
+
+frame_desc_debug_logger = get_frame_description_debug_logger()
 
 
 def _estimate_tokens(text: str) -> int:
     s = str(text or "")
     return max(1, len(s) // 4 + 1)
+
+
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        raw = value.strip().lower()
+        if raw in {"1", "true", "yes", "y", "on"}:
+            return True
+        if raw in {"0", "false", "no", "n", "off"}:
+            return False
+    return default
+
+
+def _cloud_qwen_vl_enabled() -> bool:
+    provider = str(getattr(settings, "FRAME_DESC_CLOUD_PROVIDER", "qwen") or "qwen").lower()
+    return _as_bool(getattr(settings, "FRAME_DESC_CLOUD_FALLBACK_ENABLED", False)) and provider == "qwen"
+
+
+def _call_cloud_qwen_vl(
+    *,
+    prompt: str,
+    safe_frames: list[str],
+    session_id: str,
+    trace_id: str,
+    fallback_reason: str,
+) -> str:
+    if not _cloud_qwen_vl_enabled():
+        raise GovernanceError("cloud_qwen_vl_fallback_disabled")
+    frame_desc_debug_logger.debug(
+        "fallback_reason=%s | fallback_target=cloud_qwen_vl | session_id=%s | trace_id=%s | base64_frames_count=%d",
+        str(fallback_reason or "")[:240],
+        session_id,
+        trace_id,
+        len(safe_frames),
+    )
+    try:
+        return QwenVLCloudClient().describe(
+            base64_frames=safe_frames,
+            prompt=prompt,
+            session_id=session_id,
+            trace_id=trace_id,
+        )
+    except QwenVLCloudClientError as exc:
+        frame_desc_debug_logger.debug(
+            "tool_lf_frame_description cloud_qwen_vl exception | session_id=%s | trace_id=%s | error=%s",
+            session_id,
+            trace_id,
+            exc,
+            exc_info=True,
+        )
+        raise GovernanceError(f"cloud_qwen_vl_failed:{exc}") from exc
 
 
 def tool_lf_generate_summary_fallback(db: Session, params: dict[str, Any]) -> dict[str, Any]:
@@ -94,11 +153,11 @@ def tool_lf_create_timestamp(db: Session, params: dict[str, Any]) -> dict[str, A
 
 
 def tool_lf_frame_description(db: Session, params: dict[str, Any]) -> dict[str, Any]:
-    """通过治理网关调用 Vinci 适配层执行画面描述（不可绕过）。
+    """通过治理网关调用画面描述服务执行帧描述（不可绕过）。
 
-    支持两种模式：
-    - vision 模式：有 base64_frames → 调用 request_vision_chat（含图像）
-    - text   模式：无 base64_frames   → 调用 request_chat（纯文本，降级）
+    根据 settings.FRAME_DESC_BACKEND 路由至对应后端：
+    - qwen3vl: 调用 Qwen3VLRealtimeClient.describe()
+    - vinci:   调用 VinciAdapterService.request_vision_chat()（历史兼容路径）
 
     参数校验由 gateway._validate_params 完成。
     """
@@ -119,10 +178,102 @@ def tool_lf_frame_description(db: Session, params: dict[str, Any]) -> dict[str, 
                     text = text.split(",", 1)[1]
                 safe_frames.append(text)
 
+    backend = str(getattr(settings, "FRAME_DESC_BACKEND", "qwen3vl") or "qwen3vl").lower()
+    frame_desc_debug_logger.debug(
+        "tool_lf_frame_description start | session_id=%s | trace_id=%s | FRAME_DESC_BACKEND=%s | backend=%s | base64_frames_count=%d | prompt_length=%d | empty_frames=%s",
+        session_id,
+        trace_id,
+        getattr(settings, "FRAME_DESC_BACKEND", "qwen3vl"),
+        backend,
+        len(safe_frames),
+        len(prompt),
+        len(safe_frames) == 0,
+    )
+
+    if backend == "qwen3vl":
+        frame_desc_debug_logger.debug(
+            "routing to qwen3vl backend | session_id=%s | trace_id=%s | base64_frames_count=%d",
+            session_id,
+            trace_id,
+            len(safe_frames),
+        )
+        frame_desc_debug_logger.debug(
+            "VinciAdapterService NOT instantiated | session_id=%s | trace_id=%s",
+            session_id,
+            trace_id,
+        )
+        if not safe_frames:
+            frame_desc_debug_logger.debug(
+                "using qwen3vl text-only mode | session_id=%s | trace_id=%s | base64_frames_count=0",
+                session_id,
+                trace_id,
+            )
+        from app.services.qwen3vl_realtime_client import Qwen3VLRealtimeClient
+
+        client = Qwen3VLRealtimeClient()
+        used_cloud_fallback = False
+        try:
+            answer = client.describe(
+                base64_frames=safe_frames,
+                prompt=prompt,
+            )
+        except Exception as exc:  # noqa: BLE001
+            frame_desc_debug_logger.debug(
+                "tool_lf_frame_description qwen3vl exception | session_id=%s | trace_id=%s | error=%s",
+                session_id,
+                trace_id,
+                exc,
+                exc_info=True,
+            )
+            if _cloud_qwen_vl_enabled():
+                try:
+                    answer = _call_cloud_qwen_vl(
+                        prompt=prompt,
+                        safe_frames=safe_frames,
+                        session_id=session_id,
+                        trace_id=trace_id,
+                        fallback_reason=f"qwen3vl_call_failed:{exc}",
+                    )
+                    used_cloud_fallback = True
+                except GovernanceError:
+                    raise GovernanceError(f"qwen3vl_call_failed:{exc}") from exc
+            else:
+                raise GovernanceError(f"qwen3vl_call_failed:{exc}") from exc
+
+        payload: dict[str, Any] = {
+            "answer": answer,
+            "session_id": session_id,
+            "trace_id": trace_id,
+            "history": safe_history,
+            "backend": "cloud_qwen_vl" if used_cloud_fallback else "qwen3vl",
+        }
+        payload["tokens_estimated"] = _estimate_tokens(prompt) + _estimate_tokens(str(answer or ""))
+        payload["frame_count"] = len(safe_frames)
+        frame_desc_debug_logger.debug(
+            "tool_lf_frame_description result | session_id=%s | trace_id=%s | backend=qwen3vl | result_type=%s | answer_length=%d | base64_frames_count=%d",
+            session_id,
+            trace_id,
+            type(payload).__name__,
+            len(str(answer or "")),
+            len(safe_frames),
+        )
+        return payload
+
+    # vinci path — 历史兼容路径（仅当 FRAME_DESC_BACKEND=vinci 时触发）
+    frame_desc_debug_logger.debug(
+        "routing to vinci backend | session_id=%s | trace_id=%s | base64_frames_count=%d",
+        session_id,
+        trace_id,
+        len(safe_frames),
+    )
+    frame_desc_debug_logger.debug(
+        "entering vinci fallback | session_id=%s | trace_id=%s | fallback_reason=FRAME_DESC_BACKEND_vinci",
+        session_id,
+        trace_id,
+    )
     service = VinciAdapterService()
     try:
         if safe_frames:
-            # Vision 模式：带图像帧
             response = service.request_vision_chat(
                 prompt=prompt,
                 base64_frames=safe_frames,
@@ -131,7 +282,6 @@ def tool_lf_frame_description(db: Session, params: dict[str, Any]) -> dict[str, 
                 trace_id=trace_id,
             )
         else:
-            # Text 模式：无图像（降级或 silent=True 自动描述）
             response = service.request_vision_chat(
                 prompt=prompt,
                 base64_frames=[],
@@ -141,6 +291,14 @@ def tool_lf_frame_description(db: Session, params: dict[str, Any]) -> dict[str, 
                 silent=True,
             )
     except VinciAdapterError as exc:
+        frame_desc_debug_logger.debug(
+            "tool_lf_frame_description vinci exception | session_id=%s | trace_id=%s | error_code=%s | error=%s",
+            session_id,
+            trace_id,
+            getattr(exc, "error_code", ""),
+            exc,
+            exc_info=True,
+        )
         raise GovernanceError(f"vinci_call_failed:{exc.error_code}") from exc
 
     payload = dict(response or {})
@@ -149,11 +307,24 @@ def tool_lf_frame_description(db: Session, params: dict[str, Any]) -> dict[str, 
     payload.setdefault("history", safe_history)
     payload["tokens_estimated"] = _estimate_tokens(prompt) + _estimate_tokens(str(payload.get("answer") or ""))
     payload["frame_count"] = len(safe_frames)
+    frame_desc_debug_logger.debug(
+        "tool_lf_frame_description result | session_id=%s | trace_id=%s | backend=vinci | result_type=%s | answer_length=%d | base64_frames_count=%d",
+        session_id,
+        trace_id,
+        type(payload).__name__,
+        len(str(payload.get("answer") or "")),
+        len(safe_frames),
+    )
     return payload
 
 
 def tool_lf_frame_description_stream(db: Session, params: dict[str, Any]):
-    """通过治理网关调用 Vinci 适配层执行流式画面描述（不可绕过）。"""
+    """通过治理网关调用画面描述服务执行流式帧描述（不可绕过）。
+
+    根据 settings.FRAME_DESC_BACKEND 路由至对应后端：
+    - qwen3vl: 调用 Qwen3VLRealtimeClient.stream_describe()
+    - vinci:   调用 VinciAdapterService.stream_vision_chat()（历史兼容路径）
+    """
     ensure_in_governance_context()
     _ = db
     prompt = str(params.get("prompt") or "").strip()
@@ -171,19 +342,140 @@ def tool_lf_frame_description_stream(db: Session, params: dict[str, Any]):
                     text = text.split(",", 1)[1]
                 safe_frames.append(text)
 
-    service = VinciAdapterService()
-    yield from service.stream_vision_chat(
-        prompt=prompt,
-        base64_frames=safe_frames,
-        history=safe_history,
-        session_id=session_id,
-        trace_id=trace_id,
-        silent=False,
+    backend = str(getattr(settings, "FRAME_DESC_BACKEND", "qwen3vl") or "qwen3vl").lower()
+    frame_desc_debug_logger.debug(
+        "tool_lf_frame_description_stream start | session_id=%s | trace_id=%s | FRAME_DESC_BACKEND=%s | backend=%s | base64_frames_count=%d | prompt_length=%d | empty_frames=%s",
+        session_id,
+        trace_id,
+        getattr(settings, "FRAME_DESC_BACKEND", "qwen3vl"),
+        backend,
+        len(safe_frames),
+        len(prompt),
+        len(safe_frames) == 0,
     )
+
+    if backend == "qwen3vl":
+        frame_desc_debug_logger.debug(
+            "routing to qwen3vl backend | stream_mode=start | session_id=%s | trace_id=%s | base64_frames_count=%d",
+            session_id,
+            trace_id,
+            len(safe_frames),
+        )
+        frame_desc_debug_logger.debug(
+            "VinciAdapterService NOT instantiated | stream_mode=start | session_id=%s | trace_id=%s",
+            session_id,
+            trace_id,
+        )
+        if not safe_frames:
+            frame_desc_debug_logger.debug(
+                "using qwen3vl text-only mode | stream_mode=start | session_id=%s | trace_id=%s | base64_frames_count=0",
+                session_id,
+                trace_id,
+            )
+        from app.services.qwen3vl_realtime_client import Qwen3VLRealtimeClient
+
+        client = Qwen3VLRealtimeClient()
+        try:
+            for event in client.stream_describe(
+                base64_frames=safe_frames,
+                prompt=prompt,
+            ):
+                frame_desc_debug_logger.debug(
+                    "tool_lf_frame_description_stream event | session_id=%s | trace_id=%s | backend=qwen3vl | event_type=%s",
+                    session_id,
+                    trace_id,
+                    str(event.get("event") or event.get("type") or ""),
+                )
+                yield event
+            frame_desc_debug_logger.debug(
+                "tool_lf_frame_description_stream end | session_id=%s | trace_id=%s | backend=qwen3vl",
+                session_id,
+                trace_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            frame_desc_debug_logger.debug(
+                "tool_lf_frame_description_stream qwen3vl exception | session_id=%s | trace_id=%s | error=%s",
+                session_id,
+                trace_id,
+                exc,
+                exc_info=True,
+            )
+            if _cloud_qwen_vl_enabled():
+                answer = _call_cloud_qwen_vl(
+                    prompt=prompt,
+                    safe_frames=safe_frames,
+                    session_id=session_id,
+                    trace_id=trace_id,
+                    fallback_reason=f"qwen3vl_stream_failed:{exc}",
+                )
+                yield {
+                    "event": "delta",
+                    "delta": answer,
+                    "backend": "cloud_qwen_vl",
+                    "session_id": session_id,
+                    "trace_id": trace_id,
+                }
+                yield {
+                    "event": "done",
+                    "backend": "cloud_qwen_vl",
+                    "session_id": session_id,
+                    "trace_id": trace_id,
+                }
+            else:
+                raise
+        return
+
+    # vinci path — 历史兼容路径
+    frame_desc_debug_logger.debug(
+        "routing to vinci backend | stream_mode=start | session_id=%s | trace_id=%s | base64_frames_count=%d",
+        session_id,
+        trace_id,
+        len(safe_frames),
+    )
+    frame_desc_debug_logger.debug(
+        "entering vinci fallback | stream_mode=start | session_id=%s | trace_id=%s | fallback_reason=FRAME_DESC_BACKEND_vinci",
+        session_id,
+        trace_id,
+    )
+    service = VinciAdapterService()
+    try:
+        for event in service.stream_vision_chat(
+            prompt=prompt,
+            base64_frames=safe_frames,
+            history=safe_history,
+            session_id=session_id,
+            trace_id=trace_id,
+            silent=False,
+        ):
+            frame_desc_debug_logger.debug(
+                "tool_lf_frame_description_stream event | session_id=%s | trace_id=%s | backend=vinci | event_type=%s",
+                session_id,
+                trace_id,
+                str(event.get("event") or event.get("type") or ""),
+            )
+            yield event
+        frame_desc_debug_logger.debug(
+            "tool_lf_frame_description_stream end | session_id=%s | trace_id=%s | backend=vinci",
+            session_id,
+            trace_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        frame_desc_debug_logger.debug(
+            "tool_lf_frame_description_stream vinci exception | session_id=%s | trace_id=%s | error=%s",
+            session_id,
+            trace_id,
+            exc,
+            exc_info=True,
+        )
+        raise
 
 
 def tool_lf_vinci_chat(db: Session, params: dict[str, Any]) -> dict[str, Any]:
-    """通过治理网关调用 Vinci 适配层（不可绕过）。"""
+    """通过治理网关调用 Vinci 适配层（不可绕过）。
+
+    注意：此工具仅用于通用文本对话，不走画面描述服务。
+    画面描述请使用 lf_frame_description 工具（自动路由至 qwen3vl/vinci）。
+    """
     ensure_in_governance_context()
     _ = db
     prompt = str(params.get("prompt") or "").strip()

@@ -50,5 +50,3 @@ def test_note_list_endpoint(client):
     """测试笔记列表端点"""
     response = client.get("/api/notes/notes")
     assert response.status_code == 200
-
-

@@ -30,12 +30,16 @@ from app.analytics.pipeline import get_telemetry
 from app.analytics.schema import AnalyticsEvent, AnalyticsStatus
 from app.core.config import settings
 from app.models.subtitle import Subtitle
-from app.services.qwen3vl_realtime_client import (Qwen3VLClientError,
-                                                  Qwen3VLRealtimeClient)
-from app.services.vinci_adapter_service import (VinciAdapterError,
-                                                VinciAdapterService)
+from app.services.qwen3vl_realtime_client import (
+    Qwen3VLClientError,
+    Qwen3VLRealtimeClient,
+)
+from app.services.qwen_vl_cloud_client import QwenVLCloudClient, QwenVLCloudClientError
+from app.services.vinci_adapter_service import VinciAdapterError, VinciAdapterService
+from app.utils.frame_description_debug import get_frame_description_debug_logger
 
 logger = logging.getLogger(__name__)
+frame_desc_debug_logger = get_frame_description_debug_logger()
 
 
 # ----------------------------------------------------------------------
@@ -88,9 +92,7 @@ def _resize_frame_bytes(frame_data: bytes) -> bytes:
 def _normalize_frames(raw_frames: list[str]) -> list[bytes]:
     """将 base64 字符串列表解码为模型可消费的 JPEG 字节列表。"""
     result: list[bytes] = []
-    max_frames = max(
-        1, int(getattr(settings, "FRAME_DESC_MAX_FRAMES_PER_REQUEST", 3) or 3)
-    )
+    max_frames = max(1, int(getattr(settings, "FRAME_DESC_MAX_FRAMES_PER_REQUEST", 3) or 3))
     for item in raw_frames:
         text = str(item or "").strip()
         if not text:
@@ -161,18 +163,14 @@ def _build_subtitle_fallback_description(
     previous: Optional[str],
 ) -> str:
     """构建字幕驱动的降级描述（不显示"降级"等字样）。"""
+    minimal = _build_minimal_safe_description(timestamp=timestamp, previous=previous)
     # 如果有最近的描述，返回字幕内容（自然过渡）
     if db is None or int(video_id or 0) <= 0:
-        return str(previous or "").strip() if previous else "暂无字幕信息"
+        return minimal
 
-    subtitles = (
-        db.query(Subtitle)
-        .filter(Subtitle.video_id == int(video_id))
-        .order_by(Subtitle.start_time.asc())
-        .all()
-    )
+    subtitles = db.query(Subtitle).filter(Subtitle.video_id == int(video_id)).order_by(Subtitle.start_time.asc()).all()
     if not subtitles:
-        return str(previous or "").strip() if previous else "暂无字幕信息"
+        return minimal
 
     target = float(timestamp or 0)
     best_index = 0
@@ -186,9 +184,7 @@ def _build_subtitle_fallback_description(
             best_distance = distance
             best_index = index
 
-    fragment_indexes = range(
-        max(0, best_index - 1), min(len(subtitles), best_index + 2)
-    )
+    fragment_indexes = range(max(0, best_index - 1), min(len(subtitles), best_index + 2))
     fragments: list[str] = []
     for index in fragment_indexes:
         fragment = subtitles[index]
@@ -197,11 +193,18 @@ def _build_subtitle_fallback_description(
             fragments.append(normalized)
 
     if not fragments:
-        return str(previous or "").strip() if previous else "暂无字幕信息"
+        return minimal
 
     current_time_text = _format_mmss(target)
     subtitle_summary = "；".join(fragments)
     return f"当前约 {current_time_text}，结合附近字幕，讲解内容是：{subtitle_summary}"
+
+
+def _build_minimal_safe_description(*, timestamp: float, previous: Optional[str] = None) -> str:
+    previous_text = str(previous or "").strip()
+    if previous_text:
+        return previous_text
+    return f"当前约 {_format_mmss(timestamp)}，暂时无法获取画面描述或字幕内容，请继续播放后重试。"
 
 
 def _safe_setting_str(name: str, default: str) -> str:
@@ -225,7 +228,7 @@ def _build_description_prompt(
     detail_level: str,
     context_summary: Optional[str],
 ) -> str:
-    """组装发给 Vinci 的画面描述提示词。"""
+    """组装发给视觉模型服务的画面描述提示词。"""
     detail_instruction = {
         "brief": "用 1-2 句话简洁描述当前画面内容。",
         "standard": "用 3-5 句话描述当前画面内容，包含主体动作和关键信息。",
@@ -426,6 +429,7 @@ class FrameDescriptionService:
         *,
         vinci_adapter: Optional[VinciAdapterService] = None,
         qwen3vl_client: Optional[Qwen3VLRealtimeClient] = None,
+        qwen_vl_cloud_client: Optional[QwenVLCloudClient] = None,
         circuit_breaker: Optional[_VinciCircuitBreaker] = None,
     ):
         self._enabled = bool(getattr(settings, "FRAME_DESC_ENABLED", False))
@@ -439,60 +443,46 @@ class FrameDescriptionService:
         self._backend_label = "Qwen3-VL" if self._backend == "qwen3vl" else "Vinci"
         self._vinci_adapter = vinci_adapter
         self._qwen3vl_client = qwen3vl_client
+        self._qwen_vl_cloud_client = qwen_vl_cloud_client
         self._cb = circuit_breaker or _VinciCircuitBreaker(
             failure_threshold=max(
                 1,
-                int(
-                    getattr(settings, "VINCI_CIRCUIT_BREAKER_FAILURE_THRESHOLD", 3) or 3
-                ),
+                int(getattr(settings, "VINCI_CIRCUIT_BREAKER_FAILURE_THRESHOLD", 3) or 3),
             ),
             recovery_seconds=max(
                 1.0,
-                float(
-                    getattr(settings, "VINCI_CIRCUIT_BREAKER_RECOVERY_SECONDS", 30.0)
-                    or 30.0
-                ),
+                float(getattr(settings, "VINCI_CIRCUIT_BREAKER_RECOVERY_SECONDS", 30.0) or 30.0),
             ),
             key=f"frame-desc-{self._backend}",
         )
-        self._context_window = max(
-            0, int(getattr(settings, "FRAME_DESC_CONTEXT_WINDOW_SIZE", 5) or 5)
-        )
+        self._context_window = max(0, int(getattr(settings, "FRAME_DESC_CONTEXT_WINDOW_SIZE", 5) or 5))
         self._similarity_threshold = max(
             0.0,
             min(
                 1.0,
-                float(
-                    getattr(settings, "FRAME_DESC_SIMILARITY_THRESHOLD", 0.82) or 0.82
-                ),
+                float(getattr(settings, "FRAME_DESC_SIMILARITY_THRESHOLD", 0.82) or 0.82),
             ),
         )
-        self._stable_threshold = max(
-            1, int(getattr(settings, "FRAME_DESC_SCENE_STABLE_THRESHOLD", 4) or 4)
-        )
-        self._skip_stable_scene = _as_bool(
-            getattr(settings, "FRAME_DESC_SKIP_STABLE_SCENE", False), default=False
-        )
+        self._stable_threshold = max(1, int(getattr(settings, "FRAME_DESC_SCENE_STABLE_THRESHOLD", 4) or 4))
+        self._skip_stable_scene = _as_bool(getattr(settings, "FRAME_DESC_SKIP_STABLE_SCENE", False), default=False)
         self._enable_context_fusion = _as_bool(
             getattr(settings, "FRAME_DESC_ENABLE_CONTEXT_FUSION", False),
             default=False,
         )
         self._degraded_interval = max(
             1.0,
-            float(
-                getattr(settings, "FRAME_DESC_DEGRADED_INTERVAL_SECONDS", 10.0) or 10.0
-            ),
+            float(getattr(settings, "FRAME_DESC_DEGRADED_INTERVAL_SECONDS", 10.0) or 10.0),
         )
         self._degraded_prefix = str(
-            getattr(
-                settings, "FRAME_DESC_DEGRADED_PREFIX", "（描述服务暂不可用，仅供参考）"
-            )
-            or ""
+            getattr(settings, "FRAME_DESC_DEGRADED_PREFIX", "（描述服务暂不可用，仅供参考）") or ""
         )
-        self._timeout = max(
-            1.0, float(getattr(settings, "FRAME_DESC_TIMEOUT_SECONDS", 8.0) or 8.0)
-        )
+        self._timeout = max(1.0, float(getattr(settings, "FRAME_DESC_TIMEOUT_SECONDS", 8.0) or 8.0))
         self._auto_degrade = bool(getattr(settings, "FRAME_DESC_AUTO_DEGRADE", True))
+        self._cloud_fallback_enabled = _as_bool(
+            getattr(settings, "FRAME_DESC_CLOUD_FALLBACK_ENABLED", False),
+            default=False,
+        )
+        self._cloud_provider = _safe_setting_str("FRAME_DESC_CLOUD_PROVIDER", "qwen").lower()
         self._use_vinci_stream = _as_bool(
             getattr(settings, "FRAME_DESC_USE_VINCI_STREAM", False),
             default=False,
@@ -501,13 +491,9 @@ class FrameDescriptionService:
             getattr(settings, "FRAME_DESC_USE_QWEN3VL_STREAM", False),
             default=False,
         )
-        probe_setting = getattr(
-            settings, "FRAME_DESC_PROBE_UPSTREAM_BEFORE_INFER", None
-        )
+        probe_setting = getattr(settings, "FRAME_DESC_PROBE_UPSTREAM_BEFORE_INFER", None)
         if not isinstance(probe_setting, (bool, int, float, str)):
-            probe_setting = getattr(
-                settings, "FRAME_DESC_PROBE_VINCI_BEFORE_INFER", True
-            )
+            probe_setting = getattr(settings, "FRAME_DESC_PROBE_VINCI_BEFORE_INFER", True)
         self._probe_before_infer = _as_bool(probe_setting, default=True)
         self._probe_timeout = max(
             0.2,
@@ -519,15 +505,26 @@ class FrameDescriptionService:
         )
         if self._debug_log_enabled:
             logger.setLevel(logging.DEBUG)
+        frame_desc_debug_logger.debug(
+            "FrameDescriptionService initialized | FRAME_DESC_BACKEND=%s | backend=%s | enabled=%s | qwen3vl_stream=%s | vinci_stream=%s | cloud_fallback_enabled=%s | cloud_provider=%s",
+            getattr(settings, "FRAME_DESC_BACKEND", "qwen3vl"),
+            self._backend,
+            self._enabled,
+            self._use_qwen3vl_stream,
+            self._use_vinci_stream,
+            self._cloud_fallback_enabled,
+            self._cloud_provider,
+        )
+        if self._backend == "qwen3vl" and vinci_adapter is None:
+            frame_desc_debug_logger.debug("VinciAdapterService NOT instantiated | backend=qwen3vl")
 
         # 会话上下文存储（session_id -> 描述历史）
         self._session_histories: dict[str, list[str]] = {}
         self._session_stable_counts: dict[str, int] = {}
         self._session_lock = threading.Lock()
 
-    def _debug(self, message: str, *args) -> None:
-        if self._debug_log_enabled:
-            logger.debug("[frame_desc_debug] " + message, *args)
+    def _debug(self, message: str, *args, **kwargs) -> None:
+        frame_desc_debug_logger.debug(message, *args, **kwargs)
 
     def _ensure_session(self, session_id: str) -> None:
         with self._session_lock:
@@ -571,9 +568,7 @@ class FrameDescriptionService:
         similarity = _compute_text_similarity(current_description, previous_description)
         with self._session_lock:
             if similarity >= self._similarity_threshold:
-                self._session_stable_counts[session_id] = (
-                    self._session_stable_counts.get(session_id, 0) + 1
-                )
+                self._session_stable_counts[session_id] = self._session_stable_counts.get(session_id, 0) + 1
             else:
                 self._session_stable_counts[session_id] = 0
 
@@ -593,13 +588,63 @@ class FrameDescriptionService:
             return self._qwen3vl_client
         return Qwen3VLRealtimeClient()
 
+    def _resolve_qwen_vl_cloud_client(self) -> QwenVLCloudClient:
+        if self._qwen_vl_cloud_client is not None:
+            return self._qwen_vl_cloud_client
+        self._qwen_vl_cloud_client = QwenVLCloudClient()
+        return self._qwen_vl_cloud_client
+
+    def _can_use_cloud_qwen_vl_fallback(self) -> bool:
+        return self._backend == "qwen3vl" and self._cloud_fallback_enabled and self._cloud_provider == "qwen"
+
+    def _call_cloud_qwen_vl_sync(
+        self,
+        *,
+        prompt: str,
+        session_id: str,
+        trace_id: str,
+        base64_frames: Optional[list[str]] = None,
+        fallback_reason: str = "",
+    ) -> str:
+        if not self._can_use_cloud_qwen_vl_fallback():
+            raise FrameDescServiceError("cloud_qwen_vl_fallback_disabled")
+        safe_frames = [str(f or "").strip() for f in list(base64_frames or []) if f]
+        self._debug(
+            "fallback_reason=%s | fallback_target=cloud_qwen_vl | session_id=%s | trace_id=%s | base64_frames_count=%d | empty_frames=%s",
+            str(fallback_reason or "")[:240],
+            session_id,
+            trace_id,
+            len(safe_frames),
+            len(safe_frames) == 0,
+        )
+        if not safe_frames:
+            self._debug(
+                "using cloud_qwen_vl text-only mode | session_id=%s | trace_id=%s | base64_frames_count=0",
+                session_id,
+                trace_id,
+            )
+        try:
+            return self._resolve_qwen_vl_cloud_client().describe(
+                base64_frames=safe_frames,
+                prompt=prompt,
+                session_id=session_id,
+                trace_id=trace_id,
+            )
+        except QwenVLCloudClientError as exc:
+            self._debug(
+                "cloud_qwen_vl call failed | session_id=%s | trace_id=%s | error=%s",
+                session_id,
+                trace_id,
+                exc,
+                exc_info=True,
+            )
+            raise FrameDescServiceError(f"cloud_qwen_vl_failed:{exc}") from exc
+
     def _probe_qwen3vl_or_raise(self, *, session_id: str, trace_id: str) -> None:
         if not self._probe_before_infer:
             return
         try:
-            health = self._resolve_qwen3vl_client().health_check(
-                timeout_seconds=self._probe_timeout
-            )
+            health = self._resolve_qwen3vl_client().health_check(timeout_seconds=self._probe_timeout)
             self._debug(
                 "qwen3vl health probe | session=%s | trace=%s | reachable=%s | loaded=%s | latency_ms=%s | error_code=%s | error=%s",
                 session_id,
@@ -611,16 +656,9 @@ class FrameDescriptionService:
                 getattr(health, "error", None),
             )
             if not bool(getattr(health, "reachable", False)):
-                detail = (
-                    str(getattr(health, "error", "") or "").strip() or "unreachable"
-                )
-                error_code = (
-                    str(getattr(health, "error_code", "") or "").strip()
-                    or "QWEN3VL_UNAVAILABLE"
-                )
-                raise FrameDescServiceError(
-                    f"qwen3vl_probe_unreachable:{error_code}:{detail}"
-                )
+                detail = str(getattr(health, "error", "") or "").strip() or "unreachable"
+                error_code = str(getattr(health, "error_code", "") or "").strip() or "QWEN3VL_UNAVAILABLE"
+                raise FrameDescServiceError(f"qwen3vl_probe_unreachable:{error_code}:{detail}")
         except FrameDescServiceError:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -630,9 +668,7 @@ class FrameDescriptionService:
         if not self._probe_before_infer:
             return
         try:
-            health = self._resolve_vinci_adapter().health_check(
-                timeout_seconds=self._probe_timeout
-            )
+            health = self._resolve_vinci_adapter().health_check(timeout_seconds=self._probe_timeout)
             self._debug(
                 "vinci health probe | session=%s | trace=%s | reachable=%s | latency_ms=%s | error_code=%s | error=%s",
                 session_id,
@@ -643,16 +679,9 @@ class FrameDescriptionService:
                 getattr(health, "error", None),
             )
             if not bool(getattr(health, "reachable", False)):
-                detail = (
-                    str(getattr(health, "error", "") or "").strip() or "unreachable"
-                )
-                error_code = (
-                    str(getattr(health, "error_code", "") or "").strip()
-                    or "VINCI_UNAVAILABLE"
-                )
-                raise FrameDescServiceError(
-                    f"vinci_probe_unreachable:{error_code}:{detail}"
-                )
+                detail = str(getattr(health, "error", "") or "").strip() or "unreachable"
+                error_code = str(getattr(health, "error_code", "") or "").strip() or "VINCI_UNAVAILABLE"
+                raise FrameDescServiceError(f"vinci_probe_unreachable:{error_code}:{detail}")
         except FrameDescServiceError:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -725,6 +754,12 @@ class FrameDescriptionService:
             raise FrameDescServiceError("Vinci circuit breaker is open (service layer)")
 
         safe_frames = [str(f or "").strip() for f in list(base64_frames or []) if f]
+        self._debug(
+            "routing to vinci backend | session_id=%s | trace_id=%s | base64_frames_count=%d",
+            session_id,
+            trace_id,
+            len(safe_frames),
+        )
 
         # 推理前快速探测上游可达性，避免连续超时导致前端长时间停留在 connecting。
         self._probe_vinci_or_raise(session_id=session_id, trace_id=trace_id)
@@ -784,11 +819,26 @@ class FrameDescriptionService:
             len(base64_frames or []),
         )
         if blocked:
-            raise FrameDescServiceError(
-                "Qwen3-VL circuit breaker is open (service layer)"
-            )
+            raise FrameDescServiceError("Qwen3-VL circuit breaker is open (service layer)")
 
         safe_frames = [str(f or "").strip() for f in list(base64_frames or []) if f]
+        self._debug(
+            "routing to qwen3vl backend | session_id=%s | trace_id=%s | base64_frames_count=%d",
+            session_id,
+            trace_id,
+            len(safe_frames),
+        )
+        self._debug(
+            "VinciAdapterService NOT instantiated | session_id=%s | trace_id=%s",
+            session_id,
+            trace_id,
+        )
+        if not safe_frames:
+            self._debug(
+                "using qwen3vl text-only mode | session_id=%s | trace_id=%s | base64_frames_count=0",
+                session_id,
+                trace_id,
+            )
         self._probe_qwen3vl_or_raise(session_id=session_id, trace_id=trace_id)
 
         try:
@@ -832,11 +882,26 @@ class FrameDescriptionService:
             len(base64_frames or []),
         )
         if blocked:
-            raise FrameDescServiceError(
-                "Qwen3-VL circuit breaker is open (service layer)"
-            )
+            raise FrameDescServiceError("Qwen3-VL circuit breaker is open (service layer)")
 
         safe_frames = [str(f or "").strip() for f in list(base64_frames or []) if f]
+        self._debug(
+            "routing to qwen3vl backend | stream_mode=start | session_id=%s | trace_id=%s | base64_frames_count=%d",
+            session_id,
+            trace_id,
+            len(safe_frames),
+        )
+        self._debug(
+            "VinciAdapterService NOT instantiated | stream_mode=start | session_id=%s | trace_id=%s",
+            session_id,
+            trace_id,
+        )
+        if not safe_frames:
+            self._debug(
+                "using qwen3vl text-only mode | stream_mode=start | session_id=%s | trace_id=%s | base64_frames_count=0",
+                session_id,
+                trace_id,
+            )
         self._probe_qwen3vl_or_raise(session_id=session_id, trace_id=trace_id)
 
         try:
@@ -850,14 +915,45 @@ class FrameDescriptionService:
                     message = str(event.get("message") or error_code)
                     self._cb.record_failure(message)
                     raise FrameDescServiceError(f"{error_code}:{message}")
+                self._debug(
+                    "stream event | backend=qwen3vl | session_id=%s | trace_id=%s | event_type=%s",
+                    session_id,
+                    trace_id,
+                    str(event.get("event") or ""),
+                )
                 yield event
+            self._debug(
+                "stream event end | backend=qwen3vl | session_id=%s | trace_id=%s",
+                session_id,
+                trace_id,
+            )
         except FrameDescServiceError:
+            self._debug(
+                "qwen3vl stream exception | session_id=%s | trace_id=%s",
+                session_id,
+                trace_id,
+                exc_info=True,
+            )
             raise
         except Qwen3VLClientError as exc:
             self._cb.record_failure(str(exc))
+            self._debug(
+                "qwen3vl stream client exception | session_id=%s | trace_id=%s | error=%s",
+                session_id,
+                trace_id,
+                exc,
+                exc_info=True,
+            )
             raise FrameDescServiceError(f"Qwen3-VL stream error: {exc}") from exc
         except Exception as exc:  # noqa: BLE001
             self._cb.record_failure(str(exc))
+            self._debug(
+                "qwen3vl stream unexpected exception | session_id=%s | trace_id=%s | error=%s",
+                session_id,
+                trace_id,
+                exc,
+                exc_info=True,
+            )
             raise FrameDescServiceError(f"Qwen3-VL stream error: {exc}") from exc
 
     def _call_vinci_stream_events(
@@ -883,6 +979,12 @@ class FrameDescriptionService:
             raise FrameDescServiceError("Vinci circuit breaker is open (service layer)")
 
         safe_frames = [str(f or "").strip() for f in list(base64_frames or []) if f]
+        self._debug(
+            "routing to vinci backend | stream_mode=start | session_id=%s | trace_id=%s | base64_frames_count=%d",
+            session_id,
+            trace_id,
+            len(safe_frames),
+        )
         self._probe_vinci_or_raise(session_id=session_id, trace_id=trace_id)
 
         try:
@@ -903,11 +1005,35 @@ class FrameDescriptionService:
                     message = str(event.get("message") or error_code)
                     self._cb.record_failure(message)
                     raise FrameDescServiceError(f"{error_code}:{message}")
+                self._debug(
+                    "stream event | backend=vinci | session_id=%s | trace_id=%s | event_type=%s",
+                    session_id,
+                    trace_id,
+                    str(event.get("event") or ""),
+                )
                 yield event
+            self._debug(
+                "stream event end | backend=vinci | session_id=%s | trace_id=%s",
+                session_id,
+                trace_id,
+            )
         except FrameDescServiceError:
+            self._debug(
+                "vinci stream exception | session_id=%s | trace_id=%s",
+                session_id,
+                trace_id,
+                exc_info=True,
+            )
             raise
         except Exception as exc:  # noqa: BLE001
             self._cb.record_failure(str(exc))
+            self._debug(
+                "vinci stream unexpected exception | session_id=%s | trace_id=%s | error=%s",
+                session_id,
+                trace_id,
+                exc,
+                exc_info=True,
+            )
             raise FrameDescServiceError(f"Vinci stream error: {exc}") from exc
 
     def describe_frames(
@@ -937,9 +1063,11 @@ class FrameDescriptionService:
         safe_session_id = str(session_id or "").strip() or str(uuid.uuid4())
         self._ensure_session(safe_session_id)
         self._debug(
-            "describe_frames start | session=%s | trace=%s | video_id=%s | timestamp=%.3f | allow_degrade=%s | frames_in=%d",
+            "describe_frames start | session_id=%s | trace_id=%s | FRAME_DESC_BACKEND=%s | backend=%s | video_id=%s | timestamp=%.3f | allow_degrade=%s | base64_frames_count=%d",
             safe_session_id,
             trace_id,
+            getattr(settings, "FRAME_DESC_BACKEND", "qwen3vl"),
+            self._backend,
             video_id,
             float(timestamp or 0),
             allow_degrade,
@@ -969,27 +1097,23 @@ class FrameDescriptionService:
 
         normalized_frames = _normalize_frames(frames)
         self._debug(
-            "frames normalized | session=%s | trace=%s | frames_ok=%d",
+            "frames normalized | session_id=%s | trace_id=%s | base64_frames_count=%d | normalized_frames_count=%d | empty_frames=%s",
             safe_session_id,
             trace_id,
+            len(frames or []),
             len(normalized_frames),
+            len(normalized_frames) == 0,
         )
         if not normalized_frames:
-            yield {
-                "type": "error",
-                "stage": "validation",
-                "message": "无可用帧数据",
-                "detail": "All frames failed to decode",
-                "progress": 100,
-                "degraded": False,
-            }
-            return
+            if self._backend == "qwen3vl":
+                self._debug(
+                    "using qwen3vl text-only mode | session_id=%s | trace_id=%s | base64_frames_count=0",
+                    safe_session_id,
+                    trace_id,
+                )
 
-        # 将解码后的帧字节转换为 base64 字符串（供 Vinci 推理）
-        base64_frames = [
-            base64.b64encode(frame_data).decode("ascii")
-            for frame_data in normalized_frames
-        ]
+        # 将解码后的帧字节转换为 base64 字符串（供视觉模型推理）
+        base64_frames = [base64.b64encode(frame_data).decode("ascii") for frame_data in normalized_frames]
 
         # ------------------------------------------------------------------
         # 1. 场景变化检测（去重）
@@ -1026,20 +1150,65 @@ class FrameDescriptionService:
 
         blocked, probe_mode, opened_at = self._cb.is_blocked()
         if blocked:
-            degraded = True
             degraded_reason = f"{self._backend}_circuit_open"
-            description = _build_subtitle_fallback_description(
-                db=db,
-                video_id=video_id,
-                timestamp=timestamp,
-                previous=previous,
-            )
-            self._debug(
-                "degrade by circuit open | session=%s | trace=%s | opened_at=%.3f",
-                safe_session_id,
-                trace_id,
-                float(opened_at or 0),
-            )
+            if self._can_use_cloud_qwen_vl_fallback():
+                try:
+                    cloud_started = perf_counter()
+                    description = self._call_cloud_qwen_vl_sync(
+                        prompt=frame_prompt,
+                        session_id=safe_session_id,
+                        trace_id=trace_id,
+                        base64_frames=base64_frames,
+                        fallback_reason=degraded_reason,
+                    )
+                    infer_latency_ms = round((perf_counter() - cloud_started) * 1000, 3)
+                    degraded = False
+                    self._emit_telemetry(
+                        "frame_desc_cloud_fallback_used",
+                        trace_id,
+                        AnalyticsStatus.OK,
+                        latency_ms=infer_latency_ms,
+                        metadata={
+                            "session_id": safe_session_id,
+                            "video_id": video_id,
+                            "timestamp": timestamp,
+                            "fallback_reason": degraded_reason,
+                            "frame_count": len(base64_frames),
+                        },
+                    )
+                except FrameDescServiceError as cloud_exc:
+                    degraded = True
+                    degraded_reason = str(cloud_exc)[:200]
+                    description = _build_subtitle_fallback_description(
+                        db=db,
+                        video_id=video_id,
+                        timestamp=timestamp,
+                        previous=previous,
+                    )
+                    self._debug(
+                        "fallback_reason=%s | fallback_target=subtitle_description | empty_frames=%s | session_id=%s | trace_id=%s | opened_at=%.3f",
+                        degraded_reason,
+                        len(base64_frames) == 0,
+                        safe_session_id,
+                        trace_id,
+                        float(opened_at or 0),
+                    )
+            else:
+                degraded = True
+                description = _build_subtitle_fallback_description(
+                    db=db,
+                    video_id=video_id,
+                    timestamp=timestamp,
+                    previous=previous,
+                )
+                self._debug(
+                    "fallback_reason=%s | fallback_target=subtitle_description | empty_frames=%s | session_id=%s | trace_id=%s | opened_at=%.3f",
+                    degraded_reason,
+                    len(base64_frames) == 0,
+                    safe_session_id,
+                    trace_id,
+                    float(opened_at or 0),
+                )
             self._emit_telemetry(
                 "frame_desc_circuit_open",
                 trace_id,
@@ -1063,6 +1232,12 @@ class FrameDescriptionService:
                 infer_started = perf_counter()
                 adapter_degraded = False
                 if self._backend == "qwen3vl" and self._use_qwen3vl_stream:
+                    self._debug(
+                        "routing to qwen3vl backend | stream_mode=start | session_id=%s | trace_id=%s | base64_frames_count=%d",
+                        safe_session_id,
+                        trace_id,
+                        len(base64_frames),
+                    )
                     stream_events = self._call_qwen3vl_stream_events(
                         prompt=frame_prompt,
                         session_id=safe_session_id,
@@ -1085,6 +1260,12 @@ class FrameDescriptionService:
                         elif stream_type == "done":
                             break
                 elif self._backend == "qwen3vl":
+                    self._debug(
+                        "routing to qwen3vl backend | session_id=%s | trace_id=%s | base64_frames_count=%d",
+                        safe_session_id,
+                        trace_id,
+                        len(base64_frames),
+                    )
                     description, adapter_degraded = self._call_qwen3vl_sync(
                         prompt=frame_prompt,
                         session_id=safe_session_id,
@@ -1092,6 +1273,12 @@ class FrameDescriptionService:
                         base64_frames=base64_frames,
                     )
                 elif self._use_vinci_stream:
+                    self._debug(
+                        "routing to vinci backend | stream_mode=start | session_id=%s | trace_id=%s | base64_frames_count=%d",
+                        safe_session_id,
+                        trace_id,
+                        len(base64_frames),
+                    )
                     for stream_event in self._call_vinci_stream_events(
                         prompt=frame_prompt,
                         session_id=safe_session_id,
@@ -1114,6 +1301,12 @@ class FrameDescriptionService:
                         elif stream_type == "done":
                             break
                 else:
+                    self._debug(
+                        "routing to vinci backend | session_id=%s | trace_id=%s | base64_frames_count=%d",
+                        safe_session_id,
+                        trace_id,
+                        len(base64_frames),
+                    )
                     description, adapter_degraded = self._call_vinci_sync(
                         prompt=frame_prompt,
                         session_id=safe_session_id,
@@ -1127,6 +1320,13 @@ class FrameDescriptionService:
                 if adapter_degraded:
                     degraded = True
                     degraded_reason = "adapter_degraded_payload"
+                    self._debug(
+                        "fallback_reason=%s | fallback_target=subtitle_description | empty_frames=%s | session_id=%s | trace_id=%s",
+                        degraded_reason,
+                        len(base64_frames) == 0,
+                        safe_session_id,
+                        trace_id,
+                    )
                     description = _build_subtitle_fallback_description(
                         db=db,
                         video_id=video_id,
@@ -1137,6 +1337,13 @@ class FrameDescriptionService:
                 if not description:
                     degraded = True
                     degraded_reason = f"empty_answer_from_{self._backend}"
+                    self._debug(
+                        "fallback_reason=%s | fallback_target=subtitle_description | empty_frames=%s | session_id=%s | trace_id=%s",
+                        degraded_reason,
+                        len(base64_frames) == 0,
+                        safe_session_id,
+                        trace_id,
+                    )
                     description = _build_subtitle_fallback_description(
                         db=db,
                         video_id=video_id,
@@ -1145,35 +1352,98 @@ class FrameDescriptionService:
                     )
 
             except FrameDescServiceError as exc:
-                logger.warning(
-                    "frame desc inference failed | session=%s | video=%s | error=%s",
+                self._debug(
+                    "frame desc inference failed | session_id=%s | video_id=%s | trace_id=%s | error=%s",
                     safe_session_id,
                     video_id,
+                    trace_id,
                     exc,
+                    exc_info=True,
                 )
                 if allow_degrade and self._auto_degrade:
-                    degraded = True
                     degraded_reason = str(exc)[:200]
-                    description = _build_subtitle_fallback_description(
-                        db=db,
-                        video_id=video_id,
-                        timestamp=timestamp,
-                        previous=previous,
-                    )
-                    self._emit_telemetry(
-                        "frame_desc_inference_degraded",
-                        trace_id,
-                        AnalyticsStatus.DEGRADED,
-                        metadata={
-                            "session_id": safe_session_id,
-                            "video_id": video_id,
-                            "timestamp": timestamp,
-                            "error": str(exc)[:200],
-                        },
-                    )
+                    if self._can_use_cloud_qwen_vl_fallback():
+                        try:
+                            cloud_started = perf_counter()
+                            description = self._call_cloud_qwen_vl_sync(
+                                prompt=frame_prompt,
+                                session_id=safe_session_id,
+                                trace_id=trace_id,
+                                base64_frames=base64_frames,
+                                fallback_reason=degraded_reason,
+                            )
+                            infer_latency_ms = round((perf_counter() - cloud_started) * 1000, 3)
+                            degraded = False
+                            self._emit_telemetry(
+                                "frame_desc_cloud_fallback_used",
+                                trace_id,
+                                AnalyticsStatus.OK,
+                                latency_ms=infer_latency_ms,
+                                metadata={
+                                    "session_id": safe_session_id,
+                                    "video_id": video_id,
+                                    "timestamp": timestamp,
+                                    "fallback_reason": degraded_reason,
+                                    "frame_count": len(base64_frames),
+                                },
+                            )
+                        except FrameDescServiceError as cloud_exc:
+                            degraded = True
+                            degraded_reason = str(cloud_exc)[:200]
+                            self._debug(
+                                "fallback_reason=%s | fallback_target=subtitle_description | empty_frames=%s | session_id=%s | trace_id=%s",
+                                degraded_reason,
+                                len(base64_frames) == 0,
+                                safe_session_id,
+                                trace_id,
+                            )
+                            description = _build_subtitle_fallback_description(
+                                db=db,
+                                video_id=video_id,
+                                timestamp=timestamp,
+                                previous=previous,
+                            )
+                            self._emit_telemetry(
+                                "frame_desc_inference_degraded",
+                                trace_id,
+                                AnalyticsStatus.DEGRADED,
+                                metadata={
+                                    "session_id": safe_session_id,
+                                    "video_id": video_id,
+                                    "timestamp": timestamp,
+                                    "error": str(cloud_exc)[:200],
+                                    "primary_error": str(exc)[:200],
+                                },
+                            )
+                    else:
+                        degraded = True
+                        self._debug(
+                            "fallback_reason=%s | fallback_target=subtitle_description | empty_frames=%s | session_id=%s | trace_id=%s",
+                            degraded_reason,
+                            len(base64_frames) == 0,
+                            safe_session_id,
+                            trace_id,
+                        )
+                        description = _build_subtitle_fallback_description(
+                            db=db,
+                            video_id=video_id,
+                            timestamp=timestamp,
+                            previous=previous,
+                        )
+                        self._emit_telemetry(
+                            "frame_desc_inference_degraded",
+                            trace_id,
+                            AnalyticsStatus.DEGRADED,
+                            metadata={
+                                "session_id": safe_session_id,
+                                "video_id": video_id,
+                                "timestamp": timestamp,
+                                "error": str(exc)[:200],
+                            },
+                        )
                 else:
                     self._debug(
-                        "inference failed without degrade | session=%s | trace=%s | error=%s",
+                        "inference failed without degrade | session_id=%s | trace_id=%s | error=%s",
                         safe_session_id,
                         trace_id,
                         exc,
@@ -1196,18 +1466,17 @@ class FrameDescriptionService:
                 "progress": 85,
             }
             self._debug(
-                "subtitle output ready | session=%s | trace=%s | desc_len=%d",
+                "fallback_target=subtitle_description | session_id=%s | trace_id=%s | fallback_reason=%s | desc_len=%d",
                 safe_session_id,
                 trace_id,
+                degraded_reason,
                 len(description),
             )
 
         # ------------------------------------------------------------------
         # 4. 场景变化检测（推理后去重）
         # ------------------------------------------------------------------
-        significant, stable_count = self._check_scene_change(
-            safe_session_id, description, previous
-        )
+        significant, stable_count = self._check_scene_change(safe_session_id, description, previous)
         if not significant and previous and self._skip_stable_scene:
             # 场景稳定，跳过描述推送（但不跳过记录）
             self._push_session_history(safe_session_id, description)

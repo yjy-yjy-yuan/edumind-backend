@@ -223,11 +223,12 @@ class TestFrameDescriptionService:
         assert len(error_events) >= 1
         assert error_events[0]["stage"] == "config"
 
-    def test_empty_frames_returns_error(self, monkeypatch):
+    def test_empty_frames_use_qwen3vl_text_only_mode(self, monkeypatch):
         monkeypatch.setattr(
             "app.services.frame_description_service.settings",
             MagicMock(
                 FRAME_DESC_ENABLED=True,
+                FRAME_DESC_BACKEND="qwen3vl",
                 FRAME_DESC_TIMEOUT_SECONDS=8.0,
                 FRAME_DESC_CONTEXT_WINDOW_SIZE=5,
                 FRAME_DESC_SIMILARITY_THRESHOLD=0.82,
@@ -244,10 +245,21 @@ class TestFrameDescriptionService:
                 VINCI_STREAM_PATH="/api/v1/chat/stream",
                 VINCI_STREAM_TIMEOUT_SECONDS=120.0,
                 FRAME_DESC_AUTO_DEGRADE=True,
+                FRAME_DESC_USE_QWEN3VL_STREAM=False,
+                FRAME_DESC_PROBE_VINCI_BEFORE_INFER=False,
+                FRAME_DESC_CLOUD_FALLBACK_ENABLED=False,
+                QWEN3VL_MAX_NEW_TOKENS=64,
                 ANALYTICS_TRACE_ID_PLACEHOLDER="unset",
             ),
         )
-        service = FrameDescriptionService()
+
+        class FakeQwenClient:
+            def describe(self, *, base64_frames, prompt, max_new_tokens):
+                _ = prompt, max_new_tokens
+                assert base64_frames == []
+                return "文本模式描述"
+
+        service = FrameDescriptionService(qwen3vl_client=FakeQwenClient())
 
         events = list(
             service.describe_frames(
@@ -262,8 +274,10 @@ class TestFrameDescriptionService:
         )
 
         error_events = [e for e in events if e["type"] == "error"]
-        assert len(error_events) >= 1
-        assert error_events[0]["stage"] == "validation"
+        complete_events = [e for e in events if e["type"] == "complete"]
+        assert error_events == []
+        assert len(complete_events) == 1
+        assert complete_events[0]["full_description"] == "文本模式描述"
 
     def test_session_lifecycle(self, monkeypatch):
         monkeypatch.setattr(
@@ -281,9 +295,7 @@ class TestFrameDescriptionService:
         )
         service = FrameDescriptionService()
 
-        result = service.start_session(
-            video_id=1, detail_level="standard", session_id=""
-        )
+        result = service.start_session(video_id=1, detail_level="standard", session_id="")
         assert result["status"] == "active"
         assert result["session_id"] != ""
 
@@ -333,9 +345,7 @@ class TestFrameDescriptionService:
 
         # 覆盖 vinci_adapter 使其返回固定 answer
         service = FrameDescriptionService()
-        service._cb = _VinciCircuitBreaker(
-            failure_threshold=3, recovery_seconds=30.0, key=f"test-history-{id(self)}"
-        )
+        service._cb = _VinciCircuitBreaker(failure_threshold=3, recovery_seconds=30.0, key=f"test-history-{id(self)}")
 
         session_id = "test-history-session"
 
@@ -556,9 +566,7 @@ class TestFrameDescriptionService:
 
 
 class TestFrameDescriptionDegradedMode:
-    def test_vinci_adapter_degraded_payload_marks_complete_as_degraded(
-        self, monkeypatch
-    ):
+    def test_vinci_adapter_degraded_payload_marks_complete_as_degraded(self, monkeypatch):
         """当 execute_tool 返回 degraded=True 时，complete 事件也必须标记 degraded=True。"""
         monkeypatch.setattr(
             "app.services.frame_description_service.get_telemetry",
@@ -643,9 +651,7 @@ class TestFrameDescriptionDegradedMode:
         )
 
         unique_key = f"test-degraded-{id(self)}"
-        cb = _VinciCircuitBreaker(
-            failure_threshold=3, recovery_seconds=30.0, key=unique_key
-        )
+        cb = _VinciCircuitBreaker(failure_threshold=3, recovery_seconds=30.0, key=unique_key)
 
         # execute_tool 在 Vinci 不可用时抛出 VinciAdapterError
         def fake_execute_tool(tool_name, params, *, db, trace_id):
@@ -739,7 +745,70 @@ class TestFrameDescriptionDegradedMode:
         complete_events = [e for e in events if e["type"] == "complete"]
         assert len(complete_events) == 1
         assert complete_events[0]["degraded"] is True
-        assert "描述服务暂不可用" in complete_events[0]["full_description"]
+        assert "暂时无法获取画面描述" in complete_events[0]["full_description"]
+
+    def test_qwen3vl_unavailable_uses_cloud_qwen_vl_before_subtitle(self, monkeypatch):
+        """本地 Qwen3-VL 不可用时，先使用 Cloud Qwen-VL，不直接进入字幕降级。"""
+        monkeypatch.setattr(
+            "app.services.frame_description_service.get_telemetry",
+            lambda: MagicMock(emit=MagicMock()),
+        )
+        monkeypatch.setattr(
+            "app.services.frame_description_service.settings",
+            MagicMock(
+                FRAME_DESC_ENABLED=True,
+                FRAME_DESC_BACKEND="qwen3vl",
+                FRAME_DESC_TIMEOUT_SECONDS=8.0,
+                FRAME_DESC_CONTEXT_WINDOW_SIZE=5,
+                FRAME_DESC_SIMILARITY_THRESHOLD=0.82,
+                FRAME_DESC_SCENE_STABLE_THRESHOLD=4,
+                FRAME_DESC_DEGRADED_INTERVAL_SECONDS=10.0,
+                FRAME_DESC_DEGRADED_PREFIX="（描述服务暂不可用，仅供参考）",
+                FRAME_DESC_PROBE_VINCI_BEFORE_INFER=False,
+                FRAME_DESC_CLOUD_FALLBACK_ENABLED=True,
+                FRAME_DESC_CLOUD_PROVIDER="qwen",
+                QWEN3VL_MAX_NEW_TOKENS=64,
+                VINCI_CIRCUIT_BREAKER_FAILURE_THRESHOLD=3,
+                VINCI_CIRCUIT_BREAKER_RECOVERY_SECONDS=30.0,
+                FRAME_DESC_AUTO_DEGRADE=True,
+                FRAME_DESC_USE_QWEN3VL_STREAM=False,
+                ANALYTICS_TRACE_ID_PLACEHOLDER="unset",
+            ),
+        )
+
+        class FakeQwenClient:
+            def describe(self, *, base64_frames, prompt, max_new_tokens):
+                _ = base64_frames, prompt, max_new_tokens
+                raise Qwen3VLUnavailableError("connection refused")
+
+        class FakeCloudClient:
+            def describe(self, *, base64_frames, prompt, session_id, trace_id):
+                _ = base64_frames, prompt, session_id, trace_id
+                return "云端 Qwen-VL 已完成画面描述"
+
+        service = FrameDescriptionService(
+            qwen3vl_client=FakeQwenClient(),
+            qwen_vl_cloud_client=FakeCloudClient(),
+        )
+
+        events = list(
+            service.describe_frames(
+                frames=["/9j/4AAQSkZJRg=="],
+                timestamp=10.0,
+                video_id=1,
+                video_title="Test",
+                detail_level="standard",
+                session_id="qwen-cloud-fallback-session",
+                trace_id="trace-qwen-cloud-fallback",
+                allow_degrade=True,
+                db=None,
+            )
+        )
+
+        complete_events = [e for e in events if e["type"] == "complete"]
+        assert len(complete_events) == 1
+        assert complete_events[0]["degraded"] is False
+        assert complete_events[0]["full_description"] == "云端 Qwen-VL 已完成画面描述"
 
     def test_degrade_disabled_raises_error(self, monkeypatch):
         """当 allow_degrade=False 且 Vinci 不可用时，应返回错误事件。"""
@@ -765,9 +834,7 @@ class TestFrameDescriptionDegradedMode:
         )
 
         unique_key = f"test-no-degrade-{id(self)}"
-        cb = _VinciCircuitBreaker(
-            failure_threshold=3, recovery_seconds=30.0, key=unique_key
-        )
+        cb = _VinciCircuitBreaker(failure_threshold=3, recovery_seconds=30.0, key=unique_key)
 
         def fake_execute_tool(tool_name, params, *, db, trace_id):
             _ = db, trace_id, tool_name, params
