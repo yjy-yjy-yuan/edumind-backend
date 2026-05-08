@@ -13,7 +13,7 @@
 
 ### 2026-05-08
 
-- `PENDING` feat(frame-description): add cloud qwen-vl fallback and sync docs
+- `6e2d2e3` feat(frame-description): add cloud qwen-vl fallback and sync docs
 
 ### 2026-05-06
 
