@@ -11,6 +11,10 @@
 
 ---
 
+### 2026-05-09
+
+- `PENDING` docs: initialize project documentation system
+
 ### 2026-05-08
 
 - `6e2d2e3` feat(frame-description): add cloud qwen-vl fallback and sync docs

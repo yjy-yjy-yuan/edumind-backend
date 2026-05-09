@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-05-09
+
+### 初始化长期项目日志与全局上下文入口
+
+- **docs**：新增 `docs/INDEX.md`，作为全局上下文入口、项目状态面板、Prompt Registry、Session 恢复中心和文档导航。
+- **docs**：新增 `docs/MILESTONES.md`，汇总当前后端里程碑、状态和风险。
+- **docs**：新增 `docs/arch/` 与 `docs/architecture/`，记录 ADR、系统设计、技术栈、后端分层、前端对接边界、数据库结构和 API 流程。
+- **docs**：新增 `docs/features/`、`docs/bugs/`、`docs/testing/`、`docs/updates/`，建立功能、Bug、测试、发布变更的长期审计日志。
+- **docs**：新增 `docs/guides/`、`docs/reference/`、`docs/prompts/`、`docs/summaries/`、`docs/legacy/`，沉淀 setup/deploy/release/troubleshooting、命令/环境/依赖约定、Prompt、session 历史和 legacy 迁移说明。
+- **docs**：更新 `docs/prompts/workflow.md` 与 `docs/summaries/session-history.md`，固化“继续/恢复工作”必须先读取 `docs/INDEX.md`、功能完成必须补齐 changelog/session/feature/INDEX 引用等规则。
+- **impact**：本次不修改运行时代码；后续代码修改、功能开发、Bug 修复、架构调整和发布都需要同步维护 `docs/INDEX.md` 与对应日志，否则视为开发未完成。
+
+---
+
 ## 2026-05-08
 
 ### Frame Description Qwen3VL Cloud Fallback 与文档同步
