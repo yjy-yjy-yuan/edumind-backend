@@ -8,7 +8,8 @@
 |---|---|
 | 任务 | 将 `docs/INDEX.md` 固化为全局上下文入口、AI 工作入口、日志路由器、Prompt Registry、Session 恢复中心 |
 | 完成内容 | 重写 `docs/INDEX.md` 为强制结构；同步 `docs/prompts/workflow.md` 的恢复、Prompt、日志完整性规则；补充本 session 记录 |
-| 修改文件 | `docs/INDEX.md`, `docs/prompts/workflow.md`, `docs/summaries/session-history.md`, `docs/features/completed.md`, `docs/updates/changelog.md` |
+| 修改文件 | `docs/INDEX.md`, `docs/prompts/workflow.md`, `docs/summaries/session-history.md`, `docs/features/completed.md`, `docs/updates/changelog.md`, `CHANGELOG.md`, `COMMIT_LOG.md` |
+| 提交记录 | `903b7d1 docs: initialize project documentation system` |
 | 未完成事项 | PR checklist 尚未加入 docs 完整性检查；API 示例索引尚未建立；自动化检查新增 docs 是否被 INDEX 引用仍为计划项 |
 | 下次建议 | 继续任务前先读取 `docs/INDEX.md`，从 Recovery Guide 和 Pending Tasks 恢复上下文 |
 | 风险 | 如果后续开发未同步 INDEX 与对应日志，功能按规则视为未完成 |

@@ -29,7 +29,7 @@
 | 项 | 值 |
 |---|---|
 | API version | `2.0.0` |
-| 最近提交记录 | `6e2d2e3 feat(frame-description): add cloud qwen-vl fallback and sync docs` |
+| 最近提交记录 | `903b7d1 docs: initialize project documentation system` |
 | 文档体系版本 | `docs-init-2026-05-09` |
 
 ## 当前负责人
