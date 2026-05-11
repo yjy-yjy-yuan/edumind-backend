@@ -11,6 +11,10 @@
 
 ---
 
+### 2026-05-11
+
+- `a188cd4` fix(subtitles): unify utf-8-sig output and fallback decode across subtitle flows
+
 ### 2026-05-09
 
 - `903b7d1` docs: initialize project documentation system
