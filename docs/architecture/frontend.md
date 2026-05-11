@@ -1,6 +1,6 @@
 # Frontend Integration Notes
 
-更新时间：2026-05-09 00:00:00 Asia/Shanghai
+更新时间：2026-05-11 21:10:00 Asia/Shanghai
 
 ## 当前仓库边界
 
@@ -15,7 +15,7 @@
 | 场景 | 后端入口 | 注意事项 |
 |---|---|---|
 | 视频列表/详情/删除 | `/api/videos`, `/api/video` | 存在兼容旧路径；删除为软删除语义 |
-| 字幕展示 | `/api/subtitles`, `/api/videos/{video_id}/subtitle` | 当前文档记录默认 VTT/UTF-8 输出 |
+| 字幕展示 | `/api/subtitles`, `/api/videos/{video_id}/subtitle` | 字幕文本链路统一 `UTF-8-SIG`（含 BOM），响应头显式 `charset=utf-8` |
 | 实时画面描述 | `/api/frame_description` | 支持会话、健康检查、同步/流式描述 |
 | 推荐 | `/api/recommendations` | 返回契约版本受 `RECOMMENDATION_CONTRACT_VERSION` 控制 |
 | 搜索 | `/api/search/*` | Bearer 优先，兼容开发身份传递 |

@@ -53,6 +53,7 @@ from app.services.learning_flow_agent import (
     normalize_user_input,
 )
 from app.services.video_content_service import fallback_tags, normalize_summary_style
+from app.utils.subtitle_io import repair_mojibake_text
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +217,7 @@ def run_learning_flow_pipeline(
 
     ctx = AgentContext(
         video=video,
-        subtitle_text=str(request.subtitle_text or ""),
+        subtitle_text=repair_mojibake_text(str(request.subtitle_text or "")),
         current_time_seconds=request.current_time_seconds,
         recent_qa_messages=list(request.recent_qa_messages or []),
         page_context=str(request.page_context or "video_detail"),

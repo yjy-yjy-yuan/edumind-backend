@@ -177,11 +177,24 @@ git push --no-verify
 - 上传接口鉴权与其他路由一致：支持 Bearer、`X-User-ID`、`query user_id` 开发兼容链路。
 - MySQL 迁移脚本：`migrations/add_video_soft_delete_and_user_rebind.sql`。
 
+## Subtitle Encoding Patch (2026-05-11)
+
+- 字幕读取统一使用 fallback decode（`utf-8`/`utf-8-sig`/`gb18030`/`gbk`/`utf-16`）并启用 mojibake 自动修复：
+  - `app/utils/subtitle_io.py`
+- 字幕对外文本接口统一输出 `utf-8-sig`（带 BOM，`efbbbf`）并显式 `charset=utf-8`：
+  - `GET /api/videos/{video_id}/subtitle`
+  - `GET /api/videos/{video_id}/subtitle?format=txt|srt`
+  - `GET /api/subtitles/videos/{video_id}/subtitles/export?format=vtt|srt|txt`
+  - `GET /api/subtitles/videos/{video_id}/subtitles/semantic-merged?format=vtt|srt|txt`
+- 说明：
+  - `鑰佸笀...`、`ä¸­æ...`、UTF-16 异常符号属于编码乱码路径。
+  - `平司边形`、`减几处`、`去球` 属于 ASR/Whisper 识别错误，不属于编码问题。
+
 ## Unified Deployment Patch (2026-04-27)
 
-- 字幕读取增强编码回退（`utf-8/utf-16/gb*`），降低中文字幕乱码概率：
+- 字幕读取增强编码回退（`utf-8`/`utf-8-sig`/`gb18030`/`gbk`/`utf-16`），降低中文字幕乱码概率：
   - `app/utils/subtitle_io.py`
-- 视频字幕接口默认输出改为 `vtt` 且 `utf-8` 响应：
+- 视频字幕接口默认输出改为 `vtt`，并统一 `utf-8-sig`（带 BOM）响应：
   - `GET /api/videos/{video_id}/subtitle`
   - `app/routers/video.py`
 - 删除视频接口新增兼容路径，适配不同客户端实现：

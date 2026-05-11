@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.services.frame_source_extractor import FrameSourceExtractionError
+
 
 @pytest.mark.api
 def test_describe_returns_503_when_disabled(client, sample_video, monkeypatch):
@@ -148,6 +150,68 @@ def test_describe_can_use_server_frame_source_when_frontend_capture_is_blocked(c
     assert "正在服务端抽取视频帧" in response.text
     assert "服务端抽帧后完成描述" in response.text
     assert mock_service.describe_frames.call_args.kwargs["frames"] == ["/9j/server-side-frame=="]
+
+
+@pytest.mark.api
+def test_describe_continues_text_only_when_server_frame_source_fails(client, monkeypatch):
+    """视频尾部服务端抽帧失败时，不把临时文件错误暴露给前端，继续走统一降级链。"""
+    monkeypatch.setattr(
+        "app.routers.frame_description.settings",
+        MagicMock(
+            FRAME_DESC_ENABLED=True,
+            FRAME_DESC_ALLOW_EXTERNAL_VIDEO=True,
+            FRAME_DESC_ALLOW_SERVER_FRAME_FETCH=True,
+            FRAME_DESC_SERVER_FRAME_ALLOWED_HOSTS="47.84.228.226",
+        ),
+    )
+
+    def raise_extraction_error(**kwargs):
+        raise FrameSourceExtractionError("服务端抽帧结果不是有效图片")
+
+    monkeypatch.setattr(
+        "app.routers.frame_description.extract_frame_from_video_url",
+        raise_extraction_error,
+    )
+
+    mock_service = MagicMock()
+
+    def mock_describe(**kwargs):
+        yield {
+            "type": "complete",
+            "stage": "completed",
+            "full_description": "已改用文本上下文继续描述",
+            "timestamp": 75.0,
+            "confidence": None,
+            "context_summary": None,
+            "degraded": True,
+            "latency_ms": 12.0,
+            "progress": 100,
+            "message": "描述已完成",
+        }
+
+    mock_service.describe_frames.side_effect = mock_describe
+    monkeypatch.setattr(
+        "app.routers.frame_description.get_frame_desc_service",
+        lambda: mock_service,
+    )
+
+    response = client.post(
+        "/api/frame_description/describe",
+        json={
+            "video_id": 99999,
+            "frames": [],
+            "frame_source_url": "https://47.84.228.226/api/videos/25/stream",
+            "timestamp": 75.0,
+            "video_title": "云端短视频",
+            "detail_level": "standard",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "已改用文本上下文继续描述" in response.text
+    assert "server_frame_extract_failed" not in response.text
+    assert "cannot identify image file" not in response.text
+    assert mock_service.describe_frames.call_args.kwargs["frames"] == []
 
 
 @pytest.mark.api

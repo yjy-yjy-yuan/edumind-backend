@@ -17,6 +17,7 @@ from app.models.note import Note, NoteTimestamp
 from app.models.video import Video
 from app.schemas.note import NoteCreate, NoteResponse, NoteUpdate
 from app.utils.auth_deps import resolve_user_id_from_request
+from app.utils.subtitle_io import repair_mojibake_text
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +188,8 @@ async def create_note(
     # 添加时间戳
     if data.timestamps:
         for ts in data.timestamps:
-            timestamp = NoteTimestamp(note_id=note.id, time_seconds=ts.time_seconds, subtitle_text=ts.subtitle_text)
+            subtitle_text = None if ts.subtitle_text is None else repair_mojibake_text(ts.subtitle_text)
+            timestamp = NoteTimestamp(note_id=note.id, time_seconds=ts.time_seconds, subtitle_text=subtitle_text)
             db.add(timestamp)
         db.commit()
         logger.debug("note timestamps attached | note_id=%s | count=%s", note.id, len(data.timestamps))
@@ -274,7 +276,8 @@ async def add_timestamp(
         len(str(subtitle_text or "")),
     )
 
-    timestamp = NoteTimestamp(note_id=note.id, time_seconds=time_seconds, subtitle_text=subtitle_text)
+    repaired_subtitle_text = None if subtitle_text is None else repair_mojibake_text(subtitle_text)
+    timestamp = NoteTimestamp(note_id=note.id, time_seconds=time_seconds, subtitle_text=repaired_subtitle_text)
     db.add(timestamp)
     db.commit()
     db.refresh(timestamp)

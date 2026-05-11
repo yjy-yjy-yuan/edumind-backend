@@ -12,6 +12,7 @@ import requests
 
 from app.core.config import settings
 from app.utils.ollama_compat import build_ollama_options, sanitize_ollama_response_text
+from app.utils.subtitle_io import read_subtitle_file_with_fallback, repair_mojibake_text
 
 logger = logging.getLogger(__name__)
 
@@ -229,8 +230,7 @@ def read_subtitle_text(subtitle_path: str) -> str:
     if not subtitle_path:
         return ""
     try:
-        with open(subtitle_path, "r", encoding="utf-8") as handle:
-            return remove_srt_timing_markers(handle.read())
+        return remove_srt_timing_markers(read_subtitle_file_with_fallback(subtitle_path))
     except FileNotFoundError:
         return ""
     except Exception as exc:
@@ -241,10 +241,14 @@ def read_subtitle_text(subtitle_path: str) -> str:
 def extract_transcript_text(result: Optional[dict]) -> str:
     payload = result or {}
     segments = payload.get("segments") or []
-    texts = [clean_whitespace(segment.get("text")) for segment in segments if clean_whitespace(segment.get("text"))]
+    texts = [
+        clean_whitespace(repair_mojibake_text(segment.get("text")))
+        for segment in segments
+        if clean_whitespace(repair_mojibake_text(segment.get("text")))
+    ]
     if texts:
         return clean_whitespace(" ".join(texts))
-    return clean_whitespace(payload.get("text") or "")
+    return clean_whitespace(repair_mojibake_text(payload.get("text") or ""))
 
 
 def split_sentences(text: str) -> list[str]:

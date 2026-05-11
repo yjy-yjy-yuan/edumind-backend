@@ -16,7 +16,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.subtitle import Subtitle
 from app.models.video import Video
-from app.utils.subtitle_io import read_subtitle_file_with_fallback
+from app.utils.subtitle_io import read_subtitle_file_with_fallback, repair_mojibake_text
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,33 @@ def build_content_disposition_filename(prefix: str, title: str, ext: str) -> str
     ascii_filename = f"{prefix}-{ascii_fallback_title}.{safe_ext}"
     utf8_filename = f"{prefix}-{str(title or 'video').strip() or 'video'}.{safe_ext}"
     return f"attachment; filename=\"{ascii_filename}\"; filename*=UTF-8''{quote(utf8_filename)}"
+
+
+def _subtitle_media_type(format: str) -> str:
+    normalized = str(format or "").strip().lower()
+    if normalized == "srt":
+        return "application/x-subrip; charset=utf-8"
+    if normalized == "vtt":
+        return "text/vtt"
+    return "text/plain"
+
+
+def _repair_subtitle_payloads(subtitles: list) -> list:
+    repaired = []
+    for item in subtitles or []:
+        if not isinstance(item, dict):
+            continue
+        next_item = dict(item)
+        next_item["text"] = repair_mojibake_text(str(next_item.get("text") or ""))
+        if "title" in next_item:
+            next_item["title"] = repair_mojibake_text(str(next_item.get("title") or ""))
+        repaired.append(next_item)
+    return repaired
+
+
+def _write_semantic_cache(cache_file: str, merged_subtitles: list) -> None:
+    with open(cache_file, "w", encoding="utf-8-sig") as f:
+        json.dump(_repair_subtitle_payloads(merged_subtitles), f, ensure_ascii=False, indent=2)
 
 
 def format_seconds_to_srt_time(seconds: float) -> str:
@@ -83,7 +110,7 @@ def parse_srt_content(content: str) -> list:
                 else:
                     end_time = int(end_parts[0]) * 3600 + int(end_parts[1]) * 60 + float(end_parts[2])
 
-                text = "\n".join(lines[2:])
+                text = repair_mojibake_text("\n".join(lines[2:]))
                 subtitles.append({"start_time": start_time, "end_time": end_time, "text": text})
 
     return subtitles
@@ -104,7 +131,7 @@ async def get_video_subtitles(video_id: int, db: Session = Depends(get_db)):
                 "id": sub.id,
                 "start_time": sub.start_time,
                 "end_time": sub.end_time,
-                "text": sub.text,
+                "text": repair_mojibake_text(sub.text),
                 "language": sub.language,
             }
             for sub in subtitles
@@ -163,7 +190,7 @@ async def get_merged_subtitles(
     # 尝试从缓存读取
     if os.path.exists(cache_file) and not force_refresh:
         try:
-            with open(cache_file, "r", encoding="utf-8") as f:
+            with open(cache_file, "r", encoding="utf-8-sig") as f:
                 merged_subtitles = json.load(f)
         except Exception as e:
             logger.error(f"读取缓存文件时出错: {str(e)}")
@@ -191,10 +218,16 @@ async def get_merged_subtitles(
 
         # 保存缓存
         try:
-            with open(cache_file, "w", encoding="utf-8") as f:
-                json.dump(merged_subtitles, f, ensure_ascii=False, indent=2)
+            _write_semantic_cache(cache_file, merged_subtitles)
         except Exception as e:
             logger.error(f"保存缓存文件时出错: {str(e)}")
+
+    merged_subtitles = _repair_subtitle_payloads(merged_subtitles)
+    if os.path.exists(cache_file):
+        try:
+            _write_semantic_cache(cache_file, merged_subtitles)
+        except Exception as e:
+            logger.error(f"回写修复后的缓存文件时出错: {str(e)}")
 
     # 如果请求特定格式，转换并返回
     if format:
@@ -206,28 +239,28 @@ async def get_merged_subtitles(
             for i, sub in enumerate(merged_subtitles):
                 start = format_seconds_to_srt_time(sub["start_time"])
                 end = format_seconds_to_srt_time(sub["end_time"])
-                content += f"{i + 1}\n{start} --> {end}\n{sub['text']}\n\n"
-            mimetype = "text/plain"
+                content += f"{i + 1}\n{start} --> {end}\n{repair_mojibake_text(sub['text'])}\n\n"
+            mimetype = _subtitle_media_type(format)
         elif format == "vtt":
             content = "WEBVTT\n\n"
             for i, sub in enumerate(merged_subtitles):
                 start = format_seconds_to_vtt_time(sub["start_time"])
                 end = format_seconds_to_vtt_time(sub["end_time"])
-                content += f"{i + 1}\n{start} --> {end}\n{sub['text']}\n\n"
-            mimetype = "text/vtt"
+                content += f"{i + 1}\n{start} --> {end}\n{repair_mojibake_text(sub['text'])}\n\n"
+            mimetype = _subtitle_media_type(format)
         elif format == "txt":
             content = ""
             for sub in merged_subtitles:
                 start = format_seconds_to_display_time(sub["start_time"])
                 end = format_seconds_to_display_time(sub["end_time"])
                 title = sub.get("title", "")
-                content += f"[{start} - {end}] {title}\n{sub['text']}\n\n"
-            mimetype = "text/plain"
+                content += f"[{start} - {end}] {title}\n{repair_mojibake_text(sub['text'])}\n\n"
+            mimetype = _subtitle_media_type(format)
         else:
             raise HTTPException(status_code=400, detail=f"不支持的格式: {format}")
 
         return Response(
-            content=content.encode("utf-8"),
+            content=content.encode("utf-8-sig"),
             media_type=mimetype,
             headers={
                 "Content-Disposition": build_content_disposition_filename(
@@ -279,9 +312,10 @@ async def trigger_semantic_merge(video_id: int, db: Session = Depends(get_db)):
     if not merged_subtitles:
         raise HTTPException(status_code=500, detail="合并字幕失败，结果为空")
 
+    merged_subtitles = _repair_subtitle_payloads(merged_subtitles)
+
     # 保存缓存
-    with open(cache_file, "w", encoding="utf-8") as f:
-        json.dump(merged_subtitles, f, ensure_ascii=False, indent=2)
+    _write_semantic_cache(cache_file, merged_subtitles)
 
     return {
         "success": True,
@@ -308,27 +342,29 @@ async def export_subtitles(video_id: int, format: str = "srt", db: Session = Dep
         for i, sub in enumerate(subtitles):
             start = format_seconds_to_srt_time(sub.start_time)
             end = format_seconds_to_srt_time(sub.end_time)
-            content += f"{i + 1}\n{start} --> {end}\n{sub.text}\n\n"
-        mimetype = "application/x-subrip"
+            content += f"{i + 1}\n{start} --> {end}\n{repair_mojibake_text(sub.text)}\n\n"
+        mimetype = _subtitle_media_type(format)
     elif format == "vtt":
         content = "WEBVTT\n\n"
         for i, sub in enumerate(subtitles):
             start = format_seconds_to_vtt_time(sub.start_time)
             end = format_seconds_to_vtt_time(sub.end_time)
-            content += f"{i + 1}\n{start} --> {end}\n{sub.text}\n\n"
-        mimetype = "text/vtt"
+            content += f"{i + 1}\n{start} --> {end}\n{repair_mojibake_text(sub.text)}\n\n"
+        mimetype = _subtitle_media_type(format)
     else:
         content = ""
         for sub in subtitles:
-            content += f"{sub.text}\n"
-        mimetype = "text/plain"
-
-    filename = f"{video.title or video_id}_{video_id}.{format}"
+            content += f"{repair_mojibake_text(sub.text)}\n"
+        mimetype = _subtitle_media_type(format)
 
     return Response(
-        content=content.encode("utf-8"),
+        content=content.encode("utf-8-sig"),
         media_type=mimetype,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": build_content_disposition_filename(
+                prefix="subtitles", title=str(video.title if video else video_id), ext=format
+            )
+        },
     )
 
 
@@ -347,7 +383,7 @@ async def update_subtitle(
         raise HTTPException(status_code=404, detail="未找到指定字幕")
 
     if text is not None:
-        subtitle.text = text
+        subtitle.text = repair_mojibake_text(text)
     if start_time is not None:
         subtitle.start_time = start_time
     if end_time is not None:

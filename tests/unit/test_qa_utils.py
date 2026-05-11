@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.core.config import settings
-from app.utils.qa_utils import QASystem
+from app.utils.qa_utils import QASystem, parse_srt_chunks
 
 
 def build_video_stub():
@@ -64,3 +64,13 @@ def test_qasystem_uses_deepseek_reasoner_when_deep_thinking(monkeypatch):
 
     assert captured["provider"] == "deepseek"
     assert captured["model"] == settings.DEEPSEEK_REASONER_MODEL
+
+
+@pytest.mark.unit
+def test_parse_srt_chunks_reads_gbk_subtitles(tmp_path):
+    subtitle_path = tmp_path / "qa-gbk.srt"
+    subtitle_path.write_bytes("1\n00:00:00,000 --> 00:00:02,000\n老师讲解平行四边形\n".encode("gbk"))
+
+    chunks = parse_srt_chunks(str(subtitle_path))
+
+    assert chunks[0]["text"] == "老师讲解平行四边形"

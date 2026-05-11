@@ -25,6 +25,7 @@ from app.services.whisper_runtime import (
     get_whisper_device,
     transcribe_audio_with_whisper,
 )
+from app.utils.subtitle_io import repair_mojibake_text
 
 logger = logging.getLogger(__name__)
 
@@ -400,11 +401,20 @@ def save_subtitles(result: dict, srt_path: str, txt_path: str):
     try:
         from whisper.utils import WriteSRT, WriteTXT
 
-        with open(srt_path, "w", encoding="utf-8") as srt:
-            WriteSRT(None).write_result(result, srt)
+        repaired_result = dict(result or {})
+        repaired_result["text"] = repair_mojibake_text(str(repaired_result.get("text") or ""))
+        repaired_segments = []
+        for segment in repaired_result.get("segments") or []:
+            repaired_segment = dict(segment)
+            repaired_segment["text"] = repair_mojibake_text(str(repaired_segment.get("text") or ""))
+            repaired_segments.append(repaired_segment)
+        repaired_result["segments"] = repaired_segments
 
-        with open(txt_path, "w", encoding="utf-8") as txt:
-            WriteTXT(None).write_result(result, txt)
+        with open(srt_path, "w", encoding="utf-8-sig") as srt:
+            WriteSRT(None).write_result(repaired_result, srt)
+
+        with open(txt_path, "w", encoding="utf-8-sig") as txt:
+            WriteTXT(None).write_result(repaired_result, txt)
 
         logger.info(f"字幕已保存: {os.path.basename(srt_path)}")
         return True
@@ -444,7 +454,7 @@ def sync_subtitles_to_db(db, video_id: int, result: dict, language: str) -> int:
 
     subtitle_rows = []
     for segment in segments:
-        text = str(segment.get("text") or "").strip()
+        text = repair_mojibake_text(str(segment.get("text") or "")).strip()
         if not text:
             continue
 

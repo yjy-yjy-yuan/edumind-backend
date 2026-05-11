@@ -77,6 +77,7 @@ from app.services.whisper_runtime import (
 from app.utils.auth_deps import resolve_user_id_from_request
 from app.utils.subtitle_io import (
     read_subtitle_file_with_fallback,
+    repair_mojibake_text,
     srt_to_plain_text,
     srt_to_vtt,
 )
@@ -426,7 +427,11 @@ def sync_offline_subtitles(db: Session, video_id: int, transcript_text: str, seg
 def extract_video_transcript_text(video: Video) -> str:
     """优先从字幕表读取纯文本，缺失时回退到字幕文件。"""
     subtitle_rows = getattr(video, "subtitles", None) or []
-    subtitle_texts = [str(row.text or "").strip() for row in subtitle_rows if str(row.text or "").strip()]
+    subtitle_texts = [
+        repair_mojibake_text(str(row.text or "")).strip()
+        for row in subtitle_rows
+        if repair_mojibake_text(str(row.text or "")).strip()
+    ]
     if subtitle_texts:
         return " ".join(subtitle_texts)
     return read_subtitle_text(video.subtitle_filepath or "")
@@ -1156,18 +1161,18 @@ async def get_subtitle(
     if format.lower() == "vtt":
         vtt_content = srt_to_vtt(content)
         return Response(
-            content=vtt_content.encode("utf-8"),
-            media_type="text/vtt; charset=utf-8",
+            content=vtt_content.encode("utf-8-sig"),
+            media_type="text/vtt",
         )
     elif format.lower() == "txt":
         txt_content = srt_to_plain_text(content)
         return Response(
-            content=txt_content.encode("utf-8"),
-            media_type="text/plain; charset=utf-8",
+            content=txt_content.encode("utf-8-sig"),
+            media_type="text/plain",
         )
     else:
         return Response(
-            content=content.encode("utf-8"),
+            content=content.encode("utf-8-sig"),
             media_type="application/x-subrip; charset=utf-8",
         )
 

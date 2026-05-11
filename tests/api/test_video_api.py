@@ -298,8 +298,77 @@ class TestVideoAPI:
         response = client.get(f"/api/videos/{sample_video.id}/subtitle")
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/vtt")
+        assert response.content.startswith(b"\xef\xbb\xbf")
         assert "WEBVTT" in response.text
         assert "老师讲解导数定义" in response.text
+
+    def test_get_subtitle_repairs_gbk_file_that_can_be_misread_as_utf16(self, client, db, sample_video, tmp_path):
+        """GBK 字幕不能被 UTF-16 候选误判成乱码。"""
+        subtitle_path = tmp_path / "gbk-player.srt"
+        subtitle_path.write_bytes("1\n00:00:00,000 --> 00:00:02,000\n老师讲解平行四边形\n".encode("gbk"))
+        sample_video.subtitle_filepath = str(subtitle_path)
+        db.commit()
+
+        response = client.get(f"/api/videos/{sample_video.id}/subtitle")
+
+        assert response.status_code == 200
+        assert response.content.startswith(b"\xef\xbb\xbf")
+        assert "老师讲解平行四边形" in response.text
+        assert "㨰" not in response.text
+
+    def test_get_subtitle_srt_includes_utf8_charset_and_bom(self, client, db, sample_video, tmp_path):
+        """SRT 直出也应显式声明 UTF-8，并保留 BOM。"""
+        subtitle_path = tmp_path / "direct.srt"
+        subtitle_path.write_text(
+            "1\n00:00:00,000 --> 00:00:02,000\n老师讲解导数定义\n",
+            encoding="utf-8",
+        )
+        sample_video.subtitle_filepath = str(subtitle_path)
+        db.commit()
+
+        response = client.get(f"/api/videos/{sample_video.id}/subtitle?format=srt")
+
+        assert response.status_code == 200
+        assert "charset=utf-8" in response.headers["content-type"]
+        assert response.content.startswith(b"\xef\xbb\xbf")
+        assert "老师讲解导数定义" in response.text
+
+    def test_semantic_merged_repairs_cached_mojibake_json(self, client, db, sample_video, tmp_path, monkeypatch):
+        """旧语义分段缓存里若已有 mojibake，默认 JSON 返回也要修复。"""
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "UPLOAD_FOLDER", str(tmp_path))
+        subtitle_path = tmp_path / "semantic.srt"
+        subtitle_path.write_text(
+            "1\n00:00:00,000 --> 00:00:02,000\n中文字幕\n",
+            encoding="utf-8",
+        )
+        sample_video.subtitle_filepath = str(subtitle_path)
+        sample_video.filename = "semantic.mp4"
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        (cache_dir / "semantic_semantic.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "start_time": 0.0,
+                        "end_time": 2.0,
+                        "title": "ä¸­æ",
+                        "text": "ä¸­æå­å¹",
+                    }
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        db.commit()
+
+        response = client.get(f"/api/subtitles/videos/{sample_video.id}/subtitles/semantic-merged")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload[0]["title"] == "中文"
+        assert payload[0]["text"] == "中文字幕"
 
     def test_upload_video_file(self, client, db, tmp_path, monkeypatch, sample_user):
         """测试本地视频上传"""
@@ -990,12 +1059,12 @@ class TestNoteAPI:
         """测试时间戳的新增与删除。"""
         create_response = client.post(
             f"/api/notes/notes/{sample_note.id}/timestamps",
-            params={"time_seconds": 88.2, "subtitle_text": "勾股定理重点"},
+            params={"time_seconds": 88.2, "subtitle_text": "ä¸­æå­å¹"},
         )
         assert create_response.status_code == 200
         created = create_response.json()["data"]
         assert created["time_seconds"] == 88.2
-        assert created["subtitle_text"] == "勾股定理重点"
+        assert created["subtitle_text"] == "中文字幕"
 
         delete_response = client.delete(f"/api/notes/notes/{sample_note.id}/timestamps/{created['id']}")
         assert delete_response.status_code == 200

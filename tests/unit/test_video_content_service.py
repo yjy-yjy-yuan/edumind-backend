@@ -7,6 +7,7 @@ from app.services.video_content_service import (
     fallback_summary,
     generate_video_summary,
     generate_video_tags,
+    read_subtitle_text,
 )
 
 
@@ -57,3 +58,14 @@ def test_fallback_summary_returns_non_empty_text():
 
     assert isinstance(summary, str)
     assert summary.strip()
+
+
+@pytest.mark.unit
+def test_read_subtitle_text_uses_charset_fallback(tmp_path):
+    subtitle_path = tmp_path / "summary-gbk.srt"
+    subtitle_path.write_bytes("1\n00:00:00,000 --> 00:00:02,000\n老师讲解平行四边形\n".encode("gbk"))
+
+    text = read_subtitle_text(str(subtitle_path))
+
+    assert "老师讲解平行四边形" in text
+    assert "㨰" not in text

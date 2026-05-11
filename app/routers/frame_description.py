@@ -32,6 +32,7 @@ from app.services.frame_source_extractor import (
 from app.services.qwen3vl_realtime_client import Qwen3VLRealtimeClient
 from app.services.vinci_adapter_service import VinciAdapterService, VinciHealthResult
 from app.utils.frame_description_debug import get_frame_description_debug_logger
+from app.utils.subtitle_io import repair_mojibake_text
 
 logger = logging.getLogger(__name__)
 if bool(getattr(settings, "FRAME_DESC_DEBUG_LOG", False)):
@@ -81,7 +82,7 @@ def _build_router_degraded_text(db: Session, video_id: int, timestamp: float, er
                 best_idx = idx
         snippets: list[str] = []
         for idx in range(max(0, best_idx - 1), min(len(subtitles), best_idx + 2)):
-            text = " ".join(str(getattr(subtitles[idx], "text", "") or "").split()).strip()
+            text = " ".join(repair_mojibake_text(str(getattr(subtitles[idx], "text", "") or "")).split()).strip()
             if text:
                 snippets.append(text if len(text) <= 60 else f"{text[:60].rstrip()}...")
         if snippets:
@@ -210,7 +211,7 @@ async def describe_frame(
                     )
                 except FrameSourceExtractionError as exc:
                     frame_desc_debug_logger.debug(
-                        "frame extract failed | error_type=server_frame_extract_failed | error=%s | stream_url=%s | url=%s | session_id=%s | trace_id=%s | fallback_reason=frame_extract_failed | fallback_target=subtitle_description",
+                        "frame extract failed | error_type=server_frame_extract_failed | error=%s | stream_url=%s | url=%s | session_id=%s | trace_id=%s | fallback_reason=frame_extract_failed | fallback_target=qwen3vl_text_only",
                         str(exc),
                         request.frame_source_url,
                         request.frame_source_url,
@@ -218,7 +219,7 @@ async def describe_frame(
                         trace_id,
                         exc_info=True,
                     )
-                    raise FrameDescServiceError(f"server_frame_extract_failed:{exc}") from exc
+                    frames = []
 
             for event in service.describe_frames(
                 frames=frames,

@@ -18,6 +18,7 @@ from app.services.video_content_service import (
     clean_whitespace,
     tokenize_sentence,
 )
+from app.utils.subtitle_io import read_subtitle_file_with_fallback, repair_mojibake_text
 
 logger = logging.getLogger(__name__)
 
@@ -294,8 +295,7 @@ def parse_srt_chunks(subtitle_path: str) -> list[dict]:
         return []
 
     try:
-        with open(subtitle_path, "r", encoding="utf-8") as handle:
-            content = handle.read()
+        content = read_subtitle_file_with_fallback(subtitle_path)
     except FileNotFoundError:
         return []
     except Exception as exc:
@@ -315,7 +315,7 @@ def parse_srt_chunks(subtitle_path: str) -> list[dict]:
             continue
 
         text_lines = lines[2:] if lines[0].isdigit() else lines[1:]
-        text = clean_whitespace(" ".join(text_lines))
+        text = clean_whitespace(repair_mojibake_text(" ".join(text_lines)))
         if not text:
             continue
 

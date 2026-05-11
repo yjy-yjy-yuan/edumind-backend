@@ -7,6 +7,7 @@ from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
+from app.utils.subtitle_io import repair_mojibake_text
 
 if TYPE_CHECKING:
     from app.models.video import Video
@@ -77,6 +78,6 @@ class NoteTimestamp(Base):
             "id": self.id,
             "note_id": self.note_id,
             "time_seconds": self.time_seconds,
-            "subtitle_text": self.subtitle_text,
+            "subtitle_text": repair_mojibake_text(self.subtitle_text),
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

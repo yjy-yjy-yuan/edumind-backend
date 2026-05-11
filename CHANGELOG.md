@@ -7,6 +7,27 @@
 
 ---
 
+## 2026-05-11
+
+### 中文字幕乱码链路收敛（UTF-8-SIG + fallback decode + mojibake 修复）
+
+- **backend**：更新 `app/utils/subtitle_io.py`，统一字幕读取为中文友好的 fallback decode（`utf-8`/`utf-8-sig`/`gb18030`/`gbk`/`utf-16`）并增加 mojibake 修复评分与优选逻辑，修复 `ä¸­æ...`、`鑰佸笀...` 一类编码乱码。
+- **backend**：更新 `app/routers/video.py`，`GET /api/videos/{id}/subtitle` 及 `format=txt|srt` 导出统一 `utf-8-sig` 输出，响应头显式 `charset=utf-8`，返回体携带 BOM（`efbbbf`）。
+- **backend**：更新 `app/routers/subtitle.py`，`/api/subtitles/videos/{id}/subtitles`、`/export`、`/semantic-merged` 全链路加入乱码修复，导出统一 BOM，并修复中文文件名 `Content-Disposition` 兼容。
+- **backend**：更新 `app/services/video_content_service.py`、`app/utils/qa_utils.py`，摘要/标签/QA-RAG 读取字幕时改为统一 fallback decode，消除 `encoding="utf-8"` 单路径读取带来的隐性乱码风险。
+- **backend**：更新 `app/services/frame_description_service.py`、`app/tasks/video_processing.py`，字幕 fallback 文本拼接与离线转录入库路径统一应用 mojibake 自动修复，避免错误文本继续扩散。
+- **tests**：新增 `tests/unit/test_subtitle_io.py`；更新 `tests/api/test_video_api.py`、`tests/api/test_frame_description_api.py`、`tests/unit/test_qa_utils.py`、`tests/unit/test_video_content_service.py`，覆盖 BOM 输出、fallback decode 与乱码修复行为。
+- **docs**：更新 `README.md`、`docs/architecture/frontend.md`、`docs/guides/troubleshooting.md`、`docs/summaries/session-history.md`，修正文档中“默认 UTF-8”这类不完整描述，统一为“字幕文本链路输出 UTF-8-SIG（含 BOM）”。
+- **impact**：字幕“编码乱码”主路径已收敛；若仍出现 `平司边形`、`减几处`、`去球` 等文本，属于 ASR/Whisper 识别误差而非编码问题。
+
+### 本地/云端可删除隔离验证环境
+
+- **ops**：新增本地可删除隔离目录 `/Users/yuan/final-work/edumind-local-isolation`，提供独立 SQLite、独立上传目录、独立端口（backend `2104` / frontend `5174`）与独立环境变量。
+- **ops**：新增隔离验证脚本 `run_backend.sh`、`run_frontend.sh`、`verify_subtitle_encoding.sh`、`cleanup.sh`，可一键验证字幕接口 BOM、charset 与乱码修复链路，不污染云端与本地主环境。
+- **impact**：排查字幕乱码时可稳定复现并快速回归；隔离环境支持整目录删除，运维风险可控。
+
+---
+
 ## 2026-05-09
 
 ### 初始化长期项目日志与全局上下文入口

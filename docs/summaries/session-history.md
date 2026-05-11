@@ -1,6 +1,17 @@
 # Session History
 
-更新时间：2026-05-09 00:00:00 Asia/Shanghai
+更新时间：2026-05-11 21:10:00 Asia/Shanghai
+
+## 2026-05-11 中文字幕编码乱码收敛与本地隔离验证
+
+| 字段 | 内容 |
+|---|---|
+| 任务 | 修复字幕编码乱码主路径，统一字幕读取 fallback decode 与字幕输出 UTF-8-SIG（BOM），并建立可删除的本地隔离验证环境 |
+| 完成内容 | 更新 `subtitle_io` fallback+mojibake 修复；统一 `video/subtitle`、`subtitles/export`、`semantic-merged` 输出 BOM；同步 QA/摘要/画面描述字幕读取链路；本地隔离环境验证通过 |
+| 修改文件 | `app/utils/subtitle_io.py`, `app/routers/video.py`, `app/routers/subtitle.py`, `app/services/video_content_service.py`, `app/utils/qa_utils.py`, `app/services/frame_description_service.py`, `app/tasks/video_processing.py`, `tests/unit/test_subtitle_io.py`, `tests/api/test_video_api.py`, `tests/unit/test_qa_utils.py`, `tests/unit/test_video_content_service.py`, `tests/api/test_frame_description_api.py`, `README.md`, `CHANGELOG.md`, `docs/architecture/frontend.md`, `docs/guides/troubleshooting.md` |
+| 验证结果 | 本地隔离接口 `/api/videos/9101/subtitle` 与 `export/semantic-merged` 均返回 `FIRST3_HEX=efbbbf`，`HAS_MOJIBAKE=False`，`HAS_REPAIRED_TEXT=True` |
+| 结论 | `鑰佸笀...`/`ä¸­...` 类问题为编码乱码，已收敛；`平司边形`/`减几处`/`去球` 类为 ASR 误识别，不属于编码问题 |
+| 后续建议 | 将字幕编码回归脚本纳入发布前 smoke 清单，避免新增读取链路再次绕过 fallback decode |
 
 ## 2026-05-09 INDEX 全局入口规则固化
 

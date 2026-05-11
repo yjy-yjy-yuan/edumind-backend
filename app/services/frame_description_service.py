@@ -37,6 +37,7 @@ from app.services.qwen3vl_realtime_client import (
 from app.services.qwen_vl_cloud_client import QwenVLCloudClient, QwenVLCloudClientError
 from app.services.vinci_adapter_service import VinciAdapterError, VinciAdapterService
 from app.utils.frame_description_debug import get_frame_description_debug_logger
+from app.utils.subtitle_io import repair_mojibake_text
 
 logger = logging.getLogger(__name__)
 frame_desc_debug_logger = get_frame_description_debug_logger()
@@ -149,7 +150,7 @@ def _format_mmss(seconds: float) -> str:
 
 
 def _normalize_subtitle_text(text: str, *, limit: int = 80) -> str:
-    compact = " ".join(str(text or "").split()).strip()
+    compact = " ".join(repair_mojibake_text(str(text or "")).split()).strip()
     if not compact:
         return ""
     return compact if len(compact) <= limit else f"{compact[:limit].rstrip()}..."

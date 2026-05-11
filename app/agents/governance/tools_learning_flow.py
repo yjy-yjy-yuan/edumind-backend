@@ -19,6 +19,7 @@ from app.services.video_content_service import (
 )
 from app.services.vinci_adapter_service import VinciAdapterError, VinciAdapterService
 from app.utils.frame_description_debug import get_frame_description_debug_logger
+from app.utils.subtitle_io import repair_mojibake_text
 
 frame_desc_debug_logger = get_frame_description_debug_logger()
 
@@ -135,7 +136,7 @@ def tool_lf_create_timestamp(db: Session, params: dict[str, Any]) -> dict[str, A
     note_id = int(params["note_id"])
     time_seconds = float(params["time_seconds"])
     subtitle_text = params.get("subtitle_text")
-    st = None if subtitle_text is None else str(subtitle_text)[:2000]
+    st = None if subtitle_text is None else repair_mojibake_text(str(subtitle_text))[:2000]
 
     ts = NoteTimestamp(
         note_id=note_id,
