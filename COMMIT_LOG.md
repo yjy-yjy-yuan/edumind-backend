@@ -13,6 +13,7 @@
 
 ### 2026-05-13
 
+- `2a244b1` fix(qa): route direct DeepSeek requests correctly
 - `c4ef920` fix(video-upload): disable youtube and mooc link imports
 
 ### 2026-05-11

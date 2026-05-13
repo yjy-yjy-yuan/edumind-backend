@@ -9,6 +9,13 @@
 
 ## 2026-05-13
 
+### 智能问答 Provider 路由修复
+
+- **backend**：更新 `app/routers/qa.py`，`chat_mode=direct` 不再强制改走 Qwen，而是保留请求中的 `provider`，使正式问答页选择 DeepSeek 普通模式时可正确路由到 DeepSeek。
+- **backend**：更新 `app/utils/qa_utils.py`，普通问答按 provider 直接调用云端模型（Qwen -> `qwen-plus`，DeepSeek -> `deepseek-chat`），移除 QA 路径对本地 Qwen3-VL `/chat` 的探测与回退依赖。
+- **backend**：扩展 DeepSeek 流式深度思考解析，兼容 `reasoning_content` 与旧的 `thinking_content` 字段。
+- **impact**：智能问答的 Qwen 普通模式、DeepSeek 普通模式、DeepSeek Reasoner 与流式深度思考链路在云端可区分且可用；Qwen3-VL 继续仅作为画面描述相关服务，不再影响 QA 普通回答延迟与错误路径。
+
 ### 暂停 YouTube 与中国大学慕课链接上传链路
 
 - **backend**：更新 `app/services/video_url_import_service.py`，在远程视频链接来源识别阶段直接拦截 `youtube.com`、`youtu.be` 与 `icourse163.org`，返回明确的 400 提示，不再创建视频记录，也不再提交下载和处理任务。
