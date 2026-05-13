@@ -17,7 +17,7 @@ from app.services.video_processing_registry import remember_video_processing_req
 
 logger = logging.getLogger(__name__)
 
-MOOC_LEARN_RE = re.compile(r"learn/([^-]+)-(\d+)")
+DISABLED_REMOTE_VIDEO_SOURCE_MESSAGE = "暂不支持通过链接上传 YouTube 或中国大学慕课视频，请使用本地视频上传。"
 
 
 @dataclass
@@ -45,6 +45,10 @@ def detect_remote_video_source(video_url: str) -> tuple[str, str]:
     is_youtube = "youtube.com" in normalized_url or "youtu.be" in normalized_url
     is_mooc = "icourse163.org" in normalized_url
 
+    if is_youtube or is_mooc:
+        # YouTube / 中国大学慕课链接上传链路暂时下线，避免进入下载和处理任务。
+        raise HTTPException(status_code=400, detail=DISABLED_REMOTE_VIDEO_SOURCE_MESSAGE)
+
     if is_bilibili:
         bv_match = re.search(r"BV[0-9A-Za-z]+", normalized_url)
         av_match = re.search(r"av\d+", normalized_url.lower())
@@ -56,29 +60,7 @@ def detect_remote_video_source(video_url: str) -> tuple[str, str]:
             return "bilibili", f"bilibili-{video_id}"
         raise HTTPException(status_code=400, detail="无效的B站视频链接")
 
-    if is_youtube:
-        video_id = ""
-        if "youtube.com" in normalized_url:
-            match = re.search(r"v=([^&]+)", normalized_url)
-            if match:
-                video_id = match.group(1)
-        elif "youtu.be" in normalized_url:
-            video_id = normalized_url.split("/")[-1].split("?")[0]
-        if not video_id:
-            raise HTTPException(status_code=400, detail="无效的YouTube视频链接")
-        return "youtube", f"youtube-{video_id}"
-
-    if is_mooc:
-        course_match = MOOC_LEARN_RE.search(normalized_url)
-        if course_match:
-            course_id = course_match.group(2)
-            return "mooc", f"mooc-{course_id}"
-        raise HTTPException(
-            status_code=422,
-            detail="当前中国大学慕课候选为搜索页或非课程详情页，暂不支持直接入库，请先打开具体课程页。",
-        )
-
-    raise HTTPException(status_code=400, detail="目前仅支持B站、YouTube和中国大学慕课视频")
+    raise HTTPException(status_code=400, detail="目前仅支持B站视频链接")
 
 
 def find_existing_remote_video(db: Session, video_url: str, user_id: int) -> Optional[Video]:

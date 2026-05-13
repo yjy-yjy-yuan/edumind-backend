@@ -601,8 +601,8 @@ class TestVideoAPI:
         response = client.post(
             "/api/videos/upload-url",
             json={
-                "url": "https://www.youtube.com/watch?v=abc123",
-                "title": "YouTube · Calculus Review",
+                "url": "https://www.bilibili.com/video/BV1xx411c7mD",
+                "title": "B站 · Calculus Review",
                 "summary": "适合配合当前数学主题继续学习。",
                 "tags": ["数学", "导数"],
                 "model": "medium",
@@ -614,9 +614,35 @@ class TestVideoAPI:
         payload = response.json()
         video = db.query(Video).filter(Video.id == payload["id"]).first()
         assert video is not None
-        assert video.title == "YouTube · Calculus Review"
+        assert video.title == "B站 · Calculus Review"
         assert video.summary == "适合配合当前数学主题继续学习。"
         assert json.loads(video.tags)[0] == "数学"
+
+    def test_upload_video_url_rejects_disabled_youtube_and_mooc_sources(self, client, db, monkeypatch, sample_user):
+        """YouTube 和中国大学慕课链接上传入口暂时关闭。"""
+        from app.models.video import Video
+        from app.utils.auth_token import build_auth_token
+
+        submitted = {"count": 0}
+
+        def fake_submit_task(*args, **kwargs):
+            submitted["count"] += 1
+            return None
+
+        monkeypatch.setattr("app.core.executor.submit_task", fake_submit_task)
+        auth = {"Authorization": f"Bearer {build_auth_token(sample_user.id)}"}
+        urls = [
+            "https://www.youtube.com/watch?v=abc123",
+            "https://www.icourse163.org/learn/HIT-1001527001",
+        ]
+
+        for url in urls:
+            response = client.post("/api/videos/upload-url", json={"url": url, "model": "medium"}, headers=auth)
+            assert response.status_code == 400
+            assert "暂不支持通过链接上传 YouTube 或中国大学慕课视频" in response.json()["detail"]
+
+        assert submitted["count"] == 0
+        assert db.query(Video).count() == 0
 
     def test_upload_video_url_duplicate_reuses_existing_video(self, client, db, monkeypatch, sample_user):
         """测试重复提交同一链接时复用已有视频记录。"""

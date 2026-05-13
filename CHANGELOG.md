@@ -7,6 +7,17 @@
 
 ---
 
+## 2026-05-13
+
+### 暂停 YouTube 与中国大学慕课链接上传链路
+
+- **backend**：更新 `app/services/video_url_import_service.py`，在远程视频链接来源识别阶段直接拦截 `youtube.com`、`youtu.be` 与 `icourse163.org`，返回明确的 400 提示，不再创建视频记录，也不再提交下载和处理任务。
+- **backend**：更新 `app/schemas/video.py`，将 `VideoUploadURL.url` 的说明收敛为当前仅支持 B站链接，避免 API 文档继续暗示 YouTube / 中国大学慕课可上传。
+- **tests**：更新 `tests/api/test_video_api.py`，将推荐元数据持久化用例改为 B站链接，并新增 YouTube / 中国大学慕课链接被拒绝且不会提交后台任务的回归测试。
+- **impact**：视频链接上传阶段当前只保留 B站入口；YouTube 与中国大学慕课相关下载修复、代理配置和验证脚本不再进入本次变更范围。
+
+---
+
 ## 2026-05-11
 
 ### 中文字幕乱码链路收敛（UTF-8-SIG + fallback decode + mojibake 修复）
