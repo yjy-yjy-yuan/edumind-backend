@@ -24,7 +24,7 @@ class VideoStatusEnum(str, Enum):
 class VideoUploadURL(BaseModel):
     """URL 上传请求"""
 
-    url: str = Field(..., description="视频链接 (B站/YouTube/慕课)")
+    url: str = Field(..., description="视频链接 (B站)")
     title: str = Field(default="", description="推荐候选预填标题")
     summary: str = Field(default="", description="推荐候选预填摘要")
     tags: List[str] = Field(default_factory=list, description="推荐候选预填标签")

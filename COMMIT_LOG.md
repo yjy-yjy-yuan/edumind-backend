@@ -11,6 +11,10 @@
 
 ---
 
+### 2026-05-13
+
+- `c4ef920` fix(video-upload): disable youtube and mooc link imports
+
 ### 2026-05-11
 
 - `a188cd4` fix(subtitles): unify utf-8-sig output and fallback decode across subtitle flows
