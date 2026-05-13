@@ -55,7 +55,7 @@ def resolve_qa_routing(request: AskRequest) -> tuple[str, str, bool]:
     """解析问答路由：将 chat_mode 转换为 provider 和 deep_thinking。
 
     chat_mode 优先级高于 provider + deep_thinking。
-    - direct: 优先通义千问（DeepSeek 兜底由后端处理）
+    - direct: 普通回答模式，按 provider 选择 Qwen 或 DeepSeek
     - deep_think: 强制 DeepSeek reasoner
 
     Returns:
@@ -65,7 +65,7 @@ def resolve_qa_routing(request: AskRequest) -> tuple[str, str, bool]:
     if chat_mode == "deep_think":
         return "deepseek", request.model or "", True
     if chat_mode == "direct":
-        return "qwen", request.model or "", False
+        return request.provider or "qwen", request.model or "", False
     # 向后兼容：使用 provider + deep_thinking
     return request.provider, request.model or "", request.deep_thinking
 
