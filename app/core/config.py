@@ -167,6 +167,8 @@ class Settings(BaseSettings):
     WHISPER_PRELOAD_ON_STARTUP: bool = True
     WHISPER_LOAD_TIMEOUT_SECONDS: int = 60
     WHISPER_DOWNLOAD_TIMEOUT_SECONDS: int = 300
+    WHISPER_DEBUG_LOG: bool = False
+    WHISPER_DEBUG_LOG_FILE: str = "logs/whisper_debug.log"
 
     # 视频推荐：站内候选上限（避免全表扫描）、站外默认开关、站外 HTTP 超时与抓取策略
     RECOMMENDATION_MAX_CANDIDATES_SCAN: int = 400

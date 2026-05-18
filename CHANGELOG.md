@@ -16,6 +16,19 @@
 - **backend**：扩展 DeepSeek 流式深度思考解析，兼容 `reasoning_content` 与旧的 `thinking_content` 字段。
 - **impact**：智能问答的 Qwen 普通模式、DeepSeek 普通模式、DeepSeek Reasoner 与流式深度思考链路在云端可区分且可用；Qwen3-VL 继续仅作为画面描述相关服务，不再影响 QA 普通回答延迟与错误路径。
 
+---
+
+### Whisper 运行时诊断日志与敏感环境文件忽略修复
+
+- **backend**：新增 `app/utils/whisper_debug.py`，提供独立 Whisper DEBUG 文件日志记录器；更新 `app/services/whisper_runtime.py`，在设备检测、模型加载、缓存命中、转录成功/失败、MPS 回退 CPU 与启动预热路径写入可选诊断日志。
+- **config**：更新 `app/core/config.py` 与 `.env.example`，新增 `WHISPER_DEBUG_LOG`、`WHISPER_DEBUG_LOG_FILE`，默认关闭，仅在排查模型加载或转录问题时开启。
+- **repo**：更新 `.gitignore`，修复 `.env`、`.env.local`、`.env.cloud` 规则因行内注释失效的问题，避免云端/本地敏感配置文件被误加入提交；保留已跟踪的 `COMMIT_LOG.md` 与 `CHANGELOG.md` 可正常同步。
+- **docs**：更新 `docs/reference/env.md`，补齐 Whisper 模型目录、预热、加载/下载超时和 DEBUG 日志相关环境变量。
+- **tests**：更新 `tests/unit/test_whisper_runtime.py`，覆盖 Whisper debug logger 使用配置路径且不重复添加同一文件 handler 的行为。
+- **impact**：排查 Whisper 模型下载、加载、设备选择或转录失败时，可通过独立日志收集细节；环境文件会被 Git 正确忽略，降低误提交密钥风险。
+
+---
+
 ### 暂停 YouTube 与中国大学慕课链接上传链路
 
 - **backend**：更新 `app/services/video_url_import_service.py`，在远程视频链接来源识别阶段直接拦截 `youtube.com`、`youtu.be` 与 `icourse163.org`，返回明确的 400 提示，不再创建视频记录，也不再提交下载和处理任务。

@@ -8,6 +8,7 @@ import pytest
 
 from app.core.config import settings
 from app.services.whisper_runtime import WhisperRuntimeManager
+from app.utils.whisper_debug import get_whisper_debug_logger
 
 
 @pytest.mark.unit
@@ -152,3 +153,19 @@ def test_start_background_preload_updates_runtime_status(tmp_path, monkeypatch):
     assert status["state"] == "ready"
     assert status["last_source"] == "startup_preload"
     assert calls == [("base", "cpu", str(tmp_path))]
+
+
+@pytest.mark.unit
+def test_whisper_debug_logger_uses_configured_file_without_duplicate_handlers(tmp_path, monkeypatch):
+    """Whisper DEBUG logger should honor the configured path and avoid duplicate file handlers."""
+    log_file = tmp_path / "diagnostics" / "whisper_debug.log"
+    monkeypatch.setattr(settings, "WHISPER_DEBUG_LOG_FILE", str(log_file))
+
+    logger = get_whisper_debug_logger()
+    logger = get_whisper_debug_logger()
+    logger.debug("hello whisper debug")
+
+    file_handlers = [handler for handler in logger.handlers if getattr(handler, "name", "") == "whisper_debug_file"]
+    assert len(file_handlers) == 1
+    assert file_handlers[0].baseFilename == str(log_file)
+    assert log_file.exists()

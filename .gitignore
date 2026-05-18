@@ -16,10 +16,14 @@ env/
 .DS_Store
 
 # Environment files (contain secrets)
-.env                # 本地运行时 cp .env.local .env
-.env.local          # 本地开发覆盖（gitignore）
-.env.*.local        # 本地环境覆盖
-.env.cloud          # 云端部署覆盖模板（gitignore）
+# 本地运行时 cp .env.local .env
+.env
+# 本地开发覆盖（gitignore）
+.env.local
+# 本地环境覆盖
+.env.*.local
+# 云端部署覆盖模板（gitignore）
+.env.cloud
 
 # Database
 *.db
@@ -53,8 +57,5 @@ build/
 *.egg-info/
 models/whisper/
 
-# Local commit log
-COMMIT_LOG.md
-
-# Local change log
-CHANGELOG.md
+# Local-only exported logs, if generated outside tracked docs
+*.local.log
