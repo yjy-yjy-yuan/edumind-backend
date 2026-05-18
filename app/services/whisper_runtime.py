@@ -15,10 +15,20 @@ from typing import Any, Iterable
 from urllib.parse import urlparse
 
 from app.core.config import settings
+from app.utils.whisper_debug import get_whisper_debug_logger
 
 logger = logging.getLogger(__name__)
 
-PRODUCT_WHISPER_MODELS = ("tiny", "base", "small", "medium", "large", "large-v3", "large-v3-turbo", "turbo")
+PRODUCT_WHISPER_MODELS = (
+    "tiny",
+    "base",
+    "small",
+    "medium",
+    "large",
+    "large-v3",
+    "large-v3-turbo",
+    "turbo",
+)
 WHISPER_MODEL_HIGHLIGHTS = {
     "tiny": "最快，适合先验证上传和转录流程是否跑通。",
     "base": "默认最稳，资源占用较低，适合日常使用。",
@@ -29,6 +39,15 @@ WHISPER_MODEL_HIGHLIGHTS = {
     "large-v3-turbo": "接近 large-v3 的效果，但推理更快，适合高质量与速度兼顾。",
     "turbo": "优先提速，适合想更快拿到初稿。",
 }
+
+
+def _whisper_debug_enabled() -> bool:
+    return bool(getattr(settings, "WHISPER_DEBUG_LOG", False))
+
+
+def _whisper_debug(message: str, *args):
+    if _whisper_debug_enabled():
+        get_whisper_debug_logger().debug(message, *args)
 
 
 class WhisperRuntimeManager:
@@ -65,19 +84,25 @@ class WhisperRuntimeManager:
             import torch
 
             if torch.cuda.is_available():
+                _whisper_debug("Whisper 设备检测命中 CUDA")
                 return "cuda"
 
             if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
                 pytorch_version = torch.__version__.split("+")[0]
                 major, minor = map(int, pytorch_version.split(".")[:2])
                 if major > 2 or (major == 2 and minor >= 1):
+                    _whisper_debug("Whisper 设备检测命中 MPS | torch=%s", pytorch_version)
                     return "mps"
                 logger.warning("PyTorch %s 的 MPS 兼容性不足，回退到 CPU", pytorch_version)
+                _whisper_debug("Whisper MPS 版本兼容性不足，回退 CPU | torch=%s", pytorch_version)
         except ImportError:
             logger.warning("未安装 torch，Whisper 将回退到 CPU")
+            _whisper_debug("Whisper 设备检测未安装 torch，回退 CPU")
         except Exception as exc:
             logger.warning("检测 Whisper 设备失败，回退到 CPU | error=%s", exc)
+            _whisper_debug("Whisper 设备检测失败，回退 CPU | error=%s", exc)
 
+        _whisper_debug("Whisper 设备检测使用 CPU")
         return "cpu"
 
     def clear_device_cache(self):
@@ -309,6 +334,7 @@ class WhisperRuntimeManager:
                 timeout_seconds=0,
             )
             logger.info("已释放 Whisper 模型 | model=%s", model_name)
+            _whisper_debug("Whisper 模型已释放 | model=%s", model_name)
 
     def load_model(
         self,
@@ -338,6 +364,13 @@ class WhisperRuntimeManager:
                     last_source=source,
                     last_error="",
                 )
+                _whisper_debug(
+                    "Whisper 模型缓存命中 | model=%s | device=%s | path=%s | source=%s",
+                    normalized_name,
+                    device,
+                    resolved_path,
+                    source,
+                )
                 return self._loaded_model
 
             if self._loaded_model is not None and self._loaded_key != cache_key:
@@ -345,7 +378,16 @@ class WhisperRuntimeManager:
                 self._loaded_model = None
                 self._loaded_key = None
                 self.clear_device_cache()
-                logger.info("切换 Whisper 模型前释放旧模型 | from=%s | to=%s", previous_model, normalized_name)
+                logger.info(
+                    "切换 Whisper 模型前释放旧模型 | from=%s | to=%s",
+                    previous_model,
+                    normalized_name,
+                )
+                _whisper_debug(
+                    "Whisper 切换模型前释放旧模型 | from=%s | to=%s",
+                    previous_model,
+                    normalized_name,
+                )
 
             timeout_seconds = self.get_load_timeout_seconds(normalized_name, resolved_path)
             downloaded = self.is_model_downloaded(normalized_name, resolved_path)
@@ -373,6 +415,15 @@ class WhisperRuntimeManager:
                 timeout_seconds,
                 source,
             )
+            _whisper_debug(
+                "Whisper 开始加载模型 | model=%s | device=%s | path=%s | downloaded=%s | timeout=%ss | source=%s",
+                normalized_name,
+                device,
+                resolved_path,
+                downloaded,
+                timeout_seconds,
+                source,
+            )
 
             try:
                 model = self._load_model_with_timeout(normalized_name, device, resolved_path, timeout_seconds)
@@ -387,7 +438,15 @@ class WhisperRuntimeManager:
                     timeout_seconds=timeout_seconds,
                 )
                 if integrity_error:
+                    _whisper_debug("Whisper 模型完整性校验失败 | error=%s", integrity_error)
                     raise RuntimeError(integrity_error) from exc
+                _whisper_debug(
+                    "Whisper 模型加载失败 | model=%s | device=%s | source=%s | error=%s",
+                    normalized_name,
+                    device,
+                    source,
+                    exc,
+                )
                 raise
 
             elapsed = time.time() - started_at
@@ -407,6 +466,13 @@ class WhisperRuntimeManager:
                 loaded_at=time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime()),
             )
             logger.info(
+                "Whisper 模型加载完成 | model=%s | device=%s | elapsed=%.1fs | source=%s",
+                normalized_name,
+                device,
+                elapsed,
+                source,
+            )
+            _whisper_debug(
                 "Whisper 模型加载完成 | model=%s | device=%s | elapsed=%.1fs | source=%s",
                 normalized_name,
                 device,
@@ -450,6 +516,13 @@ class WhisperRuntimeManager:
 
         try:
             with self._transcribe_lock:
+                _whisper_debug(
+                    "Whisper 转录开始 | model=%s | device=%s | file=%s | language=%s",
+                    normalized_model,
+                    device,
+                    os.path.basename(audio_path),
+                    language,
+                )
                 model = self.load_model(
                     model_name,
                     force_device=device,
@@ -468,6 +541,13 @@ class WhisperRuntimeManager:
                 os.path.basename(audio_path),
                 elapsed,
             )
+            _whisper_debug(
+                "Whisper 转录完成 | model=%s | device=%s | file=%s | elapsed=%.1fs",
+                self._resolve_model_name(model_name),
+                device,
+                os.path.basename(audio_path),
+                elapsed,
+            )
             self.clear_device_cache()
             return result
         except Exception as exc:
@@ -478,9 +558,17 @@ class WhisperRuntimeManager:
                 os.path.basename(audio_path),
                 exc,
             )
+            _whisper_debug(
+                "Whisper 转录失败 | model=%s | device=%s | file=%s | error=%s",
+                self._resolve_model_name(model_name),
+                device,
+                os.path.basename(audio_path),
+                exc,
+            )
             self.clear_device_cache()
             if self.should_retry_on_cpu(device, exc):
                 logger.warning("MPS 转录失败，自动切换到 CPU 重试 | model=%s", model_name)
+                _whisper_debug("Whisper MPS 转录失败，自动切换 CPU 重试 | model=%s", model_name)
                 return self.transcribe(
                     audio_path,
                     model_name,
@@ -509,7 +597,10 @@ class WhisperRuntimeManager:
         filtered = {key: value for key, value in options.items() if key in accepted}
         dropped = sorted(set(options) - set(filtered))
         if dropped:
-            logger.debug("Whisper transcribe() 不支持部分可选参数，已自动忽略 | dropped=%s", ",".join(dropped))
+            logger.debug(
+                "Whisper transcribe() 不支持部分可选参数，已自动忽略 | dropped=%s",
+                ",".join(dropped),
+            )
         return filtered
 
     def start_background_preload(self, model_name: str = "", model_path: str = "") -> bool:
@@ -525,6 +616,7 @@ class WhisperRuntimeManager:
                 last_source="startup_preload",
             )
             logger.info("Whisper 启动预热已禁用 | model=%s", target_model)
+            _whisper_debug("Whisper 启动预热已禁用 | model=%s", target_model)
             return False
 
         resolved_path = self._resolve_model_path(model_path)
@@ -532,6 +624,7 @@ class WhisperRuntimeManager:
         with self._load_lock:
             if self._preload_thread is not None and self._preload_thread.is_alive():
                 logger.info("Whisper 启动预热已在进行中，跳过重复启动")
+                _whisper_debug("Whisper 启动预热已在进行中，跳过重复启动 | model=%s", target_model)
                 return False
 
             self._update_status(
@@ -553,6 +646,7 @@ class WhisperRuntimeManager:
                     )
                 except Exception as exc:
                     logger.warning("Whisper 启动预热失败 | model=%s | error=%s", target_model, exc)
+                    _whisper_debug("Whisper 启动预热失败 | model=%s | error=%s", target_model, exc)
 
             self._preload_thread = threading.Thread(
                 target=worker,
@@ -562,6 +656,7 @@ class WhisperRuntimeManager:
             self._preload_thread.start()
 
         logger.info("Whisper 启动预热已开始 | model=%s | path=%s", target_model, resolved_path)
+        _whisper_debug("Whisper 启动预热已开始 | model=%s | path=%s", target_model, resolved_path)
         return True
 
     def shutdown(self):

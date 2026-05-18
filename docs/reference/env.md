@@ -1,6 +1,6 @@
 # Environment Reference
 
-更新时间：2026-05-09 00:00:00 Asia/Shanghai
+更新时间：2026-05-18 00:00:00 Asia/Shanghai
 
 ## 核心环境变量
 
@@ -24,6 +24,12 @@
 | `QA_DEFAULT_PROVIDER` | `qwen` | QA 默认 provider |
 | `OLLAMA_BASE_URL` | `http://localhost:11434/api` | Ollama API |
 | `WHISPER_MODEL` | `base` | Whisper 模型 |
+| `WHISPER_MODEL_PATH` | `/Users/yuan/302_works/whisper_models` | Whisper 模型目录 |
+| `WHISPER_PRELOAD_ON_STARTUP` | `true` | 启动后是否后台预热默认模型 |
+| `WHISPER_LOAD_TIMEOUT_SECONDS` | `60` | 本地模型文件已存在时的加载超时 |
+| `WHISPER_DOWNLOAD_TIMEOUT_SECONDS` | `300` | 首次下载模型时的加载/下载超时 |
+| `WHISPER_DEBUG_LOG` | `false` | 是否开启独立 Whisper DEBUG 文件日志 |
+| `WHISPER_DEBUG_LOG_FILE` | `logs/whisper_debug.log` | Whisper DEBUG 日志文件路径 |
 | `SEARCH_ENABLED` | `false` | 搜索开关 |
 | `SEARCH_BACKEND` | `gemini` | 搜索 embedding 后端 |
 | `SEARCH_CHROMA_DB_DIR` | `./data/chroma` | ChromaDB 数据目录 |
