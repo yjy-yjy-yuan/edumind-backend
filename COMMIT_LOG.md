@@ -13,6 +13,7 @@
 
 ### 2026-05-13
 
+- `07f14da` feat(whisper): add runtime debug logging
 - `2a244b1` fix(qa): route direct DeepSeek requests correctly
 - `80032f9` docs(log): sync video upload source disable commit
 - `c4ef920` fix(video-upload): disable youtube and mooc link imports
