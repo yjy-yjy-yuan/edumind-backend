@@ -7,6 +7,26 @@
 
 ---
 
+## 2026-05-18
+
+### 项目结构领域驱动重构（Deep Refactoring）
+
+- **backend**：将 `app/services/` 从扁平结构重构为按业务域分组的目录结构：
+  - `video/` — `video_content_service.py` → `content.py`，`video_api_service.py` → `api.py`，`video_processing_registry.py` → `processing_registry.py`，`video_url_import_service.py` → `url_import.py`，`video_recommendation_service.py` → `recommendation.py`，`external_candidate_service.py` → `external_candidate.py`
+  - `frame_desc/` — `frame_description_service.py` → `service.py`，`frame_source_extractor.py` → `source_extractor.py`；`app/utils/frame_description_debug.py` → `app/services/frame_desc/debug.py`
+  - `similarity/` — `similarity_analytics.py` → `analytics.py`，`similarity_service_container.py` → `service_container.py`，`similarity_audit_log_service.py` → `audit_log_service.py`，`similarity_score_parser.py` → `score_parser.py`
+  - `recommendation/` — `recommendation_ops_service.py` → `ops_service.py`
+  - `llm_clients/` — `qwen3vl_realtime_client.py` → `qwen3vl.py`，`qwen_vl_cloud_client.py` → `qwen_vl_cloud.py`，`vinci_client.py` → `vinci.py`，`vinci_adapter_service.py` → `vinci_adapter.py`，`ollama_runtime.py` → `ollama_runtime.py`
+  - `whisper/` — `whisper_runtime.py` → `runtime.py`；`app/utils/whisper_debug.py` → `app/services/whisper/debug.py`
+- **backend**：将 `app/services/learning_flow_agent.py` 移至 `app/agents/learning_flow_agent.py`，使其与智能体编排模块归位。
+- **backend**：移除死代码：`app/dependencies.py`（从未被引用）、`app/services/analytics/`（纯转发门面，实际使用 `app/analytics/`）、`app/services/llm_similarity_service.py`（无调用方）、`app/services/tag_similarity_prompts.py`（仅被死代码引用）、`app/services/config_model_params.py`（仅被死代码引用）；`app/utils/vinci_alerting_acceptance.py` 移至 `app/services/llm_clients/vinci_alerting_acceptance.py`。
+- **backend**：更新全部跨文件 import 语句，覆盖 `app/main.py`、`app/routers/`（agent, frame_description, recommendation, video）、`app/services/` 各域内文件、`app/agents/`（pipelines, governance）、`app/tasks/`（video_processing）、`app/utils/qa_utils.py`、`app/repositories/`、`app/analytics/adapters/` 等 30+ 文件。
+- **docs**：更新 `CLAUDE.md` 架构图与关键模式，反映领域驱动分组与 dead code 清理结果。
+- **docs**：更新 `AGENTS.md` 项目结构说明，按域详细列出 `services/` 子目录职责。
+- **impact**：不改变任何运行时行为与 API 契约；代码组织更符合领域驱动设计（DDD），新开发者可按业务域快速定位代码；消除了 5 个死代码文件和 1 个冗余门面模块。
+
+---
+
 ## 2026-05-13
 
 ### 智能问答 Provider 路由修复

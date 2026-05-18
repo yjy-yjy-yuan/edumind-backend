@@ -13,7 +13,7 @@ from typing import Generator, Optional
 import requests
 
 from app.core.config import settings
-from app.services.video_content_service import (
+from app.services.video.content import (
     clean_multiline_text,
     clean_whitespace,
     tokenize_sentence,

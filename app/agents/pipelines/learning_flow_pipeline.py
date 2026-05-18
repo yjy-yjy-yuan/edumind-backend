@@ -41,7 +41,7 @@ from app.agents.trajectory import (
 from app.core.config import settings
 from app.models.note import Note
 from app.models.video import Video
-from app.services.learning_flow_agent import (
+from app.agents.learning_flow_agent import (
     AgentContext,
     _build_note_content,
     _build_note_title,
@@ -52,7 +52,7 @@ from app.services.learning_flow_agent import (
     infer_intent,
     normalize_user_input,
 )
-from app.services.video_content_service import fallback_tags, normalize_summary_style
+from app.services.video.content import fallback_tags, normalize_summary_style
 from app.utils.subtitle_io import repair_mojibake_text
 
 logger = logging.getLogger(__name__)

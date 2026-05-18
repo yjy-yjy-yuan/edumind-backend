@@ -7,7 +7,7 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.models.similarity_audit_log import SimilarityAuditLogModel
-from app.services.similarity_analytics import SimilarityAuditLog
+from app.services.similarity.analytics import SimilarityAuditLog
 
 
 class SimilarityAuditLogRepository:

@@ -19,8 +19,8 @@ import time
 
 from sqlalchemy import inspect
 
-from app.services.video_content_service import extract_transcript_text
-from app.services.whisper_runtime import (
+from app.services.video.content import extract_transcript_text
+from app.services.whisper.runtime import (
     clear_whisper_device_cache,
     get_whisper_device,
     transcribe_audio_with_whisper,
@@ -879,7 +879,7 @@ def process_video_task(
                 inline_indexing_started = False
 
         if auto_generate_summary or auto_generate_tags:
-            from app.services.video_content_service import (
+            from app.services.video.content import (
                 generate_primary_topic_name,
                 generate_video_summary,
                 generate_video_tags,

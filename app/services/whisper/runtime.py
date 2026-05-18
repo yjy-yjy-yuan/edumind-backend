@@ -15,7 +15,7 @@ from typing import Any, Iterable
 from urllib.parse import urlparse
 
 from app.core.config import settings
-from app.utils.whisper_debug import get_whisper_debug_logger
+from app.services.whisper.debug import get_whisper_debug_logger
 
 logger = logging.getLogger(__name__)
 

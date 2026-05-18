@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.services.video_content_service import (
+from app.services.video.content import (
     SUMMARY_STYLE_STUDY,
     fallback_summary,
     generate_video_summary,
@@ -20,8 +20,8 @@ def test_generate_video_summary_falls_back_when_ai_unavailable(monkeypatch):
         "最后补充学习时容易混淆的几个概念。"
     )
 
-    monkeypatch.setattr("app.services.video_content_service.call_online_chat", lambda *args, **kwargs: None)
-    monkeypatch.setattr("app.services.video_content_service.call_ollama", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.services.video.content.call_online_chat", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.services.video.content.call_ollama", lambda *args, **kwargs: None)
 
     result = generate_video_summary(
         1,
@@ -39,8 +39,8 @@ def test_generate_video_summary_falls_back_when_ai_unavailable(monkeypatch):
 def test_generate_video_tags_falls_back_to_keywords(monkeypatch):
     summary = "主题：导数专题\n学习重点：\n1. 理解导数定义。\n2. 掌握几何意义。\n3. 熟悉常见求导法则。"
 
-    monkeypatch.setattr("app.services.video_content_service.call_online_chat", lambda *args, **kwargs: None)
-    monkeypatch.setattr("app.services.video_content_service.call_ollama", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.services.video.content.call_online_chat", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.services.video.content.call_ollama", lambda *args, **kwargs: None)
 
     result = generate_video_tags(1, summary, title="导数专题", max_tags=5)
 

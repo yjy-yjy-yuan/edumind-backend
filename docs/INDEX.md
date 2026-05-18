@@ -1,6 +1,6 @@
 # Project Overview
 
-最近更新时间：2026-05-09 00:00:00 Asia/Shanghai
+最近更新时间：2026-05-18 00:00:00 Asia/Shanghai
 
 ## 项目简介
 
@@ -29,8 +29,9 @@
 | 项 | 值 |
 |---|---|
 | API version | `2.0.0` |
-| 最近提交记录 | `903b7d1 docs: initialize project documentation system` |
-| 文档体系版本 | `docs-init-2026-05-09` |
+| 最近提交记录 | `2e10a2e 0513 fix disable youtube mooc upload (#6)` |
+| 文档体系版本 | `docs-refactor-2026-05-18` |
+| 领域重构版本 | `services-ddd-2026-05-18` |
 
 ## 当前负责人
 
@@ -43,7 +44,7 @@
 
 | 类别 | 当前内容 | 状态 | 关联文档 |
 |---|---|---|---|
-| 正在开发 | docs 全局上下文入口与日志体系规则固化 | Active | `docs/INDEX.md`, `docs/prompts/workflow.md` |
+| 正在开发 | 文档同步与 git 提交 | Active | `CHANGELOG.md`, `COMMIT_LOG.md` |
 | 待修复问题 | 当前未从文档扫描发现已登记但未修复 Bug | Clear | `docs/bugs/pending.md` |
 | 架构任务 | 后续架构调整必须使用 ADR 并同步 architecture 文档 | Active | `docs/arch/decisions.md` |
 | 验证链路 | smoke startup、compileall、system requirements | Active | `docs/testing/test-cases.md`, `docs/reference/commands.md` |
@@ -53,6 +54,7 @@
 | 时间 | Session目标 | 状态 | 关联文档 |
 |---|---|---|---|
 | 2026-05-09 00:00:00 Asia/Shanghai | 将 `docs/INDEX.md` 固化为全局上下文入口、恢复入口与 Prompt Registry | Completed | `docs/summaries/session-history.md`, `docs/prompts/workflow.md` |
+| 2026-05-18 00:00:00 Asia/Shanghai | 项目结构领域驱动重构（services/ 按业务域分组，清理死代码） | Completed | `CHANGELOG.md`, `COMMIT_LOG.md`, `AGENTS.md`, `CLAUDE.md` |
 | 2026-05-09 00:00:00 Asia/Shanghai | 初始化长期可维护 docs 日志体系 | Completed | `docs/summaries/session-history.md`, `docs/MILESTONES.md` |
 
 # Documentation Map
@@ -167,10 +169,13 @@
 
 | 时间 | 类型 | 内容 | 影响范围 |
 |---|---|---|---|
+| 2026-05-18 00:00:00 Asia/Shanghai | refactor | 项目结构领域驱动重构（services/ 按业务域分组，清理死代码） | `app/services/`, `AGENTS.md`, `CLAUDE.md` |
+| 2026-05-13 00:00:00 Asia/Shanghai | fix | 禁用 YouTube 和中国大学慕课链接上传，修复 QA provider 路由 | `app/routers/video.py`, `app/utils/qa_utils.py` |
+| 2026-05-13 00:00:00 Asia/Shanghai | feat | Whisper 运行时诊断日志 | `app/services/whisper/runtime.py` |
 | 2026-05-09 00:00:00 Asia/Shanghai | docs | 将 `docs/INDEX.md` 强化为全局上下文入口、日志路由器、Prompt Registry、Session 恢复中心 | `docs/INDEX.md`, `docs/prompts/workflow.md`, `docs/summaries/session-history.md` |
 | 2026-05-09 00:00:00 Asia/Shanghai | docs | 初始化长期 docs 日志体系 | `docs/**` |
-| 2026-05-08 | feature | Cloud Qwen-VL fallback 接入 Frame Description | `app/services/frame_description_service.py`, `app/services/qwen_vl_cloud_client.py` |
-| 2026-05-06 | fix | 移除画面描述用户可见“降级”提示，改为字幕模式表达 | Frame Description |
+| 2026-05-08 | feature | Cloud Qwen-VL fallback 接入 Frame Description | `app/services/llm_clients/qwen_vl_cloud.py` |
+| 2026-05-06 | fix | 移除画面描述用户可见"降级"提示，改为字幕模式表达 | Frame Description |
 
 # Pending Tasks
 

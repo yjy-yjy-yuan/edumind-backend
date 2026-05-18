@@ -6,7 +6,7 @@ import logging
 import pytest
 
 from app.services import video_recommendation_service as recommendation_service
-from app.services.external_candidate_service import (
+from app.services.video.external_candidate import (
     ExternalCandidate,
     ExternalCandidateFetchReport,
     ExternalProviderFetchSummary,
@@ -16,7 +16,7 @@ from app.services.external_candidate_service import (
 @pytest.fixture(autouse=True)
 def reset_recommendation_ops_event_store():
     """隔离推荐运营聚合内存缓冲，避免测试间互相污染。"""
-    from app.services.recommendation_ops_service import (
+    from app.services.recommendation.ops_service import (
         reset_recommendation_event_store_for_tests,
     )
 
@@ -724,7 +724,7 @@ class TestRecommendationAPI:
     def test_recommendation_ops_metrics_aggregates_import_and_processing(self, client, db, sample_user):
         """运营聚合接口返回推荐导入成功率与处理完成率。"""
         from app.models.video import Video, VideoStatus
-        from app.services.recommendation_ops_service import record_recommendation_event
+        from app.services.recommendation.ops_service import record_recommendation_event
         from app.utils.auth_token import build_auth_token
 
         completed_video = Video(
@@ -826,7 +826,7 @@ class TestRecommendationAPI:
     def test_recommendation_ops_metrics_persists_beyond_memory_buffer(self, client, db, sample_user):
         """清空内存缓冲后，聚合接口仍可从数据库恢复口径。"""
         from app.models.video import Video, VideoStatus
-        from app.services.recommendation_ops_service import (
+        from app.services.recommendation.ops_service import (
             record_recommendation_event,
             reset_recommendation_event_store_for_tests,
         )

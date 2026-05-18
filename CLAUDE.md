@@ -59,18 +59,29 @@ app/
 ├── routers/             # HTTP 路由层
 ├── schemas/             # Pydantic 请求/响应模型
 ├── models/              # SQLAlchemy 2.0 ORM 模型 (Mapped[] 类型注解)
-├── services/            # 业务逻辑层
-│   ├── search/          # 语义搜索服务 (embedder, chunker, store, similarity_fusion)
-│   ├── analytics/       # 集中式遥测 (兼容入口在 app/analytics/)
-│   └── ollama_runtime.py, whisper_runtime.py  # 运行时封装
-├── tasks/               # 后台任务 (video_processing, vector_indexing, video_download)
+├── services/            # 业务逻辑层（按领域分组）
+│   ├── video/           # 视频领域（content, api, processing_registry, recommendation, url_import, external_candidate）
+│   ├── frame_desc/      # 画面描述领域（service, source_extractor, debug）
+│   ├── similarity/      # 相似度领域（analytics, service_container, audit_log_service, score_parser）
+│   ├── recommendation/  # 推荐运营（ops_service）
+│   ├── llm_clients/     # LLM 客户端（qwen3vl, qwen_vl_cloud, vinci, vinci_adapter, ollama_runtime）
+│   ├── whisper/         # Whisper 运行时（runtime, debug）
+│   ├── search/          # 语义搜索（embedder, chunker, store, similarity_fusion）
+│   ├── sleek_service.py # 设计助手
+│   └── storage_maintenance.py  # 存储维护
+├── tasks/               # 后台任务 (video_processing, vector_indexing, video_download, resumable_state_machine)
 ├── agents/              # 智能体编排
-│   ├── governance/      # 治理审计
-│   ├── pipelines/       # 学习流编排
-│   └── budget.py        # Token 预算管理
-├── analytics/           # 集中式遥测管道 (pipeline, alerting, adapters)
-├── compounding/         # 增量价值导出 (export_service, formats, quality, sanitization)
-├── utils/               # 通用工具 (auth_deps, auth_token, chat_system, semantic_utils)
+│   ├── learning_flow_agent.py   # 学习流智能体编排（从 services/ 迁入）
+│   ├── governance/      # 治理审计（gateway, context, tools_learning_flow）
+│   ├── pipelines/       # 学习流编排（learning_flow_pipeline）
+│   ├── prompt_engine.py # Token 感知提示词组装
+│   ├── skill_registry.py# 技能注册与版本管理
+│   ├── trajectory.py    # 轨迹记录器
+│   ├── budget.py        # Token 预算管理
+│   └── prompts/         # 提示词版本常量
+├── analytics/           # 集中式遥测管道 (pipeline, alerting, adapters, schema)
+├── compounding/         # 增量价值导出 (export_service, formats, quality, sanitization, report)
+├── utils/               # 跨域通用工具 (auth_deps, auth_security, auth_token, chat_system, ollama_compat, qa_utils, semantic_utils, subtitle_io)
 └── repositories/        # 数据访问层 (similarity_audit_log_repository)
 ```
 
@@ -83,6 +94,7 @@ app/
 5. **运行时封装**: Whisper/Ollama 通过 Runtime 类管理生命周期
 6. **集中式遥测**: `app.analytics.pipeline.get_telemetry().emit()` 统一事件发布
 7. **语义搜索**: 双后端工厂模式 (gemini/local) + ChromaDB 持久化
+8. **领域驱动**: services/ 按业务域分组（video/, frame_desc/, similarity/, recommendation/, llm_clients/, whisper/）
 
 ## Code Style
 

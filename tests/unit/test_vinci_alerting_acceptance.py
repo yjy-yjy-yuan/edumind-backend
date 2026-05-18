@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.utils.vinci_alerting_acceptance import (
+from app.services.llm_clients.vinci_alerting_acceptance import (
     AlertPlatformConfig,
     build_acceptance_commands,
     build_degraded_payload,

@@ -9,9 +9,9 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 from app.models.video import Video
-from app.services.video_content_service import normalize_summary_style
-from app.services.video_processing_registry import get_video_processing_request
-from app.services.whisper_runtime import normalize_whisper_model_name
+from app.services.video.content import normalize_summary_style
+from app.services.video.processing_registry import get_video_processing_request
+from app.services.whisper.runtime import normalize_whisper_model_name
 
 MODEL_STEP_RE = re.compile(r"（([a-z0-9._-]+)）")
 

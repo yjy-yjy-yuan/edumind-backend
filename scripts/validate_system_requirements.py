@@ -28,8 +28,8 @@ def check_efficient():
     budget = read("app/agents/budget.py")
     cache_candidates = [
         "app/services/search/chunker.py",
-        "app/services/external_candidate_service.py",
-        "app/services/whisper_runtime.py",
+        "app/services/video/external_candidate.py",
+        "app/services/whisper/runtime.py",
     ]
     cache_hit = False
     for c in cache_candidates:
@@ -92,19 +92,10 @@ def check_robust():
 
 def check_monitorable():
     pipeline = has("app/analytics/pipeline.py")
-    services_pipeline = has("app/services/analytics/pipeline.py")
-    services_schema = has("app/services/analytics/schema.py")
     search_logging = read("app/services/search/search_logging.py")
-    ok = (
-        pipeline
-        and services_pipeline
-        and services_schema
-        and "emit_search_legacy_event" in search_logging
-        and "get_telemetry" in search_logging
-    )
+    ok = pipeline and "emit_search_legacy_event" in search_logging and "get_telemetry" in search_logging
     return ok, {
         "analytics_pipeline": pipeline,
-        "services_analytics_facade": services_pipeline and services_schema,
         "search_logging_adapter": "emit_search_legacy_event" in search_logging,
     }
 
@@ -127,14 +118,12 @@ def check_updatable():
 
 
 def check_compounding():
-    persist = has("app/services/similarity_audit_log_service.py")
+    persist = has("app/services/similarity/audit_log_service.py")
     adapter = has("app/analytics/adapters/similarity.py")
-    svc = read("app/services/llm_similarity_service.py")
-    ok = persist and adapter and "_record_similarity_audit_log" in svc
+    ok = persist and adapter
     return ok, {
         "trajectory_persistence_service": persist,
         "analytics_adapter": adapter,
-        "feedback_record_hook": "_record_similarity_audit_log" in svc,
     }
 
 

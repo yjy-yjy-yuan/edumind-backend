@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.repositories.similarity_audit_log_repository import (
     SimilarityAuditLogRepository,
 )
-from app.services.similarity_analytics import SimilarityAuditLog, SimilarityMetrics
+from app.services.similarity.analytics import SimilarityAuditLog, SimilarityMetrics
 
 logger = logging.getLogger(__name__)
 

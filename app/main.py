@@ -16,19 +16,19 @@ from app.models.base import Base
 from app.models.recommendation_ops_event import RecommendationOpsEvent  # noqa: F401
 from app.models.semantic_search_log import SemanticSearchLog  # noqa: F401
 from app.models.video import Video, VideoStatus
-from app.services.ollama_runtime import get_ollama_runtime_status
-from app.services.similarity_service_container import init_persistence_service
+from app.services.llm_clients.ollama_runtime import get_ollama_runtime_status
+from app.services.similarity.service_container import init_persistence_service
 from app.services.storage_maintenance import (
     run_storage_maintenance_once,
     start_storage_maintenance_worker,
     stop_storage_maintenance_worker,
 )
-from app.services.whisper_runtime import (
+from app.services.whisper.runtime import (
     get_whisper_runtime_status,
     shutdown_whisper_runtime,
     start_whisper_background_preload,
 )
-from app.utils.frame_description_debug import get_frame_description_debug_logger
+from app.services.frame_desc.debug import get_frame_description_debug_logger
 
 # 配置日志
 LOG_LEVEL = logging.DEBUG if settings.DEBUG else logging.INFO

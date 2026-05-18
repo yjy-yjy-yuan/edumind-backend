@@ -12,7 +12,7 @@ from app.agents.exceptions import GovernanceError
 from app.analytics.pipeline import get_telemetry
 from app.analytics.schema import AnalyticsEvent, AnalyticsStatus
 from app.core.config import settings
-from app.services.video_content_service import SUPPORTED_SUMMARY_STYLES
+from app.services.video.content import SUPPORTED_SUMMARY_STYLES
 
 from . import tools_learning_flow
 from .context import governance_execution_context

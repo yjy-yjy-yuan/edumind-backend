@@ -12,8 +12,8 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models.video import Video, VideoStatus
-from app.services.video_content_service import build_subject_enriched_tags
-from app.services.video_processing_registry import remember_video_processing_request
+from app.services.video.content import build_subject_enriched_tags
+from app.services.video.processing_registry import remember_video_processing_request
 
 logger = logging.getLogger(__name__)
 

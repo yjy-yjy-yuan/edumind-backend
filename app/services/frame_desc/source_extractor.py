@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 from PIL import Image
 
 from app.core.config import settings
-from app.utils.frame_description_debug import get_frame_description_debug_logger
+from app.services.frame_desc.debug import get_frame_description_debug_logger
 
 frame_desc_debug_logger = get_frame_description_debug_logger()
 

@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.utils.vinci_alerting_acceptance import (
+from app.services.llm_clients.vinci_alerting_acceptance import (
     AlertPlatformConfig,
     build_acceptance_commands,
     build_degraded_payload,
