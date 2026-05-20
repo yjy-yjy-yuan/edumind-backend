@@ -11,6 +11,10 @@
 
 ---
 
+### 2026-05-20
+
+- `PENDING` chore(ai-serving): asyncize qa/chat main path, add admission middleware, metrics and docs sync
+
 ### 2026-05-18
 
 - `2e10a2e` 0513 fix disable youtube mooc upload (#6)

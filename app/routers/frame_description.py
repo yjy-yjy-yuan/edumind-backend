@@ -20,6 +20,7 @@ from app.schemas.frame_description import (
     FrameDescriptionSessionRequest,
     FrameDescriptionSessionResponse,
 )
+from app.services.frame_desc.debug import get_frame_description_debug_logger
 from app.services.frame_desc.service import (
     FrameDescConfigError,
     FrameDescriptionService,
@@ -30,8 +31,10 @@ from app.services.frame_desc.source_extractor import (
     extract_frame_from_video_url,
 )
 from app.services.llm_clients.qwen3vl import Qwen3VLRealtimeClient
-from app.services.llm_clients.vinci_adapter import VinciAdapterService, VinciHealthResult
-from app.services.frame_desc.debug import get_frame_description_debug_logger
+from app.services.llm_clients.vinci_adapter import (
+    VinciAdapterService,
+    VinciHealthResult,
+)
 from app.utils.subtitle_io import repair_mojibake_text
 
 logger = logging.getLogger(__name__)

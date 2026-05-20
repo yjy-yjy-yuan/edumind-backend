@@ -8,8 +8,9 @@ import math
 import re
 from collections import Counter
 from dataclasses import dataclass
-from typing import Generator, Optional
+from typing import AsyncGenerator, Generator, Optional
 
+import httpx
 import requests
 
 from app.core.config import settings
@@ -17,6 +18,12 @@ from app.services.video.content import (
     clean_multiline_text,
     clean_whitespace,
     tokenize_sentence,
+)
+from app.utils.ai_response_control import (
+    ResponseBudget,
+    build_local_fallback_answer,
+    compact_answer,
+    controller,
 )
 from app.utils.subtitle_io import read_subtitle_file_with_fallback, repair_mojibake_text
 
@@ -174,6 +181,7 @@ def call_deepseek_reasoner_stream(
     messages: list[dict],
     *,
     model: str = "",
+    budget: Optional[ResponseBudget] = None,
 ) -> Generator[tuple[str, str], None, None]:
     """流式调用 DeepSeek Reasoner，yield (thinking_chunk, answer_chunk)。
 
@@ -186,6 +194,7 @@ def call_deepseek_reasoner_stream(
     resolved_model = (
         clean_whitespace(model) or clean_whitespace(settings.DEEPSEEK_REASONER_MODEL) or "deepseek-reasoner"
     )
+    active_budget = budget or controller.budget()
 
     with requests.post(
         f"{base_url}/chat/completions",
@@ -196,11 +205,12 @@ def call_deepseek_reasoner_stream(
         json={
             "model": resolved_model,
             "messages": messages,
-            "temperature": 0.2,
+            "temperature": active_budget.temperature,
+            "max_tokens": active_budget.max_tokens,
             "stream": True,
         },
         stream=True,
-        timeout=180,
+        timeout=(3.0, active_budget.timeout_seconds),
     ) as response:
         if response.status_code >= 400:
             detail = clean_whitespace(response.text)[:240] or f"HTTP {response.status_code}"
@@ -222,6 +232,69 @@ def call_deepseek_reasoner_stream(
             except (json.JSONDecodeError, IndexError, TypeError) as exc:
                 logger.warning("解析 DeepSeek 流式响应失败: %s | line=%s", exc, raw[:80])
                 continue
+
+
+async def call_deepseek_reasoner_stream_async(
+    messages: list[dict],
+    *,
+    model: str = "",
+    budget: Optional[ResponseBudget] = None,
+) -> AsyncGenerator[tuple[str, str], None]:
+    """Async DeepSeek Reasoner SSE call."""
+    api_key, base_url = resolve_provider_credentials("deepseek")
+    resolved_model = (
+        clean_whitespace(model) or clean_whitespace(settings.DEEPSEEK_REASONER_MODEL) or "deepseek-reasoner"
+    )
+    active_budget = budget or controller.budget()
+    timeout = httpx.Timeout(
+        connect=3.0,
+        read=max(1.0, active_budget.timeout_seconds),
+        write=3.0,
+        pool=max(1.0, active_budget.timeout_seconds),
+    )
+
+    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+        async with client.stream(
+            "POST",
+            f"{base_url}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": resolved_model,
+                "messages": messages,
+                "temperature": active_budget.temperature,
+                "max_tokens": active_budget.max_tokens,
+                "stream": True,
+            },
+        ) as response:
+            if response.status_code >= 400:
+                detail_bytes = await response.aread()
+                detail = (
+                    clean_whitespace(detail_bytes.decode("utf-8", errors="ignore"))[:240]
+                    or f"HTTP {response.status_code}"
+                )
+                exc = QAProviderError(f"DeepSeek 流式调用失败：HTTP {response.status_code} {detail}")
+                exc.status_code = response.status_code
+                raise exc
+
+            async for line in response.aiter_lines():
+                raw = line.strip()
+                if raw == "data: [DONE]":
+                    break
+                if not raw or not raw.startswith("data: "):
+                    continue
+                try:
+                    chunk = json.loads(raw[6:])
+                    delta = (chunk.get("choices") or [{}])[0].get("delta") or {}
+                    thinking = delta.get("reasoning_content") or delta.get("thinking_content") or ""
+                    answer = delta.get("content") or ""
+                    if thinking or answer:
+                        yield thinking, answer
+                except (json.JSONDecodeError, IndexError, TypeError) as exc:
+                    logger.warning("解析 DeepSeek async 流式响应失败: %s | line=%s", exc, raw[:80])
+                    continue
 
 
 def qa_search_tokens(text: str) -> list[str]:
@@ -529,35 +602,114 @@ def _check_local_qwen_available() -> tuple[bool, str]:
 def call_provider_chat(messages: list[dict], *, provider: str, model: str) -> str:
     normalized_provider = normalize_provider(provider, model)
     api_key, base_url = resolve_provider_credentials(normalized_provider)
+    cache_key = controller.cache_key(provider=normalized_provider, model=model, messages=messages)
+    cached = controller.get_cached(cache_key)
+    if cached:
+        return cached
 
-    try:
-        response = requests.post(
-            f"{base_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "messages": messages,
-                "temperature": 0.2,
-                "stream": False,
-            },
-            timeout=120,
+    def _request(budget: ResponseBudget) -> str:
+        try:
+            response = requests.post(
+                f"{base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "temperature": budget.temperature,
+                    "max_tokens": budget.max_tokens,
+                    "stream": False,
+                },
+                timeout=(3.0, budget.timeout_seconds),
+            )
+        except requests.RequestException as exc:
+            raise QAProviderError(f"{resolve_provider_label(normalized_provider)} 请求失败：{exc}") from exc
+
+        if response.status_code >= 400:
+            detail = clean_whitespace(response.text)[:240] or f"HTTP {response.status_code}"
+            exc = QAProviderError(
+                f"{resolve_provider_label(normalized_provider)} 调用失败：HTTP {response.status_code} {detail}"
+            )
+            exc.status_code = response.status_code
+            raise exc
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise QAProviderError(f"{resolve_provider_label(normalized_provider)} 返回了无效 JSON 响应") from exc
+
+        content = extract_message_content(payload)
+        if not content:
+            raise QAProviderError(f"{resolve_provider_label(normalized_provider)} 未返回有效回答内容")
+        compacted = compact_answer(content, budget)
+        controller.set_cached(cache_key, compacted)
+        return compacted
+
+    content = controller.execute_upstream(normalized_provider, _request)
+    if not content:
+        raise QAProviderError(f"{resolve_provider_label(normalized_provider)} 未返回有效回答内容")
+    return content
+
+
+async def call_provider_chat_async(messages: list[dict], *, provider: str, model: str) -> str:
+    normalized_provider = normalize_provider(provider, model)
+    api_key, base_url = resolve_provider_credentials(normalized_provider)
+    cache_key = controller.cache_key(provider=normalized_provider, model=model, messages=messages)
+    cached = controller.get_cached(cache_key)
+    if cached:
+        return cached
+
+    async def _request(budget: ResponseBudget) -> str:
+        timeout = httpx.Timeout(
+            connect=3.0,
+            read=max(1.0, budget.timeout_seconds),
+            write=3.0,
+            pool=max(1.0, budget.timeout_seconds),
         )
-    except requests.RequestException as exc:
-        raise QAProviderError(f"{resolve_provider_label(normalized_provider)} 请求失败：{exc}") from exc
+        try:
+            async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+                response = await client.post(
+                    f"{base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        "temperature": budget.temperature,
+                        "max_tokens": budget.max_tokens,
+                        "stream": False,
+                    },
+                )
+        except httpx.TimeoutException as exc:
+            raise QAProviderError(f"{resolve_provider_label(normalized_provider)} 请求超时：{exc}") from exc
+        except httpx.HTTPError as exc:
+            raise QAProviderError(f"{resolve_provider_label(normalized_provider)} 请求失败：{exc}") from exc
 
-    if response.status_code >= 400:
-        detail = clean_whitespace(response.text)[:240] or f"HTTP {response.status_code}"
-        raise QAProviderError(f"{resolve_provider_label(normalized_provider)} 调用失败：{detail}")
+        if response.status_code >= 400:
+            detail = clean_whitespace(response.text)[:240] or f"HTTP {response.status_code}"
+            exc = QAProviderError(
+                f"{resolve_provider_label(normalized_provider)} 调用失败：HTTP {response.status_code} {detail}"
+            )
+            exc.status_code = response.status_code
+            raise exc
 
-    try:
-        payload = response.json()
-    except ValueError as exc:
-        raise QAProviderError(f"{resolve_provider_label(normalized_provider)} 返回了无效 JSON 响应") from exc
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise QAProviderError(f"{resolve_provider_label(normalized_provider)} 返回了无效 JSON 响应") from exc
 
-    content = extract_message_content(payload)
+        content = extract_message_content(payload)
+        if not content:
+            raise QAProviderError(f"{resolve_provider_label(normalized_provider)} 未返回有效回答内容")
+        compacted = compact_answer(content, budget)
+        controller.set_cached(cache_key, compacted)
+        return compacted
+
+    content = await controller.execute_upstream_async(normalized_provider, _request)
     if not content:
         raise QAProviderError(f"{resolve_provider_label(normalized_provider)} 未返回有效回答内容")
     return content
@@ -643,7 +795,10 @@ class QASystem:
             resolved_model = model or resolve_model(resolved_provider, "", deep_thinking=True)
             logger.info("深度思考流式调用: provider=%s, model=%s", resolved_provider, resolved_model)
             yield "", "", f"{resolved_provider}:{resolved_model}"
-            for thinking_chunk, answer_chunk in call_deepseek_reasoner_stream(messages, model=resolved_model):
+            budget = controller.budget()
+            for thinking_chunk, answer_chunk in call_deepseek_reasoner_stream(
+                messages, model=resolved_model, budget=budget
+            ):
                 yield thinking_chunk, answer_chunk, ""
             return
 
@@ -661,6 +816,32 @@ class QASystem:
                 primary_error,
             )
             raise primary_error
+
+    async def _call_model_stream_async(
+        self,
+        messages: list[dict],
+        *,
+        provider: str,
+        model: str,
+        deep_thinking: bool,
+    ) -> AsyncGenerator[tuple[str, str, str], None]:
+        """Async model stream wrapper used by FastAPI streaming routes."""
+        if deep_thinking:
+            resolved_provider = provider or "deepseek"
+            resolved_model = model or resolve_model(resolved_provider, "", deep_thinking=True)
+            logger.info("深度思考 async 流式调用: provider=%s, model=%s", resolved_provider, resolved_model)
+            yield "", "", f"{resolved_provider}:{resolved_model}"
+            budget = controller.budget()
+            async for thinking_chunk, answer_chunk in call_deepseek_reasoner_stream_async(
+                messages, model=resolved_model, budget=budget
+            ):
+                yield thinking_chunk, answer_chunk, ""
+            return
+
+        primary_provider = normalize_provider(provider, model)
+        primary_model = model or resolve_model(primary_provider, "", deep_thinking=False)
+        answer = await call_provider_chat_async(messages, provider=primary_provider, model=primary_model)
+        yield "", answer, f"{primary_provider}:{primary_model}"
 
     def _build_result(self, answer: str, provider: str, model: str, references: list[KnowledgeChunk]) -> dict:
         normalized_provider = normalize_provider(provider, model)
@@ -708,10 +889,18 @@ class QASystem:
 
             if deep_thinking:
                 resolved_model = model or resolve_model(normalized_provider, "", deep_thinking=True)
-                answer = call_provider_chat(messages, provider="deepseek", model=resolved_model)
-                thinking = ""
-                payload_answer, payload_thinking = answer, ""
-                return self._build_result(payload_answer, "deepseek", resolved_model, ranked_chunks)
+                try:
+                    answer = call_provider_chat(messages, provider="deepseek", model=resolved_model)
+                except Exception as exc:
+                    logger.warning("QASystem ask deep fallback | error=%s", exc)
+                    answer = build_local_fallback_answer(
+                        question,
+                        mode="video",
+                        context_text=context_text,
+                        reason=str(exc),
+                        budget=controller.budget(),
+                    )
+                return self._build_result(answer, "deepseek", resolved_model, ranked_chunks)
 
             primary_provider = normalized_provider
             primary_model = model or resolve_model(primary_provider, "", deep_thinking=False)
@@ -725,12 +914,28 @@ class QASystem:
                     primary_model,
                     primary_error,
                 )
-                raise primary_error
+                answer = build_local_fallback_answer(
+                    question,
+                    mode="video",
+                    context_text=context_text,
+                    reason=str(primary_error),
+                    budget=controller.budget(),
+                )
+                return self._build_result(answer, primary_provider, primary_model, ranked_chunks)
 
         messages = build_free_qa_messages(question, history_messages=history_messages)
         if deep_thinking:
             resolved_model = model or resolve_model(normalized_provider, "", deep_thinking=True)
-            answer = call_provider_chat(messages, provider="deepseek", model=resolved_model)
+            try:
+                answer = call_provider_chat(messages, provider="deepseek", model=resolved_model)
+            except Exception as exc:
+                logger.warning("QASystem ask free deep fallback | error=%s", exc)
+                answer = build_local_fallback_answer(
+                    question,
+                    mode="free",
+                    reason=str(exc),
+                    budget=controller.budget(),
+                )
             return self._build_result(answer, "deepseek", resolved_model, [])
 
         primary_provider = normalized_provider
@@ -745,7 +950,162 @@ class QASystem:
                 primary_model,
                 primary_error,
             )
-            raise primary_error
+            answer = build_local_fallback_answer(
+                question,
+                mode="free",
+                reason=str(primary_error),
+                budget=controller.budget(),
+            )
+            return self._build_result(answer, primary_provider, primary_model, [])
+
+    async def ask_async(
+        self,
+        question: str,
+        *,
+        provider: str = "",
+        model: str = "",
+        deep_thinking: bool = False,
+        mode: str = "video",
+        history: Optional[list] = None,
+    ) -> dict:
+        """Async non-streaming QA path for FastAPI routes."""
+        normalized_provider = normalize_provider(provider, model)
+        history_messages = normalize_history_messages(history)
+
+        if mode == "video":
+            if not self._chunks:
+                raise QAConfigError("该视频暂无可用于问答的字幕或摘要内容")
+
+            retrieval_query = build_retrieval_query(question, history_messages)
+            ranked_chunks = rank_chunks(retrieval_query, self._chunks, top_k=max(1, int(settings.QA_TOP_K)))
+            context_text = build_context_text(ranked_chunks, max_chars=max(500, int(settings.QA_MAX_CONTEXT_CHARS)))
+            messages = build_video_qa_messages(
+                question,
+                video_title=getattr(self.video, "title", "") or "",
+                context_text=context_text,
+                history_messages=history_messages,
+            )
+
+            if deep_thinking:
+                resolved_model = model or resolve_model(normalized_provider, "", deep_thinking=True)
+                try:
+                    answer = await call_provider_chat_async(messages, provider="deepseek", model=resolved_model)
+                except Exception as exc:
+                    logger.warning("QASystem async ask deep fallback | error=%s", exc)
+                    answer = build_local_fallback_answer(
+                        question,
+                        mode="video",
+                        context_text=context_text,
+                        reason=str(exc),
+                        budget=controller.budget(),
+                    )
+                return self._build_result(answer, "deepseek", resolved_model, ranked_chunks)
+
+            primary_provider = normalized_provider
+            primary_model = model or resolve_model(primary_provider, "", deep_thinking=False)
+            try:
+                answer = await call_provider_chat_async(messages, provider=primary_provider, model=primary_model)
+                return self._build_result(answer, primary_provider, primary_model, ranked_chunks)
+            except Exception as primary_error:
+                logger.warning(
+                    "QASystem async ask - 云端模型(provider=%s, model=%s)调用失败: %s",
+                    primary_provider,
+                    primary_model,
+                    primary_error,
+                )
+                answer = build_local_fallback_answer(
+                    question,
+                    mode="video",
+                    context_text=context_text,
+                    reason=str(primary_error),
+                    budget=controller.budget(),
+                )
+                return self._build_result(answer, primary_provider, primary_model, ranked_chunks)
+
+        messages = build_free_qa_messages(question, history_messages=history_messages)
+        if deep_thinking:
+            resolved_model = model or resolve_model(normalized_provider, "", deep_thinking=True)
+            try:
+                answer = await call_provider_chat_async(messages, provider="deepseek", model=resolved_model)
+            except Exception as exc:
+                logger.warning("QASystem async ask free deep fallback | error=%s", exc)
+                answer = build_local_fallback_answer(
+                    question,
+                    mode="free",
+                    reason=str(exc),
+                    budget=controller.budget(),
+                )
+            return self._build_result(answer, "deepseek", resolved_model, [])
+
+        primary_provider = normalized_provider
+        primary_model = model or resolve_model(primary_provider, "", deep_thinking=False)
+        try:
+            answer = await call_provider_chat_async(messages, provider=primary_provider, model=primary_model)
+            return self._build_result(answer, primary_provider, primary_model, [])
+        except Exception as primary_error:
+            logger.warning(
+                "QASystem async ask free - 云端模型(provider=%s, model=%s)调用失败: %s",
+                primary_provider,
+                primary_model,
+                primary_error,
+            )
+            answer = build_local_fallback_answer(
+                question,
+                mode="free",
+                reason=str(primary_error),
+                budget=controller.budget(),
+            )
+            return self._build_result(answer, primary_provider, primary_model, [])
+
+    async def answer_stream_async(
+        self,
+        question: str,
+        *,
+        provider: str = "",
+        model: str = "",
+        deep_thinking: bool = False,
+        mode: str = "video",
+        history: Optional[list] = None,
+    ) -> AsyncGenerator[dict, None]:
+        normalized_provider = normalize_provider(provider, model)
+        resolved_model = model or resolve_model(normalized_provider, model, deep_thinking=deep_thinking)
+        yield build_stream_event(
+            "status",
+            stage="accepted",
+            message="问题已提交，等待处理",
+            progress=5,
+            provider=normalized_provider,
+            provider_label=resolve_provider_label(normalized_provider),
+            model=resolved_model,
+        )
+        yield build_stream_event(
+            "status",
+            stage="answering",
+            message="正在生成回答",
+            progress=45,
+            provider=normalized_provider,
+            provider_label=resolve_provider_label(normalized_provider),
+            model=resolved_model,
+        )
+        result = await self.ask_async(
+            question,
+            provider=provider,
+            model=model,
+            deep_thinking=deep_thinking,
+            mode=mode,
+            history=history,
+        )
+        yield build_stream_event(
+            "answer",
+            stage="completed",
+            message="回答已完成",
+            progress=100,
+            answer=result["answer"],
+            provider=result["provider"],
+            provider_label=result["provider_label"],
+            model=result["model"],
+            references=result["references"],
+        )
 
     def answer_stream(
         self,
@@ -798,20 +1158,30 @@ class QASystem:
                 thinking_buffer = ""
                 answer_buffer = ""
                 provider_info = ""
-                for thinking_chunk, answer_chunk, provider_info in self._call_model_stream(
-                    messages, provider=normalized_provider, model=model, deep_thinking=True
-                ):
-                    if thinking_chunk:
-                        thinking_buffer += thinking_chunk
-                        yield build_stream_event(
-                            "thinking",
-                            stage="streaming",
-                            thinking=thinking_chunk,
-                            delta=thinking_chunk,
-                            progress=52,
-                        )
-                    if answer_chunk:
-                        answer_buffer += answer_chunk
+                try:
+                    for thinking_chunk, answer_chunk, provider_info in self._call_model_stream(
+                        messages, provider=normalized_provider, model=model, deep_thinking=True
+                    ):
+                        if thinking_chunk:
+                            thinking_buffer += thinking_chunk
+                            yield build_stream_event(
+                                "thinking",
+                                stage="streaming",
+                                thinking=thinking_chunk,
+                                delta=thinking_chunk,
+                                progress=52,
+                            )
+                        if answer_chunk:
+                            answer_buffer += answer_chunk
+                except Exception as exc:
+                    logger.warning("qa stream deep fallback | error=%s", exc)
+                    answer_buffer = build_local_fallback_answer(
+                        question,
+                        mode="video",
+                        context_text=context_text,
+                        reason=str(exc),
+                        budget=controller.budget(),
+                    )
 
                 if not thinking_buffer and not answer_buffer:
                     raise QAProviderError("DeepSeek 深度思考未返回任何内容")
@@ -867,10 +1237,20 @@ class QASystem:
             )
             answer_buffer = ""
             provider_info = ""
-            for thinking_chunk, answer_chunk, provider_info in self._call_model_stream(
-                messages, provider=normalized_provider, model=model, deep_thinking=False
-            ):
-                answer_buffer += answer_chunk
+            try:
+                for thinking_chunk, answer_chunk, provider_info in self._call_model_stream(
+                    messages, provider=normalized_provider, model=model, deep_thinking=False
+                ):
+                    answer_buffer += answer_chunk
+            except Exception as exc:
+                logger.warning("qa stream fallback | error=%s", exc)
+                answer_buffer = build_local_fallback_answer(
+                    question,
+                    mode="video",
+                    context_text=context_text,
+                    reason=str(exc),
+                    budget=controller.budget(),
+                )
 
             provider_label, final_model = resolve_provider_label(normalized_provider), resolved_model
             if ":" in provider_info:
@@ -917,20 +1297,29 @@ class QASystem:
             thinking_buffer = ""
             answer_buffer = ""
             provider_info = ""
-            for thinking_chunk, answer_chunk, provider_info in self._call_model_stream(
-                messages, provider=normalized_provider, model=model, deep_thinking=True
-            ):
-                if thinking_chunk:
-                    thinking_buffer += thinking_chunk
-                    yield build_stream_event(
-                        "thinking",
-                        stage="streaming",
-                        thinking=thinking_chunk,
-                        delta=thinking_chunk,
-                        progress=52,
-                    )
-                if answer_chunk:
-                    answer_buffer += answer_chunk
+            try:
+                for thinking_chunk, answer_chunk, provider_info in self._call_model_stream(
+                    messages, provider=normalized_provider, model=model, deep_thinking=True
+                ):
+                    if thinking_chunk:
+                        thinking_buffer += thinking_chunk
+                        yield build_stream_event(
+                            "thinking",
+                            stage="streaming",
+                            thinking=thinking_chunk,
+                            delta=thinking_chunk,
+                            progress=52,
+                        )
+                    if answer_chunk:
+                        answer_buffer += answer_chunk
+            except Exception as exc:
+                logger.warning("qa stream free deep fallback | error=%s", exc)
+                answer_buffer = build_local_fallback_answer(
+                    question,
+                    mode="free",
+                    reason=str(exc),
+                    budget=controller.budget(),
+                )
 
             if not thinking_buffer and not answer_buffer:
                 raise QAProviderError("DeepSeek 深度思考未返回任何内容")
@@ -963,10 +1352,19 @@ class QASystem:
             )
             answer_buffer = ""
             provider_info = ""
-            for thinking_chunk, answer_chunk, provider_info in self._call_model_stream(
-                messages, provider=normalized_provider, model=model, deep_thinking=False
-            ):
-                answer_buffer += answer_chunk
+            try:
+                for thinking_chunk, answer_chunk, provider_info in self._call_model_stream(
+                    messages, provider=normalized_provider, model=model, deep_thinking=False
+                ):
+                    answer_buffer += answer_chunk
+            except Exception as exc:
+                logger.warning("qa stream free fallback | error=%s", exc)
+                answer_buffer = build_local_fallback_answer(
+                    question,
+                    mode="free",
+                    reason=str(exc),
+                    budget=controller.budget(),
+                )
 
             provider_label, final_model = resolve_provider_label(normalized_provider), resolved_model
             if ":" in provider_info:

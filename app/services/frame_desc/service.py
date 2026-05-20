@@ -29,13 +29,19 @@ from app.analytics.pipeline import get_telemetry
 from app.analytics.schema import AnalyticsEvent, AnalyticsStatus
 from app.core.config import settings
 from app.models.subtitle import Subtitle
+from app.services.frame_desc.debug import get_frame_description_debug_logger
 from app.services.llm_clients.qwen3vl import (
     Qwen3VLClientError,
     Qwen3VLRealtimeClient,
 )
-from app.services.llm_clients.qwen_vl_cloud import QwenVLCloudClient, QwenVLCloudClientError
-from app.services.llm_clients.vinci_adapter import VinciAdapterError, VinciAdapterService
-from app.services.frame_desc.debug import get_frame_description_debug_logger
+from app.services.llm_clients.qwen_vl_cloud import (
+    QwenVLCloudClient,
+    QwenVLCloudClientError,
+)
+from app.services.llm_clients.vinci_adapter import (
+    VinciAdapterError,
+    VinciAdapterService,
+)
 from app.utils.subtitle_io import repair_mojibake_text
 
 logger = logging.getLogger(__name__)
@@ -50,6 +56,7 @@ def _get_frame_desc_debug_logger() -> logging.Logger:
         _frame_desc_debug_logger = get_frame_description_debug_logger()
     return _frame_desc_debug_logger
 
+
 _execute_tool = None
 _execute_tool_stream = None
 
@@ -58,6 +65,7 @@ def _get_execute_tool():
     global _execute_tool
     if _execute_tool is None:
         from app.agents.governance.gateway import execute_tool
+
         _execute_tool = execute_tool
     return _execute_tool
 
@@ -66,6 +74,7 @@ def _get_execute_tool_stream():
     global _execute_tool_stream
     if _execute_tool_stream is None:
         from app.agents.governance.gateway import execute_tool_stream
+
         _execute_tool_stream = execute_tool_stream
     return _execute_tool_stream
 

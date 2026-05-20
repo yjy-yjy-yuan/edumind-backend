@@ -1,5 +1,10 @@
 """视频领域服务。"""
 
+from app.services.video.api import (
+    build_processing_metadata,
+    build_processing_options,
+    serialize_video,
+)
 from app.services.video.content import (
     SUPPORTED_SUMMARY_STYLES,
     clean_multiline_text,
@@ -20,10 +25,12 @@ from app.services.video.content import (
     split_sentences,
     tokenize_sentence,
 )
-from app.services.video.api import (
-    build_processing_metadata,
-    build_processing_options,
-    serialize_video,
+from app.services.video.external_candidate import (
+    ExternalCandidate,
+    ExternalProviderFetchSummary,
+    fetch_external_candidates,
+    fetch_external_candidates_report,
+    serialize_provider_summary,
 )
 from app.services.video.processing_registry import (
     forget_video_processing_request,
@@ -42,11 +49,4 @@ from app.services.video.recommendation import (
 from app.services.video.url_import import (
     DISABLED_REMOTE_VIDEO_SOURCE_MESSAGE,
     import_remote_video_from_url,
-)
-from app.services.video.external_candidate import (
-    ExternalCandidate,
-    ExternalProviderFetchSummary,
-    fetch_external_candidates,
-    fetch_external_candidates_report,
-    serialize_provider_summary,
 )

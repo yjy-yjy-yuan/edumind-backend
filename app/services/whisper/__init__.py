@@ -1,5 +1,6 @@
 """Whisper 运行时管理。"""
 
+from app.services.whisper.debug import get_whisper_debug_logger
 from app.services.whisper.runtime import (
     PRODUCT_WHISPER_MODELS,
     WHISPER_MODEL_HIGHLIGHTS,
@@ -16,4 +17,3 @@ from app.services.whisper.runtime import (
     transcribe_audio_with_whisper,
     whisper_runtime,
 )
-from app.services.whisper.debug import get_whisper_debug_logger

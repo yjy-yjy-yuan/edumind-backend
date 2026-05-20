@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-05-20
+
+### AI Serving 异步阻塞链路专项改造（Phase 1/2）
+
+- **backend**：新增 `app/utils/ai_response_control.py`，引入 AI admission、event loop lag 监控、async upstream semaphore、硬超时与取消统计、滑动窗口熔断（含 `429/5xx` 状态码识别）、动态 budget 压缩（`1024 -> 256 -> 96`）。
+- **backend**：更新 `app/main.py`，新增入口中间件 `AIAdmissionMiddleware`，在 `/api/qa/ask` 与 `/api/chat/completions` 进入业务链路前执行活跃请求/排队阈值检查，支持快速 `429/503` 与 `Retry-After`，并返回 admission 与 loop lag 响应头。
+- **backend**：更新 `app/utils/qa_utils.py`，新增 `call_provider_chat_async` 与 `call_deepseek_reasoner_stream_async`（`httpx.AsyncClient`），并新增 `QASystem.ask_async`/`answer_stream_async` 供路由异步主链路调用；保留既有同步路径用于兼容存量调用点。
+- **backend**：更新 `app/utils/chat_system.py`、`app/routers/chat.py`、`app/routers/qa.py`，将 chat/qa 主路径切换到 async 调用与 async streaming generator，避免 `requests` 在这两条主链路阻塞事件循环。
+- **backend**：更新 `app/routers/ops.py`，新增 `/api/ops/ai-serving/metrics`，输出 admission、upstream、event loop 三类运行态指标，用于压测与灰度观测。
+- **config**：更新 `app/core/config.py` 与 `.env.example`，新增 `AI_ADMISSION_*`、`AI_EVENT_LOOP_LAG_*`、`AI_REQUEST_HARD_TIMEOUT_SECONDS` 等参数，支持入口限流与超时止血策略。
+- **tests**：新增 `tests/unit/test_chat_system.py`；更新 `tests/unit/test_qa_utils.py`，补充 async 调用路径用例，确保同步/异步路径回归可用。
+- **impact**：在本地 ASGI 验收下，AI 主链路 `max_observed_active` 从历史压测的 `1` 恢复到 `8`，慢模型场景尾延迟从 `90s~150s` 降至亚秒级；但全仓库尚未完成 AsyncSession 与其他域同步 IO 清理，当前为“主链路止血 + 渐进迁移”状态。
+
+---
+
 ## 2026-05-18
 
 ### 项目结构领域驱动重构（Deep Refactoring）

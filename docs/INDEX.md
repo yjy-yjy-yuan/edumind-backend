@@ -1,6 +1,6 @@
 # Project Overview
 
-最近更新时间：2026-05-18 00:00:00 Asia/Shanghai
+最近更新时间：2026-05-20 00:00:00 Asia/Shanghai
 
 ## 项目简介
 
@@ -29,7 +29,7 @@
 | 项 | 值 |
 |---|---|
 | API version | `2.0.0` |
-| 最近提交记录 | `2e10a2e 0513 fix disable youtube mooc upload (#6)` |
+| 最近提交记录 | `PENDING chore(ai-serving): asyncize qa/chat main path, add admission middleware, metrics and docs sync` |
 | 文档体系版本 | `docs-refactor-2026-05-18` |
 | 领域重构版本 | `services-ddd-2026-05-18` |
 
@@ -44,7 +44,7 @@
 
 | 类别 | 当前内容 | 状态 | 关联文档 |
 |---|---|---|---|
-| 正在开发 | 文档同步与 git 提交 | Active | `CHANGELOG.md`, `COMMIT_LOG.md` |
+| 正在开发 | AI Serving async 主链路改造（Phase 1/2） | Active | `app/utils/ai_response_control.py`, `app/routers/qa.py`, `app/routers/chat.py`, `app/routers/ops.py` |
 | 待修复问题 | 当前未从文档扫描发现已登记但未修复 Bug | Clear | `docs/bugs/pending.md` |
 | 架构任务 | 后续架构调整必须使用 ADR 并同步 architecture 文档 | Active | `docs/arch/decisions.md` |
 | 验证链路 | smoke startup、compileall、system requirements | Active | `docs/testing/test-cases.md`, `docs/reference/commands.md` |
@@ -55,6 +55,7 @@
 |---|---|---|---|
 | 2026-05-09 00:00:00 Asia/Shanghai | 将 `docs/INDEX.md` 固化为全局上下文入口、恢复入口与 Prompt Registry | Completed | `docs/summaries/session-history.md`, `docs/prompts/workflow.md` |
 | 2026-05-18 00:00:00 Asia/Shanghai | 项目结构领域驱动重构（services/ 按业务域分组，清理死代码） | Completed | `CHANGELOG.md`, `COMMIT_LOG.md`, `AGENTS.md`, `CLAUDE.md` |
+| 2026-05-20 00:00:00 Asia/Shanghai | AI Serving 异步阻塞链路专项改造（Phase 1/2） | Completed | `CHANGELOG.md`, `COMMIT_LOG.md`, `app/utils/ai_response_control.py`, `app/routers/qa.py`, `app/routers/chat.py` |
 | 2026-05-09 00:00:00 Asia/Shanghai | 初始化长期可维护 docs 日志体系 | Completed | `docs/summaries/session-history.md`, `docs/MILESTONES.md` |
 
 # Documentation Map

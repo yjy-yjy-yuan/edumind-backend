@@ -13,9 +13,24 @@ from app.analytics.pipeline import get_telemetry
 from app.analytics.schema import AnalyticsEvent, AnalyticsStatus
 from app.core.config import settings
 from app.core.database import get_db
+from app.utils.ai_response_control import (
+    admission_controller,
+    controller,
+    event_loop_monitor,
+)
 from app.utils.auth_deps import resolve_user_from_request
 
 router = APIRouter()
+
+
+@router.get("/ai-serving/metrics")
+async def get_ai_serving_metrics():
+    """返回 AI serving admission、上游调用与 event loop 观测快照。"""
+    return {
+        "admission": admission_controller.snapshot(),
+        "upstream": controller.metrics(),
+        "event_loop": event_loop_monitor.metrics(),
+    }
 
 
 def _resolve_trace_id(request: Request) -> str:

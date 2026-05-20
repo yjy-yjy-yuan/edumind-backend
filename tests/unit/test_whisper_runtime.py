@@ -7,8 +7,8 @@ import types
 import pytest
 
 from app.core.config import settings
-from app.services.whisper.runtime import WhisperRuntimeManager
 from app.services.whisper.debug import get_whisper_debug_logger
+from app.services.whisper.runtime import WhisperRuntimeManager
 
 
 @pytest.mark.unit

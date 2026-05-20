@@ -8,9 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.agents.exceptions import GovernanceError
+from app.agents.learning_flow_agent import execute_learning_flow_agent
 from app.core.database import get_db
 from app.schemas.agent import AgentExecuteRequest, AgentPlanResponse
-from app.agents.learning_flow_agent import execute_learning_flow_agent
 
 logger = logging.getLogger(__name__)
 

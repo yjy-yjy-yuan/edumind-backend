@@ -298,6 +298,7 @@ class TagInputValidator:
     @staticmethod
     def _sanitize_tag(tag: str) -> str:
         import re
+
         tag = str(tag or "").strip()
         tag = re.sub(r'[<>"\'\\/&;]', "", tag)
         tag = re.sub(r"\s+", " ", tag)

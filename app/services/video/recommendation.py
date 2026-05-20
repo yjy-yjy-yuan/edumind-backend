@@ -15,12 +15,6 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.user import User
 from app.models.video import Video, VideoStatus
-from app.services.video.external_candidate import (
-    ExternalCandidate,
-    ExternalProviderFetchSummary,
-    fetch_external_candidates_report,
-    serialize_provider_summary,
-)
 from app.services.search.similarity_fusion import (
     fused_similarity_score,
     lexical_overlap_score,
@@ -29,6 +23,12 @@ from app.services.video.content import (
     build_subject_enriched_tags,
     fallback_primary_topic_name,
     infer_subject_from_text,
+)
+from app.services.video.external_candidate import (
+    ExternalCandidate,
+    ExternalProviderFetchSummary,
+    fetch_external_candidates_report,
+    serialize_provider_summary,
 )
 
 SCENE_OPTIONS = [

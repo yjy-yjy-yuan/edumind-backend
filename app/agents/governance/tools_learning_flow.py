@@ -11,13 +11,19 @@ from app.agents.governance.context import ensure_in_governance_context
 from app.core.config import settings
 from app.models.note import Note, NoteTimestamp
 from app.models.video import Video
-from app.services.llm_clients.qwen_vl_cloud import QwenVLCloudClient, QwenVLCloudClientError
+from app.services.llm_clients.qwen_vl_cloud import (
+    QwenVLCloudClient,
+    QwenVLCloudClientError,
+)
+from app.services.llm_clients.vinci_adapter import (
+    VinciAdapterError,
+    VinciAdapterService,
+)
 from app.services.video.content import (
     fallback_summary,
     fallback_tags,
     normalize_summary_style,
 )
-from app.services.llm_clients.vinci_adapter import VinciAdapterError, VinciAdapterService
 from app.utils.subtitle_io import repair_mojibake_text
 
 _frame_desc_debug_logger = None

@@ -167,7 +167,7 @@ async def ask_question(
         # 流式响应
         if request.stream:
 
-            def generate():
+            async def generate():
                 stream_db = db
                 try:
                     stream_video = None
@@ -228,7 +228,7 @@ async def ask_question(
                         request.model or "",
                     )
 
-                    for event in stream_qa_system.answer_stream(
+                    async for event in stream_qa_system.answer_stream_async(
                         request.question,
                         provider=normalized_provider,
                         model=request_model,
@@ -311,7 +311,7 @@ async def ask_question(
 
             return StreamingResponse(generate(), media_type="application/x-ndjson; charset=utf-8")
 
-        result = qa_system.ask(
+        result = await qa_system.ask_async(
             request.question,
             provider=normalized_provider,
             model=request_model,

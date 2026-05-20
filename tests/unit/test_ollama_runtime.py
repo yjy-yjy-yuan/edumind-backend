@@ -41,7 +41,8 @@ def test_get_ollama_runtime_status_when_service_unavailable(monkeypatch):
     """Ollama 不可用时应返回错误但不抛异常。"""
     monkeypatch.setattr(settings, "OLLAMA_BASE_URL", "http://localhost:11434/api")
     monkeypatch.setattr(
-        "app.services.llm_clients.ollama_runtime.requests.get", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("down"))
+        "app.services.llm_clients.ollama_runtime.requests.get",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("down")),
     )
 
     status = get_ollama_runtime_status()
