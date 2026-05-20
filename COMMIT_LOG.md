@@ -13,7 +13,8 @@
 
 ### 2026-05-20
 
-- `PENDING` chore(ai-serving): asyncize qa/chat main path, add admission middleware, metrics and docs sync
+- `<commit-hash>` docs: add async architecture status and blocking points to CLAUDE.md and AGENTS.md
+- `9f1068a` feat(ai-serving): asyncize qa/chat path with admission control and ops metrics
 
 ### 2026-05-18
 

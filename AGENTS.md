@@ -28,7 +28,7 @@
 - `core/` — config, DB, executor
 - `analytics/` — centralized telemetry pipeline
 - `compounding/` — incremental value export (export, formats, quality, sanitization)
-- `utils/` — cross-domain utilities (auth, chat, qa, subtitle IO, ollama compat, semantic utils)
+- `utils/` — cross-domain utilities (auth, chat, qa, AI response control, subtitle IO, ollama compat, semantic utils)
 - `repositories/` — data access layer
 
 `tests/` is split into `unit/`, `api/`, `smoke/`, and `integration/`.
@@ -152,11 +152,46 @@ Default chain: `Local Qwen3VL → Cloud Qwen-VL API → Caption Fallback → Min
 - `FRAME_DESC_CLOUD_FALLBACK_ENABLED=false` (default off)
 - Vinci is legacy, only used when `FRAME_DESC_BACKEND=vinci`
 
+### AI Serving Async Control
+
+AI Q&A and chat main paths must not block the event loop with synchronous upstream model calls.
+- `/api/qa/ask` and `/api/chat/completions` are protected by `AIAdmissionMiddleware` in `app/main.py`.
+- AI upstream calls should use `call_provider_chat_async` / `httpx.AsyncClient` on async routes.
+- Keep synchronous `call_provider_chat` only for legacy non-route callers or explicitly isolated worker contexts.
+- Use `app/utils/ai_response_control.py` for admission, upstream concurrency, token budget compression, fallback cache, circuit breaking, and event loop lag metrics.
+- Operational metrics are exposed at `/api/ops/ai-serving/metrics`.
+- New AI-serving config must be added to both `app/core/config.py` and `.env.example`.
+
+### Async Architecture Status (高并发 AI 服务 async 架构修复阶段)
+
+**当前系统最大瓶颈：同步 IO 阻塞 async 事件循环**（不是 CPU、SQLite 或 token）。
+
+#### 已知阻塞点
+
+1. **同步 HTTP 客户端**: `requests` 在 6 个文件、`httpx.Client`（非 AsyncClient）在 4 个 LLM 客户端文件中全部是同步调用
+2. **同步 subprocess**: `source_extractor.py:220` 的 ffmpeg 帧提取直接运行在 async 路由中
+3. **同步 sleep**: `sleek_service.py:188` 轮询循环、`audit_log_service.py:157` 重试退避
+4. **Admission control 位置错误**: `threading.BoundedSemaphore` 仅在 QA/chat 调用处包裹，不覆盖帧描述、搜索、站外候选等
+5. **无显式队列**: 请求隐式 await 堆积，导致 90s~150s 尾延迟
+
+#### 修复优先级
+
+1. 入口级 Admission Control（中间件层，快速 429/503）
+2. LLM 客户端 async 化（`httpx.AsyncClient` 或 `asyncio.to_thread`）
+3. 显式队列系统（防止雪崩）
+4. subprocess async 化（`asyncio.create_subprocess_exec`）
+5. `time.sleep` → `asyncio.sleep`
+6. DB session async 化（最后做）
+
+#### 最终目标
+
+不阻塞 event loop、不雪崩、不无限排队、快速失败、快速降级、保持服务可用。
+
 ### Video Soft Delete
 Videos use soft delete (`is_deleted` / `deleted_at`). Deleted videos are hidden from frontend lists but retained in DB. Search and video access filters exclude `is_deleted=true` rows.
 
 ### Streaming Responses
-AI Q&A and chat use `StreamingResponse`. Never use plain `Response` for streaming endpoints.
+AI Q&A and chat use `StreamingResponse`. Never use plain `Response` for streaming endpoints. Streaming generators on async routes should be `async def` generators and should delegate blocking work to async clients or worker pools.
 
 ### Validation Errors
 FastAPI returns `422` for validation errors, not `400`.

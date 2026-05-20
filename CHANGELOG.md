@@ -9,6 +9,12 @@
 
 ## 2026-05-20
 
+### 文档同步：Async 架构状态与已知阻塞点
+
+- **docs**：更新 `CLAUDE.md`，新增完整 Async Architecture Status 章节，包含 5 类已知阻塞点（同步 HTTP、subprocess、sleep、admission 位置、无队列）、具体文件:行号表格、修复优先级排序、最终目标说明
+- **docs**：更新 `AGENTS.md`，在 AI Serving Async Control 后新增 Async Architecture Status 子章节，精简版包含 5 个已知阻塞点、6 步修复优先级、最终目标
+- **impact**：为后续 async 架构修复提供明确的代码级锚点和优先级指导，不影响任何运行时功能
+
 ### AI Serving 异步阻塞链路专项改造（Phase 1/2）
 
 - **backend**：新增 `app/utils/ai_response_control.py`，引入 AI admission、event loop lag 监控、async upstream semaphore、硬超时与取消统计、滑动窗口熔断（含 `429/5xx` 状态码识别）、动态 budget 压缩（`1024 -> 256 -> 96`）。
