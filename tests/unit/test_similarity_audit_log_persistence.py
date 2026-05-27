@@ -23,8 +23,8 @@ from app.models.similarity_audit_log import SimilarityAuditLogModel
 from app.repositories.similarity_audit_log_repository import (
     SimilarityAuditLogRepository,
 )
-from app.services.similarity_analytics import SimilarityAuditLog, SimilarityEventType
-from app.services.similarity_audit_log_service import (
+from app.services.similarity.analytics import SimilarityAuditLog, SimilarityEventType
+from app.services.similarity.audit_log_service import (
     SimilarityAuditLogPersistenceService,
 )
 

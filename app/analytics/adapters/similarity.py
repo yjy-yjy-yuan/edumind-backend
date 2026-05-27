@@ -8,7 +8,7 @@ from app.analytics.pipeline import AnalyticsTelemetry
 from app.analytics.schema import AnalyticsEvent, AnalyticsStatus
 
 if TYPE_CHECKING:
-    from app.services.similarity_analytics import SimilarityAuditLog
+    from app.services.similarity.analytics import SimilarityAuditLog
 
 _MODULE = "similarity"
 

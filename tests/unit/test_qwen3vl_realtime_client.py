@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from app.services.qwen3vl_realtime_client import Qwen3VLRealtimeClient
+from app.services.llm_clients.qwen3vl import Qwen3VLRealtimeClient
 
 
 class _QwenHandler(BaseHTTPRequestHandler):

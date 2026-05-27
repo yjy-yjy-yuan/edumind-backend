@@ -12,8 +12,8 @@ python run.py
 uvicorn app.main:app --reload --port 2004
 
 # 验证 (当前仓库首选验证链路)
-python ../scripts/validate_backend_smoke.py
-mkdir -p ../.pycache-hook && PYTHONPYCACHEPREFIX="$PWD/../.pycache-hook" python -m compileall app scripts ../scripts/hooks ../scripts/validate_backend_smoke.py
+pytest tests/smoke/test_app_startup.py -v
+mkdir -p .pycache-hook && PYTHONPYCACHEPREFIX="$PWD/.pycache-hook" python -m compileall app scripts
 python scripts/validate_system_requirements.py
 
 # 数据库迁移（Alembic）
@@ -59,18 +59,29 @@ app/
 ├── routers/             # HTTP 路由层
 ├── schemas/             # Pydantic 请求/响应模型
 ├── models/              # SQLAlchemy 2.0 ORM 模型 (Mapped[] 类型注解)
-├── services/            # 业务逻辑层
-│   ├── search/          # 语义搜索服务 (embedder, chunker, store, similarity_fusion)
-│   ├── analytics/       # 集中式遥测 (兼容入口在 app/analytics/)
-│   └── ollama_runtime.py, whisper_runtime.py  # 运行时封装
-├── tasks/               # 后台任务 (video_processing, vector_indexing, video_download)
+├── services/            # 业务逻辑层（按领域分组）
+│   ├── video/           # 视频领域（content, api, processing_registry, recommendation, url_import, external_candidate）
+│   ├── frame_desc/      # 画面描述领域（service, source_extractor, debug）
+│   ├── similarity/      # 相似度领域（analytics, service_container, audit_log_service, score_parser）
+│   ├── recommendation/  # 推荐运营（ops_service）
+│   ├── llm_clients/     # LLM 客户端（qwen3vl, qwen_vl_cloud, vinci, vinci_adapter, ollama_runtime）
+│   ├── whisper/         # Whisper 运行时（runtime, debug）
+│   ├── search/          # 语义搜索（embedder, chunker, store, similarity_fusion）
+│   ├── sleek_service.py # 设计助手
+│   └── storage_maintenance.py  # 存储维护
+├── tasks/               # 后台任务 (video_processing, vector_indexing, video_download, resumable_state_machine)
 ├── agents/              # 智能体编排
-│   ├── governance/      # 治理审计
-│   ├── pipelines/       # 学习流编排
-│   └── budget.py        # Token 预算管理
-├── analytics/           # 集中式遥测管道 (pipeline, alerting, adapters)
-├── compounding/         # 增量价值导出 (export_service, formats, quality, sanitization)
-├── utils/               # 通用工具 (auth_deps, auth_token, chat_system, semantic_utils)
+│   ├── learning_flow_agent.py   # 学习流智能体编排（从 services/ 迁入）
+│   ├── governance/      # 治理审计（gateway, context, tools_learning_flow）
+│   ├── pipelines/       # 学习流编排（learning_flow_pipeline）
+│   ├── prompt_engine.py # Token 感知提示词组装
+│   ├── skill_registry.py# 技能注册与版本管理
+│   ├── trajectory.py    # 轨迹记录器
+│   ├── budget.py        # Token 预算管理
+│   └── prompts/         # 提示词版本常量
+├── analytics/           # 集中式遥测管道 (pipeline, alerting, adapters, schema)
+├── compounding/         # 增量价值导出 (export_service, formats, quality, sanitization, report)
+├── utils/               # 跨域通用工具 (auth_deps, auth_security, auth_token, ai_response_control, chat_system, ollama_compat, qa_utils, semantic_utils, subtitle_io)
 └── repositories/        # 数据访问层 (similarity_audit_log_repository)
 ```
 
@@ -79,10 +90,12 @@ app/
 1. **分层架构**: Routers → Services → Repositories/Models
 2. **依赖注入**: 使用 `Depends(get_db)` 注入数据库会话
 3. **异步优先**: 路由使用 `async def`，后台任务通过 ProcessPoolExecutor 执行
-4. **流式响应**: AI 问答/聊天使用 `StreamingResponse`
-5. **运行时封装**: Whisper/Ollama 通过 Runtime 类管理生命周期
-6. **集中式遥测**: `app.analytics.pipeline.get_telemetry().emit()` 统一事件发布
-7. **语义搜索**: 双后端工厂模式 (gemini/local) + ChromaDB 持久化
+4. **AI Serving 入口保护**: QA/Chat 主链路通过 `AIAdmissionMiddleware` 和 `ai_response_control` 做 admission、budget、熔断、fallback 与 event loop lag 观测
+5. **流式响应**: AI 问答/聊天使用 `StreamingResponse`，async 路由内使用 async generator
+6. **运行时封装**: Whisper/Ollama 通过 Runtime 类管理生命周期
+7. **集中式遥测**: `app.analytics.pipeline.get_telemetry().emit()` 统一事件发布
+8. **语义搜索**: 双后端工厂模式 (gemini/local) + ChromaDB 持久化
+9. **领域驱动**: services/ 按业务域分组（video/, frame_desc/, similarity/, recommendation/, llm_clients/, whisper/）
 
 ## Code Style
 
@@ -115,6 +128,7 @@ async def get_video(video_id: int, db: Session = Depends(get_db)):
 | `/api/design` | 设计助手代理 (Sleek 集成) |
 | `/api/agent` | 学习流智能体编排 |
 | `/api/search` | 语义搜索 (视频/字幕语义召回) |
+| `/api/ops/ai-serving/metrics` | AI Serving admission、upstream、event loop 观测指标 |
 
 ## Background Tasks
 
@@ -159,6 +173,7 @@ cp .env.cloud .env
 - `DATABASE_URL`: MySQL 连接字符串
 - `OLLAMA_BASE_URL`, `OLLAMA_MODEL`: 本地 LLM 配置
 - `OPENAI_API_KEY`, `QWEN_API_KEY`, `DEEPSEEK_API_KEY`: 外部 LLM 配置
+- `AI_ADMISSION_*`, `AI_UPSTREAM_*`, `AI_*_MAX_TOKENS`: AI Serving admission、上游并发、超时与 token budget 配置
 - `SLEEK_API_KEY`, `SLEEK_API_BASE`: 设计助手配置
 - `SEARCH_ENABLED`, `SEARCH_BACKEND`: 语义搜索开关和后端
 - `AGENT_GOVERNANCE_AUDIT_ENABLED`: 智能体治理审计
@@ -190,15 +205,22 @@ conda activate ai-edvision
 
 ## Testing
 
-当前仓库规则: 修改程序时不要使用 pytest 做验证，改用以下链路:
+当前仓库首选验证链路:
 
 ```bash
-python ../scripts/validate_backend_smoke.py
-mkdir -p ../.pycache-hook && PYTHONPYCACHEPREFIX="$PWD/../.pycache-hook" python -m compileall app scripts ../scripts/hooks ../scripts/validate_backend_smoke.py
+pytest tests/smoke/test_app_startup.py -v
+mkdir -p .pycache-hook && PYTHONPYCACHEPREFIX="$PWD/.pycache-hook" python -m compileall app scripts
 python scripts/validate_system_requirements.py
 ```
 
-`pytest` 保留在 `tests/` 目录用于历史回归测试，包含:
+提交或推送前必须按 hooks 运行:
+
+```bash
+pre-commit run --all-files
+pre-commit run --hook-stage pre-push --all-files
+```
+
+`pytest` 测试目录包含:
 - `tests/unit/`: service、task、runtime、工具函数等单元测试
 - `tests/api/`: FastAPI 路由与响应行为测试
 - `tests/smoke/`: 启动与最小链路验证
@@ -211,10 +233,87 @@ python scripts/validate_system_requirements.py
 
 - **YOU MUST** 在任务函数内创建新的数据库连接 (ProcessPoolExecutor 限制)
 - **YOU MUST** 使用 `Depends(get_db)` 注入数据库会话
-- **流式响应**: 使用 `StreamingResponse`，不要用 `Response`
+- **AI Serving**: async 路由中的上游模型调用必须使用 async client、`asyncio.to_thread` 或独立 worker pool，禁止同步 IO 阻塞 event loop
+- **流式响应**: 使用 `StreamingResponse`，不要用 `Response`；async route 中的 stream generator 应为 `async def`
 - **验证错误**: 返回 422，不是 400
 - **敏感信息**: 永远不要提交 `.env` 文件或 API 密钥到代码
 - **Schema 变更**: 添加迁移文件并记录回填步骤
+
+## Async Architecture Status (高并发 AI 服务 async 架构修复阶段)
+
+### 当前已知阻塞点（必须优先解决）
+
+**系统最大瓶颈是"同步 IO 阻塞 async 事件循环"，不是 CPU、SQLite 或 token。**
+
+#### 1. 同步 HTTP 客户端在 async 路径中
+
+| 文件 | 调用 | 上下文 |
+|---|---|---|
+| `app/utils/qa_utils.py:198,548` | `requests.post(...)` | DeepSeek/OpenAI 聊天 |
+| `app/utils/semantic_utils.py:24,64,163` | `requests.get/post(...)` | Ollama 语义合并 |
+| `app/services/video/content.py:546,575` | `requests.post(...)` | 在线聊天/Ollama |
+| `app/services/video/external_candidate.py:450,502,588,631` | `requests.get(...)` | 站外候选抓取 |
+| `app/services/llm_clients/qwen3vl.py:120,196,290` | `httpx.Client(...)` | Qwen3VL 帧描述 |
+| `app/services/llm_clients/vinci.py:277,360,444,507` | `httpx.Client(...)` | Vinci 聊天/视觉 |
+| `app/services/llm_clients/qwen_vl_cloud.py:147` | `httpx.Client(...)` | 云 Qwen-VL |
+| `app/services/sleek_service.py:82` | `httpx.Client(...)` | 设计助手 |
+
+**修复要求**: 改用 `httpx.AsyncClient` 或 `asyncio.to_thread` 或独立 worker pool
+
+#### 2. 同步 subprocess 在请求路径
+
+| 文件 | 调用 | 上下文 |
+|---|---|---|
+| `app/services/frame_desc/source_extractor.py:220` | `subprocess.run(cmd)` | **CRITICAL**: 帧提取直接阻塞 async 路由 |
+| `app/services/search/chunker.py:30,78,99,247` | `subprocess.run(...)` | 视频分块（部分在 background task 可暂缓） |
+
+**修复要求**: 改用 `asyncio.create_subprocess_exec` 或 `asyncio.to_thread`
+
+#### 3. 同步阻塞调用
+
+| 文件 | 调用 | 上下文 |
+|---|---|---|
+| `app/services/sleek_service.py:188` | `time.sleep(...)` | 轮询循环 |
+| `app/services/similarity/audit_log_service.py:157` | `time.sleep(delay)` | 重试退避 |
+| `app/services/video/external_candidate.py:711` | `time.sleep(0.25)` | 重试退避 |
+
+**修复要求**: 改用 `asyncio.sleep`
+
+#### 4. Admission Control 位置错误
+
+当前 `AIResponseController` 使用 `threading.BoundedSemaphore`（同步原语），仅在 QA/chat 调用处包裹，**不覆盖**：
+- 帧描述 (Qwen3VL/Vinci)
+- 站外候选抓取
+- Sleek API
+- 语义操作
+- 搜索/embedding
+
+**修复要求**: Admission control 必须前移到 FastAPI/Starlette 中间件入口层
+
+#### 5. 无显式队列系统
+
+当前是"隐式 await 堆积"，请求直接进入业务链路后排队，导致 90s~150s 尾延迟。
+
+**修复要求**: 实现显式队列，支持快速 429/503、最大等待时间、请求超时取消
+
+### 修复优先级
+
+1. **入口级 Admission Control** (风险最低、见效最快)
+2. **LLM 客户端 async 化** (工作量最大、效果最显著)
+3. **显式队列系统** (防止雪崩)
+4. **subprocess async 化** (source_extractor.py 必须改)
+5. **time.sleep → asyncio.sleep**
+6. **DB session async 化** (工作量大，可最后做)
+
+### 最终目标
+
+- 不阻塞 event loop
+- 不雪崩
+- 不无限排队
+- 快速失败、快速降级
+- 保持服务可用
+
+宁可返回短答案/降级结果/429，也不要等待 100 秒拖死整个系统。
 
 ## Analytics & Telemetry
 

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.services.frame_source_extractor import FrameSourceExtractionError
+from app.services.frame_desc.source_extractor import FrameSourceExtractionError
 
 
 @pytest.mark.api
@@ -473,11 +473,11 @@ def test_health_returns_vinci_probe_result(client, monkeypatch):
         lambda: mock_service,
     )
     # Mock VinciAdapterService.health_check to avoid real HTTP calls
-    from app.services.vinci_adapter_service import VinciHealthResult
+    from app.services.llm_clients.vinci_adapter import VinciHealthResult
 
     mock_health = VinciHealthResult(reachable=True, latency_ms=42.5)
     monkeypatch.setattr(
-        "app.services.vinci_adapter_service.VinciAdapterService.health_check",
+        "app.services.llm_clients.vinci_adapter.VinciAdapterService.health_check",
         lambda self, **kw: mock_health,
     )
 
@@ -506,7 +506,7 @@ def test_health_vinci_unreachable_includes_error_detail(client, monkeypatch):
         "app.routers.frame_description.get_frame_desc_service",
         lambda: mock_service,
     )
-    from app.services.vinci_adapter_service import VinciHealthResult
+    from app.services.llm_clients.vinci_adapter import VinciHealthResult
 
     mock_health = VinciHealthResult(
         reachable=False,
@@ -515,7 +515,7 @@ def test_health_vinci_unreachable_includes_error_detail(client, monkeypatch):
         error_code="VINCI_UNAVAILABLE",
     )
     monkeypatch.setattr(
-        "app.services.vinci_adapter_service.VinciAdapterService.health_check",
+        "app.services.llm_clients.vinci_adapter.VinciAdapterService.health_check",
         lambda self, **kw: mock_health,
     )
 
@@ -539,7 +539,7 @@ def test_health_returns_qwen3vl_probe_result(client, monkeypatch):
         "app.routers.frame_description.get_frame_desc_service",
         lambda: mock_service,
     )
-    from app.services.qwen3vl_realtime_client import Qwen3VLHealthResult
+    from app.services.llm_clients.qwen3vl import Qwen3VLHealthResult
 
     mock_health = Qwen3VLHealthResult(
         reachable=True,
@@ -567,7 +567,7 @@ def test_health_returns_qwen3vl_probe_result(client, monkeypatch):
 @pytest.mark.api
 def test_describe_service_error_with_allow_degrade_returns_degraded_complete(client, sample_video, monkeypatch):
     """服务层抛错时，allow_degrade=True 应返回降级 complete 事件，而非仅 error。"""
-    from app.services.frame_description_service import FrameDescServiceError
+    from app.services.frame_desc.service import FrameDescServiceError
 
     monkeypatch.setattr(
         "app.routers.frame_description.settings",
@@ -603,7 +603,7 @@ def test_describe_service_error_with_allow_degrade_returns_degraded_complete(cli
 @pytest.mark.api
 def test_describe_service_error_without_degrade_returns_error_event(client, sample_video, monkeypatch):
     """服务层抛错且 allow_degrade=False 时应返回 error 事件。"""
-    from app.services.frame_description_service import FrameDescServiceError
+    from app.services.frame_desc.service import FrameDescServiceError
 
     monkeypatch.setattr(
         "app.routers.frame_description.settings",

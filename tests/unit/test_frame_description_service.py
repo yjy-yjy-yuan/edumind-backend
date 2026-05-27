@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.agents.governance.context import governance_execution_context
-from app.services.frame_description_service import (
+from app.services.frame_desc.service import (
     FrameDescriptionService,
     FrameDescServiceError,
     _build_description_prompt,
@@ -17,8 +17,8 @@ from app.services.frame_description_service import (
     _safe_trace_id,
     _VinciCircuitBreaker,
 )
-from app.services.qwen3vl_realtime_client import Qwen3VLUnavailableError
-from app.services.vinci_adapter_service import VinciAdapterError
+from app.services.llm_clients.qwen3vl import Qwen3VLUnavailableError
+from app.services.llm_clients.vinci_adapter import VinciAdapterError
 
 # ----------------------------------------------------------------------
 # 工具函数测试
@@ -79,7 +79,7 @@ class TestNormalizeFrames:
 class TestSafeHistory:
     def test_truncates_to_limit(self, monkeypatch):
         monkeypatch.setattr(
-            "app.services.frame_description_service.settings",
+            "app.services.frame_desc.service.settings",
             MagicMock(FRAME_DESC_CONTEXT_WINDOW_SIZE=3),
         )
         history = ["a", "b", "c", "d", "e"]
@@ -197,7 +197,7 @@ class TestVinciCircuitBreaker:
 class TestFrameDescriptionService:
     def test_disabled_returns_config_error(self, monkeypatch):
         monkeypatch.setattr(
-            "app.services.frame_description_service.settings",
+            "app.services.frame_desc.service.settings",
             MagicMock(
                 FRAME_DESC_ENABLED=False,
                 VINCI_CIRCUIT_BREAKER_FAILURE_THRESHOLD=3,
@@ -225,7 +225,7 @@ class TestFrameDescriptionService:
 
     def test_empty_frames_use_qwen3vl_text_only_mode(self, monkeypatch):
         monkeypatch.setattr(
-            "app.services.frame_description_service.settings",
+            "app.services.frame_desc.service.settings",
             MagicMock(
                 FRAME_DESC_ENABLED=True,
                 FRAME_DESC_BACKEND="qwen3vl",
@@ -281,7 +281,7 @@ class TestFrameDescriptionService:
 
     def test_session_lifecycle(self, monkeypatch):
         monkeypatch.setattr(
-            "app.services.frame_description_service.settings",
+            "app.services.frame_desc.service.settings",
             MagicMock(
                 FRAME_DESC_ENABLED=True,
                 VINCI_CIRCUIT_BREAKER_FAILURE_THRESHOLD=3,
@@ -290,7 +290,7 @@ class TestFrameDescriptionService:
             ),
         )
         monkeypatch.setattr(
-            "app.services.frame_description_service.get_telemetry",
+            "app.services.frame_desc.service.get_telemetry",
             lambda: MagicMock(emit=MagicMock()),
         )
         service = FrameDescriptionService()
@@ -305,7 +305,7 @@ class TestFrameDescriptionService:
 
     def test_session_reuse_same_history(self, monkeypatch):
         monkeypatch.setattr(
-            "app.services.frame_description_service.settings",
+            "app.services.frame_desc.service.settings",
             MagicMock(
                 FRAME_DESC_ENABLED=True,
                 FRAME_DESC_TIMEOUT_SECONDS=8.0,
@@ -330,7 +330,7 @@ class TestFrameDescriptionService:
         )
 
         monkeypatch.setattr(
-            "app.services.frame_description_service.get_telemetry",
+            "app.services.frame_desc.service.get_telemetry",
             lambda: MagicMock(emit=MagicMock()),
         )
 
@@ -338,9 +338,12 @@ class TestFrameDescriptionService:
             _ = db, trace_id, tool_name
             return {"answer": "老师在黑板上写字"}
 
+        def get_execute_tool():
+            return fake_execute_tool
+
         monkeypatch.setattr(
-            "app.services.frame_description_service.execute_tool",
-            fake_execute_tool,
+            "app.services.frame_desc.service._get_execute_tool",
+            get_execute_tool,
         )
 
         # 覆盖 vinci_adapter 使其返回固定 answer
@@ -373,11 +376,11 @@ class TestFrameDescriptionService:
     def test_vinci_streaming_description_uses_delta_events(self, monkeypatch):
         """开启流式模式后，后端应透传 Vinci 视觉流增量并以最终文本 complete。"""
         monkeypatch.setattr(
-            "app.services.frame_description_service.get_telemetry",
+            "app.services.frame_desc.service.get_telemetry",
             lambda: MagicMock(emit=MagicMock()),
         )
         monkeypatch.setattr(
-            "app.services.frame_description_service.settings",
+            "app.services.frame_desc.service.settings",
             MagicMock(
                 FRAME_DESC_ENABLED=True,
                 FRAME_DESC_TIMEOUT_SECONDS=8.0,
@@ -402,9 +405,12 @@ class TestFrameDescriptionService:
             yield {"event": "delta", "delta": "老师正在讲解例题"}
             yield {"event": "done"}
 
+        def get_execute_tool_stream():
+            return fake_execute_tool_stream
+
         monkeypatch.setattr(
-            "app.services.frame_description_service.execute_tool_stream",
-            fake_execute_tool_stream,
+            "app.services.frame_desc.service._get_execute_tool_stream",
+            get_execute_tool_stream,
         )
 
         service = FrameDescriptionService()
@@ -439,11 +445,11 @@ class TestFrameDescriptionService:
     def test_qwen3vl_streaming_description_uses_delta_events(self, monkeypatch):
         """Qwen3-VL 后端应直接消费新服务 SSE，并生成完整 complete 事件。"""
         monkeypatch.setattr(
-            "app.services.frame_description_service.get_telemetry",
+            "app.services.frame_desc.service.get_telemetry",
             lambda: MagicMock(emit=MagicMock()),
         )
         monkeypatch.setattr(
-            "app.services.frame_description_service.settings",
+            "app.services.frame_desc.service.settings",
             MagicMock(
                 FRAME_DESC_ENABLED=True,
                 FRAME_DESC_BACKEND="qwen3vl",
@@ -502,11 +508,11 @@ class TestFrameDescriptionService:
     def test_qwen3vl_default_uses_sync_description(self, monkeypatch):
         """Qwen3-VL 默认走非流式端点，避免 CPU 首 token 慢导致前端空闲超时。"""
         monkeypatch.setattr(
-            "app.services.frame_description_service.get_telemetry",
+            "app.services.frame_desc.service.get_telemetry",
             lambda: MagicMock(emit=MagicMock()),
         )
         monkeypatch.setattr(
-            "app.services.frame_description_service.settings",
+            "app.services.frame_desc.service.settings",
             MagicMock(
                 FRAME_DESC_ENABLED=True,
                 FRAME_DESC_BACKEND="qwen3vl",
@@ -569,11 +575,11 @@ class TestFrameDescriptionDegradedMode:
     def test_vinci_adapter_degraded_payload_marks_complete_as_degraded(self, monkeypatch):
         """当 execute_tool 返回 degraded=True 时，complete 事件也必须标记 degraded=True。"""
         monkeypatch.setattr(
-            "app.services.frame_description_service.get_telemetry",
+            "app.services.frame_desc.service.get_telemetry",
             lambda: MagicMock(emit=MagicMock()),
         )
         monkeypatch.setattr(
-            "app.services.frame_description_service.settings",
+            "app.services.frame_desc.service.settings",
             MagicMock(
                 FRAME_DESC_ENABLED=True,
                 FRAME_DESC_TIMEOUT_SECONDS=8.0,
@@ -597,9 +603,12 @@ class TestFrameDescriptionDegradedMode:
                 "session_id": "degraded-payload-session",
             }
 
+        def _get_execute_tool_wrapper():
+            return fake_execute_tool
+
         monkeypatch.setattr(
-            "app.services.frame_description_service.execute_tool",
-            fake_execute_tool,
+            "app.services.frame_desc.service._get_execute_tool",
+            _get_execute_tool_wrapper,
         )
 
         service = FrameDescriptionService()
@@ -630,11 +639,11 @@ class TestFrameDescriptionDegradedMode:
     def test_vinci_unavailable_returns_degraded(self, monkeypatch):
         """当 Vinci 超时时（execute_tool 抛出 VinciAdapterError），服务应返回降级描述。"""
         monkeypatch.setattr(
-            "app.services.frame_description_service.get_telemetry",
+            "app.services.frame_desc.service.get_telemetry",
             lambda: MagicMock(emit=MagicMock()),
         )
         monkeypatch.setattr(
-            "app.services.frame_description_service.settings",
+            "app.services.frame_desc.service.settings",
             MagicMock(
                 FRAME_DESC_ENABLED=True,
                 FRAME_DESC_TIMEOUT_SECONDS=8.0,
@@ -663,9 +672,12 @@ class TestFrameDescriptionDegradedMode:
                 status_code=504,
             )
 
+        def _get_execute_tool_wrapper():
+            return fake_execute_tool
+
         monkeypatch.setattr(
-            "app.services.frame_description_service.execute_tool",
-            fake_execute_tool,
+            "app.services.frame_desc.service._get_execute_tool",
+            _get_execute_tool_wrapper,
         )
 
         service = FrameDescriptionService()
@@ -692,11 +704,11 @@ class TestFrameDescriptionDegradedMode:
     def test_qwen3vl_unavailable_returns_degraded(self, monkeypatch):
         """当 Qwen3-VL 不可用时，实时描述必须返回 degraded complete 事件。"""
         monkeypatch.setattr(
-            "app.services.frame_description_service.get_telemetry",
+            "app.services.frame_desc.service.get_telemetry",
             lambda: MagicMock(emit=MagicMock()),
         )
         monkeypatch.setattr(
-            "app.services.frame_description_service.settings",
+            "app.services.frame_desc.service.settings",
             MagicMock(
                 FRAME_DESC_ENABLED=True,
                 FRAME_DESC_BACKEND="qwen3vl",
@@ -750,11 +762,11 @@ class TestFrameDescriptionDegradedMode:
     def test_qwen3vl_unavailable_uses_cloud_qwen_vl_before_subtitle(self, monkeypatch):
         """本地 Qwen3-VL 不可用时，先使用 Cloud Qwen-VL，不直接进入字幕降级。"""
         monkeypatch.setattr(
-            "app.services.frame_description_service.get_telemetry",
+            "app.services.frame_desc.service.get_telemetry",
             lambda: MagicMock(emit=MagicMock()),
         )
         monkeypatch.setattr(
-            "app.services.frame_description_service.settings",
+            "app.services.frame_desc.service.settings",
             MagicMock(
                 FRAME_DESC_ENABLED=True,
                 FRAME_DESC_BACKEND="qwen3vl",
@@ -813,11 +825,11 @@ class TestFrameDescriptionDegradedMode:
     def test_degrade_disabled_raises_error(self, monkeypatch):
         """当 allow_degrade=False 且 Vinci 不可用时，应返回错误事件。"""
         monkeypatch.setattr(
-            "app.services.frame_description_service.get_telemetry",
+            "app.services.frame_desc.service.get_telemetry",
             lambda: MagicMock(emit=MagicMock()),
         )
         monkeypatch.setattr(
-            "app.services.frame_description_service.settings",
+            "app.services.frame_desc.service.settings",
             MagicMock(
                 FRAME_DESC_ENABLED=True,
                 FRAME_DESC_TIMEOUT_SECONDS=8.0,
@@ -845,9 +857,12 @@ class TestFrameDescriptionDegradedMode:
                 status_code=504,
             )
 
+        def _get_execute_tool_wrapper():
+            return fake_execute_tool
+
         monkeypatch.setattr(
-            "app.services.frame_description_service.execute_tool",
-            fake_execute_tool,
+            "app.services.frame_desc.service._get_execute_tool",
+            _get_execute_tool_wrapper,
         )
 
         service = FrameDescriptionService()
@@ -879,14 +894,14 @@ class TestFrameDescriptionDegradedMode:
 
 class TestPromptTemplates:
     def test_active_template_available(self):
-        from app.services.frame_description_service import get_active_prompt_template
+        from app.services.frame_desc.service import get_active_prompt_template
 
         tpl = get_active_prompt_template()
         assert tpl.version == "v1"
         assert tpl.description == "初始版本：标准提示词模板"
 
     def test_fusion_prompt_includes_history(self):
-        from app.services.frame_description_service import get_active_prompt_template
+        from app.services.frame_desc.service import get_active_prompt_template
 
         tpl = get_active_prompt_template()
         prompt = tpl.fusion_prompt_fn(

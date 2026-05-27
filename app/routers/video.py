@@ -45,12 +45,12 @@ from app.schemas.video import (
     VideoUploadResponse,
     VideoUploadURL,
 )
-from app.services.video_api_service import (
+from app.services.video.api import (
     build_processing_metadata,
     build_processing_options,
     serialize_video,
 )
-from app.services.video_content_service import (
+from app.services.video.content import (
     build_subject_enriched_tags,
     generate_primary_topic_name,
     generate_video_summary,
@@ -58,17 +58,17 @@ from app.services.video_content_service import (
     normalize_summary_style,
     read_subtitle_text,
 )
-from app.services.video_processing_registry import (
+from app.services.video.processing_registry import (
     forget_video_processing_request,
     remember_video_processing_request,
 )
-from app.services.video_recommendation_service import (
+from app.services.video.recommendation import (
     load_candidate_videos_for_recommendation,
     recommend_videos,
     sanitize_recommendation_payload_for_client,
 )
-from app.services.video_url_import_service import import_remote_video_from_url
-from app.services.whisper_runtime import (
+from app.services.video.url_import import import_remote_video_from_url
+from app.services.whisper.runtime import (
     get_supported_whisper_models,
     get_whisper_model_catalog,
     normalize_whisper_model_name,
@@ -1195,7 +1195,7 @@ async def generate_summary(
         raise HTTPException(status_code=400, detail="字幕内容不存在，无法生成摘要")
 
     try:
-        from app.services.video_content_service import generate_video_summary
+        from app.services.video.content import generate_video_summary
 
         result = generate_video_summary(
             video_id,
@@ -1230,7 +1230,7 @@ async def generate_summary_from_transcript(request: TranscriptSummaryRequest):
         raise HTTPException(status_code=400, detail="转录文本为空，无法生成摘要")
 
     try:
-        from app.services.video_content_service import generate_video_summary
+        from app.services.video.content import generate_video_summary
 
         result = generate_video_summary(
             0,
@@ -1389,7 +1389,7 @@ async def generate_tags(
         raise HTTPException(status_code=400, detail="视频没有摘要，请先生成摘要")
 
     try:
-        from app.services.video_content_service import generate_video_tags
+        from app.services.video.content import generate_video_tags
 
         result = generate_video_tags(video_id, video.summary, title=video.title or "", max_tags=request.max_tags)
         if not result["success"]:

@@ -7,6 +7,47 @@
 
 ---
 
+## 2026-05-20
+
+### 文档同步：Async 架构状态与已知阻塞点
+
+- **docs**：更新 `CLAUDE.md`，新增完整 Async Architecture Status 章节，包含 5 类已知阻塞点（同步 HTTP、subprocess、sleep、admission 位置、无队列）、具体文件:行号表格、修复优先级排序、最终目标说明
+- **docs**：更新 `AGENTS.md`，在 AI Serving Async Control 后新增 Async Architecture Status 子章节，精简版包含 5 个已知阻塞点、6 步修复优先级、最终目标
+- **impact**：为后续 async 架构修复提供明确的代码级锚点和优先级指导，不影响任何运行时功能
+
+### AI Serving 异步阻塞链路专项改造（Phase 1/2）
+
+- **backend**：新增 `app/utils/ai_response_control.py`，引入 AI admission、event loop lag 监控、async upstream semaphore、硬超时与取消统计、滑动窗口熔断（含 `429/5xx` 状态码识别）、动态 budget 压缩（`1024 -> 256 -> 96`）。
+- **backend**：更新 `app/main.py`，新增入口中间件 `AIAdmissionMiddleware`，在 `/api/qa/ask` 与 `/api/chat/completions` 进入业务链路前执行活跃请求/排队阈值检查，支持快速 `429/503` 与 `Retry-After`，并返回 admission 与 loop lag 响应头。
+- **backend**：更新 `app/utils/qa_utils.py`，新增 `call_provider_chat_async` 与 `call_deepseek_reasoner_stream_async`（`httpx.AsyncClient`），并新增 `QASystem.ask_async`/`answer_stream_async` 供路由异步主链路调用；保留既有同步路径用于兼容存量调用点。
+- **backend**：更新 `app/utils/chat_system.py`、`app/routers/chat.py`、`app/routers/qa.py`，将 chat/qa 主路径切换到 async 调用与 async streaming generator，避免 `requests` 在这两条主链路阻塞事件循环。
+- **backend**：更新 `app/routers/ops.py`，新增 `/api/ops/ai-serving/metrics`，输出 admission、upstream、event loop 三类运行态指标，用于压测与灰度观测。
+- **config**：更新 `app/core/config.py` 与 `.env.example`，新增 `AI_ADMISSION_*`、`AI_EVENT_LOOP_LAG_*`、`AI_REQUEST_HARD_TIMEOUT_SECONDS` 等参数，支持入口限流与超时止血策略。
+- **tests**：新增 `tests/unit/test_chat_system.py`；更新 `tests/unit/test_qa_utils.py`，补充 async 调用路径用例，确保同步/异步路径回归可用。
+- **impact**：在本地 ASGI 验收下，AI 主链路 `max_observed_active` 从历史压测的 `1` 恢复到 `8`，慢模型场景尾延迟从 `90s~150s` 降至亚秒级；但全仓库尚未完成 AsyncSession 与其他域同步 IO 清理，当前为“主链路止血 + 渐进迁移”状态。
+
+---
+
+## 2026-05-18
+
+### 项目结构领域驱动重构（Deep Refactoring）
+
+- **backend**：将 `app/services/` 从扁平结构重构为按业务域分组的目录结构：
+  - `video/` — `video_content_service.py` → `content.py`，`video_api_service.py` → `api.py`，`video_processing_registry.py` → `processing_registry.py`，`video_url_import_service.py` → `url_import.py`，`video_recommendation_service.py` → `recommendation.py`，`external_candidate_service.py` → `external_candidate.py`
+  - `frame_desc/` — `frame_description_service.py` → `service.py`，`frame_source_extractor.py` → `source_extractor.py`；`app/utils/frame_description_debug.py` → `app/services/frame_desc/debug.py`
+  - `similarity/` — `similarity_analytics.py` → `analytics.py`，`similarity_service_container.py` → `service_container.py`，`similarity_audit_log_service.py` → `audit_log_service.py`，`similarity_score_parser.py` → `score_parser.py`
+  - `recommendation/` — `recommendation_ops_service.py` → `ops_service.py`
+  - `llm_clients/` — `qwen3vl_realtime_client.py` → `qwen3vl.py`，`qwen_vl_cloud_client.py` → `qwen_vl_cloud.py`，`vinci_client.py` → `vinci.py`，`vinci_adapter_service.py` → `vinci_adapter.py`，`ollama_runtime.py` → `ollama_runtime.py`
+  - `whisper/` — `whisper_runtime.py` → `runtime.py`；`app/utils/whisper_debug.py` → `app/services/whisper/debug.py`
+- **backend**：将 `app/services/learning_flow_agent.py` 移至 `app/agents/learning_flow_agent.py`，使其与智能体编排模块归位。
+- **backend**：移除死代码：`app/dependencies.py`（从未被引用）、`app/services/analytics/`（纯转发门面，实际使用 `app/analytics/`）、`app/services/llm_similarity_service.py`（无调用方）、`app/services/tag_similarity_prompts.py`（仅被死代码引用）、`app/services/config_model_params.py`（仅被死代码引用）；`app/utils/vinci_alerting_acceptance.py` 移至 `app/services/llm_clients/vinci_alerting_acceptance.py`。
+- **backend**：更新全部跨文件 import 语句，覆盖 `app/main.py`、`app/routers/`（agent, frame_description, recommendation, video）、`app/services/` 各域内文件、`app/agents/`（pipelines, governance）、`app/tasks/`（video_processing）、`app/utils/qa_utils.py`、`app/repositories/`、`app/analytics/adapters/` 等 30+ 文件。
+- **docs**：更新 `CLAUDE.md` 架构图与关键模式，反映领域驱动分组与 dead code 清理结果。
+- **docs**：更新 `AGENTS.md` 项目结构说明，按域详细列出 `services/` 子目录职责。
+- **impact**：不改变任何运行时行为与 API 契约；代码组织更符合领域驱动设计（DDD），新开发者可按业务域快速定位代码；消除了 5 个死代码文件和 1 个冗余门面模块。
+
+---
+
 ## 2026-05-13
 
 ### 智能问答 Provider 路由修复

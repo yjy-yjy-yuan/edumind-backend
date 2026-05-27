@@ -2,11 +2,15 @@
 
 import json
 import logging
-from typing import Generator, List
+from typing import AsyncGenerator, Generator, List
 
-import requests
-
-from app.utils.qa_utils import call_provider_chat, normalize_provider, resolve_model
+from app.utils.ai_response_control import build_local_fallback_answer, controller
+from app.utils.qa_utils import (
+    call_provider_chat,
+    call_provider_chat_async,
+    normalize_provider,
+    resolve_model,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +64,28 @@ def get_chat_response(messages: List[dict], mode: str = "direct", provider: str 
     }
 
 
+async def stream_chat_async(
+    messages: List[dict], mode: str = "direct", provider: str = "qwen", model: str = ""
+) -> AsyncGenerator[str, None]:
+    content, final_provider, final_model = await _execute_chat_async(messages, mode, provider, model)
+    result = json.dumps(
+        {"content": content, "provider": final_provider, "model": final_model},
+        ensure_ascii=False,
+    )
+    yield f"{result}\n"
+
+
+async def get_chat_response_async(
+    messages: List[dict], mode: str = "direct", provider: str = "qwen", model: str = ""
+) -> dict:
+    content, final_provider, final_model = await _execute_chat_async(messages, mode, provider, model)
+    return {
+        "content": content,
+        "provider": final_provider,
+        "model": final_model,
+    }
+
+
 def _execute_chat(messages: List[dict], mode: str, provider: str, model: str) -> tuple[str, str, str]:
     """执行聊天请求。
 
@@ -79,7 +105,16 @@ def _execute_chat(messages: List[dict], mode: str, provider: str, model: str) ->
         resolved_provider = "deepseek"
         resolved_model = resolve_model(resolved_provider, model, deep_thinking=True)
         logger.info("深度思考模式调用: provider=%s, model=%s", resolved_provider, resolved_model)
-        content = call_provider_chat(normalized_messages, provider=resolved_provider, model=resolved_model)
+        try:
+            content = call_provider_chat(normalized_messages, provider=resolved_provider, model=resolved_model)
+        except Exception as exc:
+            logger.warning("聊天深度思考降级 | error=%s", exc)
+            content = build_local_fallback_answer(
+                _latest_user_message(normalized_messages),
+                mode="free",
+                reason=str(exc),
+                budget=controller.budget(),
+            )
         return content, resolved_provider, resolved_model
 
     # 直接回答模式：使用云端通义千问 API
@@ -96,5 +131,65 @@ def _execute_chat(messages: List[dict], mode: str, provider: str, model: str) ->
         primary_provider,
         primary_model,
     )
-    content = call_provider_chat(normalized_messages, provider=primary_provider, model=primary_model)
+    try:
+        content = call_provider_chat(normalized_messages, provider=primary_provider, model=primary_model)
+    except Exception as exc:
+        logger.warning("聊天直接回答降级 | provider=%s | model=%s | error=%s", primary_provider, primary_model, exc)
+        content = build_local_fallback_answer(
+            _latest_user_message(normalized_messages),
+            mode="free",
+            reason=str(exc),
+            budget=controller.budget(),
+        )
     return content, primary_provider, primary_model
+
+
+async def _execute_chat_async(messages: List[dict], mode: str, provider: str, model: str) -> tuple[str, str, str]:
+    normalized_messages = normalize_chat_messages(messages)
+
+    if mode == "deep_think":
+        resolved_provider = "deepseek"
+        resolved_model = resolve_model(resolved_provider, model, deep_thinking=True)
+        logger.info("深度思考模式 async 调用: provider=%s, model=%s", resolved_provider, resolved_model)
+        try:
+            content = await call_provider_chat_async(
+                normalized_messages, provider=resolved_provider, model=resolved_model
+            )
+        except Exception as exc:
+            logger.warning("聊天 async 深度思考降级 | error=%s", exc)
+            content = build_local_fallback_answer(
+                _latest_user_message(normalized_messages),
+                mode="free",
+                reason=str(exc),
+                budget=controller.budget(),
+            )
+        return content, resolved_provider, resolved_model
+
+    primary_provider = normalize_provider(provider, model) or "qwen"
+    primary_model = resolve_model(primary_provider, model, deep_thinking=False)
+
+    if primary_provider == "deepseek":
+        primary_provider = "qwen"
+        primary_model = resolve_model("qwen", "", deep_thinking=False)
+        logger.info("直接回答 async 模式优先切换到通义千问: model=%s", primary_model)
+
+    try:
+        content = await call_provider_chat_async(normalized_messages, provider=primary_provider, model=primary_model)
+    except Exception as exc:
+        logger.warning(
+            "聊天 async 直接回答降级 | provider=%s | model=%s | error=%s", primary_provider, primary_model, exc
+        )
+        content = build_local_fallback_answer(
+            _latest_user_message(normalized_messages),
+            mode="free",
+            reason=str(exc),
+            budget=controller.budget(),
+        )
+    return content, primary_provider, primary_model
+
+
+def _latest_user_message(messages: List[dict]) -> str:
+    for item in reversed(messages or []):
+        if item.get("role") == "user":
+            return str(item.get("content") or "")
+    return str((messages or [{}])[-1].get("content") or "")

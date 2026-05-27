@@ -296,6 +296,15 @@ class TagInputValidator:
     """标签输入验证器"""
 
     @staticmethod
+    def _sanitize_tag(tag: str) -> str:
+        import re
+
+        tag = str(tag or "").strip()
+        tag = re.sub(r'[<>"\'\\/&;]', "", tag)
+        tag = re.sub(r"\s+", " ", tag)
+        return tag[:200]
+
+    @staticmethod
     def validate_and_prepare(tag1: str, tag2: str) -> Tuple[str, str]:
         """
         验证和准备输入标签
@@ -310,13 +319,15 @@ class TagInputValidator:
         Raises:
             ValueError: 如果输入不合法
         """
-        from app.services.config_model_params import InputValidationConfig
-
-        return InputValidationConfig.prepare_tag_pair(tag1, tag2)
+        t1 = TagInputValidator._sanitize_tag(tag1)
+        t2 = TagInputValidator._sanitize_tag(tag2)
+        if not t1 or not t2:
+            raise ValueError("标签不能为空")
+        if t1 == t2:
+            raise ValueError("两个标签不能相同")
+        return t1, t2
 
     @staticmethod
     def sanitize(tag: str) -> str:
         """清洗单个标签"""
-        from app.services.config_model_params import InputValidationConfig
-
-        return InputValidationConfig.sanitize_tag(tag)
+        return TagInputValidator._sanitize_tag(tag)

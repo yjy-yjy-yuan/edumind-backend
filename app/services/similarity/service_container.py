@@ -7,7 +7,7 @@
 - 便于依赖注入
 """
 
-from app.services.similarity_audit_log_service import (
+from app.services.similarity.audit_log_service import (
     SimilarityAuditLogPersistenceService,
 )
 

@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 import requests
 
 from app.core.config import settings
-from app.services.video_content_service import (
+from app.services.video.content import (
     build_subject_enriched_tags,
     fallback_primary_topic_name,
     infer_subject_from_text,

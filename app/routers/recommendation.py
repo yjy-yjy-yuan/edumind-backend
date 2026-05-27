@@ -20,12 +20,12 @@ from app.schemas.recommendation import (
     VideoRecommendationResponseV1,
 )
 from app.schemas.video import VideoUploadResponse, VideoUploadURL
-from app.services.recommendation_ops_service import (
+from app.services.recommendation.ops_service import (
     build_recommendation_ops_metrics,
     record_recommendation_event,
 )
-from app.services.video_api_service import build_processing_options, serialize_video
-from app.services.video_recommendation_service import (
+from app.services.video.api import build_processing_options, serialize_video
+from app.services.video.recommendation import (
     SCENE_MAP,
     list_recommendation_scenes,
     load_candidate_videos_for_recommendation,
@@ -34,7 +34,7 @@ from app.services.video_recommendation_service import (
     sanitize_recommendation_payload_for_client,
     summarize_recommendation_sources,
 )
-from app.services.video_url_import_service import import_remote_video_from_url
+from app.services.video.url_import import import_remote_video_from_url
 from app.utils.auth_deps import resolve_user_from_request
 
 router = APIRouter()

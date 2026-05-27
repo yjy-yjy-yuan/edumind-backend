@@ -25,22 +25,58 @@ from typing import Any, Callable, Generator, Optional
 from PIL import Image
 from sqlalchemy.orm import Session
 
-from app.agents.governance import execute_tool, execute_tool_stream
 from app.analytics.pipeline import get_telemetry
 from app.analytics.schema import AnalyticsEvent, AnalyticsStatus
 from app.core.config import settings
 from app.models.subtitle import Subtitle
-from app.services.qwen3vl_realtime_client import (
+from app.services.frame_desc.debug import get_frame_description_debug_logger
+from app.services.llm_clients.qwen3vl import (
     Qwen3VLClientError,
     Qwen3VLRealtimeClient,
 )
-from app.services.qwen_vl_cloud_client import QwenVLCloudClient, QwenVLCloudClientError
-from app.services.vinci_adapter_service import VinciAdapterError, VinciAdapterService
-from app.utils.frame_description_debug import get_frame_description_debug_logger
+from app.services.llm_clients.qwen_vl_cloud import (
+    QwenVLCloudClient,
+    QwenVLCloudClientError,
+)
+from app.services.llm_clients.vinci_adapter import (
+    VinciAdapterError,
+    VinciAdapterService,
+)
 from app.utils.subtitle_io import repair_mojibake_text
 
 logger = logging.getLogger(__name__)
-frame_desc_debug_logger = get_frame_description_debug_logger()
+
+_frame_desc_debug_logger = None
+
+
+def _get_frame_desc_debug_logger() -> logging.Logger:
+    """Lazy initialization to avoid circular import at module load time."""
+    global _frame_desc_debug_logger
+    if _frame_desc_debug_logger is None:
+        _frame_desc_debug_logger = get_frame_description_debug_logger()
+    return _frame_desc_debug_logger
+
+
+_execute_tool = None
+_execute_tool_stream = None
+
+
+def _get_execute_tool():
+    global _execute_tool
+    if _execute_tool is None:
+        from app.agents.governance.gateway import execute_tool
+
+        _execute_tool = execute_tool
+    return _execute_tool
+
+
+def _get_execute_tool_stream():
+    global _execute_tool_stream
+    if _execute_tool_stream is None:
+        from app.agents.governance.gateway import execute_tool_stream
+
+        _execute_tool_stream = execute_tool_stream
+    return _execute_tool_stream
 
 
 # ----------------------------------------------------------------------
@@ -506,7 +542,7 @@ class FrameDescriptionService:
         )
         if self._debug_log_enabled:
             logger.setLevel(logging.DEBUG)
-        frame_desc_debug_logger.debug(
+        _get_frame_desc_debug_logger().debug(
             "FrameDescriptionService initialized | FRAME_DESC_BACKEND=%s | backend=%s | enabled=%s | qwen3vl_stream=%s | vinci_stream=%s | cloud_fallback_enabled=%s | cloud_provider=%s",
             getattr(settings, "FRAME_DESC_BACKEND", "qwen3vl"),
             self._backend,
@@ -517,7 +553,7 @@ class FrameDescriptionService:
             self._cloud_provider,
         )
         if self._backend == "qwen3vl" and vinci_adapter is None:
-            frame_desc_debug_logger.debug("VinciAdapterService NOT instantiated | backend=qwen3vl")
+            _get_frame_desc_debug_logger().debug("VinciAdapterService NOT instantiated | backend=qwen3vl")
 
         # 会话上下文存储（session_id -> 描述历史）
         self._session_histories: dict[str, list[str]] = {}
@@ -525,7 +561,7 @@ class FrameDescriptionService:
         self._session_lock = threading.Lock()
 
     def _debug(self, message: str, *args, **kwargs) -> None:
-        frame_desc_debug_logger.debug(message, *args, **kwargs)
+        _get_frame_desc_debug_logger().debug(message, *args, **kwargs)
 
     def _ensure_session(self, session_id: str) -> None:
         with self._session_lock:
@@ -767,7 +803,7 @@ class FrameDescriptionService:
 
         # 2. 通过 governance execute_tool 执行（唯一合法路径）
         try:
-            result = execute_tool(
+            result = _get_execute_tool()(
                 "lf_frame_description",
                 {
                     "prompt": prompt,
@@ -989,7 +1025,7 @@ class FrameDescriptionService:
         self._probe_vinci_or_raise(session_id=session_id, trace_id=trace_id)
 
         try:
-            for event in execute_tool_stream(
+            for event in _get_execute_tool_stream()(
                 "lf_frame_description",
                 {
                     "prompt": prompt,

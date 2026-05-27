@@ -1,11 +1,12 @@
 """RAG 问答工具测试。"""
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
 
 from app.core.config import settings
-from app.utils.qa_utils import QASystem, parse_srt_chunks
+from app.utils.qa_utils import QAProviderError, QASystem, parse_srt_chunks
 
 
 def build_video_stub():
@@ -64,6 +65,41 @@ def test_qasystem_uses_deepseek_reasoner_when_deep_thinking(monkeypatch):
 
     assert captured["provider"] == "deepseek"
     assert captured["model"] == settings.DEEPSEEK_REASONER_MODEL
+
+
+@pytest.mark.unit
+def test_qasystem_returns_local_fallback_when_provider_fails(monkeypatch):
+    def fake_call(messages, *, provider, model):
+        _ = (messages, provider, model)
+        raise QAProviderError("DNS failure")
+
+    monkeypatch.setattr("app.utils.qa_utils.call_provider_chat", fake_call)
+
+    result = QASystem(video=build_video_stub()).ask("导数的几何意义是什么？", provider="qwen", mode="video")
+
+    assert result["provider"] == "qwen"
+    assert "当前模型服务繁忙" in result["answer"]
+    assert result["references"]
+
+
+@pytest.mark.unit
+def test_qasystem_async_uses_async_provider(monkeypatch):
+    captured = {}
+
+    async def fake_call(messages, *, provider, model):
+        captured["provider"] = provider
+        captured["model"] = model
+        return "根据字幕，导数的几何意义是切线斜率。[1]"
+
+    monkeypatch.setattr("app.utils.qa_utils.call_provider_chat_async", fake_call)
+
+    result = asyncio.run(
+        QASystem(video=build_video_stub()).ask_async("导数的几何意义是什么？", provider="qwen", mode="video")
+    )
+
+    assert result["provider"] == "qwen"
+    assert captured["provider"] == "qwen"
+    assert result["references"]
 
 
 @pytest.mark.unit

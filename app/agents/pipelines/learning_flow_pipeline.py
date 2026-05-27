@@ -19,6 +19,17 @@ from sqlalchemy.orm import Session
 from app.agents.budget import TokenBudget
 from app.agents.exceptions import GovernanceError
 from app.agents.governance.gateway import execute_tool
+from app.agents.learning_flow_agent import (
+    AgentContext,
+    _build_note_content,
+    _build_note_title,
+    _build_thought_tags,
+    _infer_note_category,
+    _subtitle_excerpt_for_time,
+    build_plan,
+    infer_intent,
+    normalize_user_input,
+)
 from app.agents.prompt_engine import (
     AssembledPrompt,
     PromptEngine,
@@ -41,18 +52,7 @@ from app.agents.trajectory import (
 from app.core.config import settings
 from app.models.note import Note
 from app.models.video import Video
-from app.services.learning_flow_agent import (
-    AgentContext,
-    _build_note_content,
-    _build_note_title,
-    _build_thought_tags,
-    _infer_note_category,
-    _subtitle_excerpt_for_time,
-    build_plan,
-    infer_intent,
-    normalize_user_input,
-)
-from app.services.video_content_service import fallback_tags, normalize_summary_style
+from app.services.video.content import fallback_tags, normalize_summary_style
 from app.utils.subtitle_io import repair_mojibake_text
 
 logger = logging.getLogger(__name__)

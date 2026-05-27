@@ -7,7 +7,7 @@
 
 from datetime import datetime
 
-from app.services.similarity_analytics import (
+from app.services.similarity.analytics import (
     SimilarityAuditLog,
     SimilarityAuditLogger,
     SimilarityEventType,

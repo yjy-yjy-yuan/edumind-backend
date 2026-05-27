@@ -8,16 +8,23 @@ is unavailable.
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from time import perf_counter
 from typing import Any, Optional
 
 import httpx
 
 from app.core.config import settings
-from app.utils.frame_description_debug import get_frame_description_debug_logger
 
 logger = logging.getLogger(__name__)
-frame_desc_debug_logger = get_frame_description_debug_logger()
+
+
+@lru_cache(maxsize=1)
+def _get_frame_desc_debug_logger() -> logging.Logger:
+    """Lazy import to avoid circular dependency."""
+    from app.services.frame_desc.debug import get_frame_description_debug_logger
+
+    return get_frame_description_debug_logger()
 
 
 class QwenVLCloudClientError(RuntimeError):
@@ -125,6 +132,7 @@ class QwenVLCloudClient:
         }
 
         started = perf_counter()
+        frame_desc_debug_logger = _get_frame_desc_debug_logger()
         frame_desc_debug_logger.debug(
             "cloud_qwen_vl call start | trace_id=%s | session_id=%s | model=%s | base_url=%s | base64_frames_count=%d | prompt_length=%d | timeout=%s",
             trace_id,

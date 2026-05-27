@@ -8,6 +8,7 @@ from time import perf_counter
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
@@ -16,19 +17,24 @@ from app.models.base import Base
 from app.models.recommendation_ops_event import RecommendationOpsEvent  # noqa: F401
 from app.models.semantic_search_log import SemanticSearchLog  # noqa: F401
 from app.models.video import Video, VideoStatus
-from app.services.ollama_runtime import get_ollama_runtime_status
-from app.services.similarity_service_container import init_persistence_service
+from app.services.frame_desc.debug import get_frame_description_debug_logger
+from app.services.llm_clients.ollama_runtime import get_ollama_runtime_status
+from app.services.similarity.service_container import init_persistence_service
 from app.services.storage_maintenance import (
     run_storage_maintenance_once,
     start_storage_maintenance_worker,
     stop_storage_maintenance_worker,
 )
-from app.services.whisper_runtime import (
+from app.services.whisper.runtime import (
     get_whisper_runtime_status,
     shutdown_whisper_runtime,
     start_whisper_background_preload,
 )
-from app.utils.frame_description_debug import get_frame_description_debug_logger
+from app.utils.ai_response_control import (
+    AIAdmissionRejected,
+    admission_controller,
+    event_loop_monitor,
+)
 
 # 配置日志
 LOG_LEVEL = logging.DEBUG if settings.DEBUG else logging.INFO
@@ -85,6 +91,42 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class AIAdmissionMiddleware(BaseHTTPMiddleware):
+    AI_PATHS = {"/api/qa/ask", "/api/chat/completions"}
+
+    async def dispatch(self, request, call_next):
+        if request.url.path not in self.AI_PATHS:
+            return await call_next(request)
+
+        user_key = (
+            request.headers.get("Authorization")
+            or request.headers.get("X-User-ID")
+            or request.query_params.get("user_id")
+            or (request.client.host if request.client else "anonymous")
+        )
+        try:
+            async with await admission_controller.acquire(user_key=str(user_key), path=request.url.path):
+                response = await call_next(request)
+        except AIAdmissionRejected as exc:
+            status_code = 429 if "user" in str(exc) or "queue" in str(exc) else 503
+            return JSONResponse(
+                status_code=status_code,
+                content={
+                    "detail": "AI 服务当前繁忙，请稍后重试",
+                    "reason": str(exc),
+                    "degraded": True,
+                    "metrics": admission_controller.snapshot(),
+                },
+                headers={"Retry-After": "1"},
+            )
+
+        metrics = admission_controller.snapshot()
+        response.headers["X-AI-Admission-Active"] = str(metrics["active"])
+        response.headers["X-AI-Admission-Waiting"] = str(metrics["waiting"])
+        response.headers["X-AI-Loop-Lag-Ms"] = f"{event_loop_monitor.lag_seconds * 1000:.2f}"
+        return response
+
+
 def recover_interrupted_video_tasks():
     """将服务重启前中断的后台任务转为失败，避免状态永久卡住。"""
     db = SessionLocal()
@@ -124,6 +166,7 @@ async def lifespan(app: FastAPI):
     storage_maintenance_stop_event = None
     # 启动时执行
     logger.info("启动 %s API...", settings.APP_NAME)
+    event_loop_monitor.start()
     if bool(getattr(settings, "FRAME_DESC_DEBUG_LOG", False)):
         debug_log_file = configure_frame_desc_debug_logging()
         get_frame_description_debug_logger().debug(
@@ -205,6 +248,7 @@ async def lifespan(app: FastAPI):
     if storage_maintenance_worker is not None and storage_maintenance_stop_event is not None:
         stop_storage_maintenance_worker(storage_maintenance_worker, storage_maintenance_stop_event)
     shutdown_whisper_runtime()
+    await event_loop_monitor.stop()
     logger.info("关闭 %s API...", settings.APP_NAME)
 
 
@@ -229,6 +273,7 @@ app.add_middleware(
 )
 app.add_middleware(RequestTimingMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(AIAdmissionMiddleware)
 
 
 # 注册路由

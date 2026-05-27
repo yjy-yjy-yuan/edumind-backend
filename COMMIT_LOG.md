@@ -11,6 +11,17 @@
 
 ---
 
+### 2026-05-20
+
+- `c74fc98` docs: add async architecture status and blocking points to CLAUDE.md and AGENTS.md
+- `9f1068a` feat(ai-serving): asyncize qa/chat path with admission control and ops metrics
+
+### 2026-05-18
+
+- `2e10a2e` 0513 fix disable youtube mooc upload (#6)
+- `c960ea4` fix(video-upload): disable YouTube and MOOC link imports (#5)
+- `6da6d64` docs(log): sync commit log for subtitle encoding hardening
+
 ### 2026-05-13
 
 - `07f14da` feat(whisper): add runtime debug logging

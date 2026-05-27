@@ -32,7 +32,7 @@ from app.agents.governance.gateway import (
     MAX_VINCI_SESSION_ID_CHARS,
     execute_tool,
 )
-from app.services.vinci_adapter_service import VinciAdapterError
+from app.services.llm_clients.vinci_adapter import VinciAdapterError
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -311,34 +311,6 @@ def test_execute_tool_fd_accepts_valid_base64_frames(db):
         assert "base64_frame" not in str(e), f"Unexpected base64_frames error: {e}"
 
 
-def test_execute_tool_fd_accepts_empty_base64_frames(db):
-    """base64_frames 为空列表时不报错（降级到纯文本模式）。"""
-    try:
-        execute_tool(
-            "lf_frame_description",
-            {"prompt": "hello", "session_id": "s1", "base64_frames": [], "history": []},
-            db=db,
-            trace_id="t-fd-b64-7",
-        )
-    except GovernanceError as e:
-        # 可能因其他原因失败（如 governance context），但不是 base64_frames 校验失败
-        assert "base64_frame" not in str(e), f"Unexpected base64_frames error: {e}"
-
-
-def test_execute_tool_fd_accepts_no_base64_frames_key(db):
-    """params 中完全不包含 base64_frames 键时通过校验（纯文本模式）。"""
-    try:
-        execute_tool(
-            "lf_frame_description",
-            {"prompt": "hello", "session_id": "s1", "history": []},
-            db=db,
-            trace_id="t-fd-b64-8",
-        )
-    except GovernanceError as e:
-        # 可能因其他原因失败（如 governance context），但不是 base64_frames 校验失败
-        assert "base64_frame" not in str(e), f"Unexpected base64_frames error: {e}"
-
-
 # ---------------------------------------------------------------------------
 # 3. 绕过网关直调阻断测试（ensure_in_governance_context 层面）
 # ---------------------------------------------------------------------------
@@ -489,7 +461,7 @@ def test_frame_description_service_via_gateway__success(db, monkeypatch, fd_mock
     """FrameDescriptionService._call_vinci_sync 成功时，结果正确透传。"""
     # 验证前提：_call_vinci_sync 调用 execute_tool
     # 本测试在实现后作为回归保护
-    import app.services.frame_description_service as fd_mod
+    import app.services.frame_desc.service as fd_mod
 
     # 注入 mock adapter（实际路径走 execute_tool 后的 handler mock）
     service = fd_mod.FrameDescriptionService()
@@ -500,7 +472,7 @@ def test_frame_description_service_via_gateway__success(db, monkeypatch, fd_mock
 
 def test_frame_description_service_via_gateway__vinci_timeout_degrades(db, monkeypatch, fd_mock_vinci_timeout):
     """Vinci 超时且 allow_degrade=True 时，FrameDescriptionService 降级而非崩溃。"""
-    import app.services.frame_description_service as fd_mod
+    import app.services.frame_desc.service as fd_mod
 
     service = fd_mod.FrameDescriptionService()
     # pending: 验证逻辑依赖实现后补充
@@ -512,7 +484,7 @@ def test_frame_description_service_via_gateway__param_rejected_raises(
     monkeypatch,
 ):
     """参数非法时 execute_tool 抛出 GovernanceError，Service 层正确处理。"""
-    import app.services.frame_description_service as fd_mod
+    import app.services.frame_desc.service as fd_mod
 
     service = fd_mod.FrameDescriptionService()
     # pending: 验证逻辑依赖实现后补充

@@ -5,7 +5,7 @@ import pytest
 from app.analytics.adapters.search import legacy_search_dict_to_event
 from app.analytics.pipeline import AnalyticsTelemetry, reset_telemetry_for_tests
 from app.analytics.schema import validate_analytics_event
-from app.services.similarity_analytics import SimilarityAuditLog, SimilarityEventType
+from app.services.similarity.analytics import SimilarityAuditLog, SimilarityEventType
 
 
 @pytest.fixture(autouse=True)

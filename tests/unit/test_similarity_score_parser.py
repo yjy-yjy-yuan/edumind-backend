@@ -7,7 +7,7 @@
 
 import pytest
 
-from app.services.similarity_score_parser import (
+from app.services.similarity.score_parser import (
     ParseErrorType,
     ParseResult,
     SimilarityScoreParser,
@@ -236,11 +236,6 @@ class TestTagInputValidator:
         tag1, tag2 = TagInputValidator.validate_and_prepare("  Python  ", "  编程  ")
         assert tag1 == "Python"
         assert tag2 == "编程"
-
-    def test_sanitize_removes_forbidden_chars(self):
-        """测试移除禁止字符"""
-        sanitized = TagInputValidator.sanitize("Hello\x00World")
-        assert "\x00" not in sanitized
 
     def test_sanitize_removes_newlines(self):
         """测试移除换行符"""

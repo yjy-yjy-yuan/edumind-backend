@@ -26,9 +26,9 @@ async def chat_completions(request: ChatRequest):
 
             async def generate():
                 try:
-                    from app.utils.chat_system import stream_chat
+                    from app.utils.chat_system import stream_chat_async
 
-                    for chunk in stream_chat(
+                    async for chunk in stream_chat_async(
                         request.messages, mode=request.mode, provider=request.provider, model=request.model or ""
                     ):
                         yield chunk
@@ -38,9 +38,9 @@ async def chat_completions(request: ChatRequest):
 
             return StreamingResponse(generate(), media_type="text/plain")
 
-        from app.utils.chat_system import get_chat_response
+        from app.utils.chat_system import get_chat_response_async
 
-        result = get_chat_response(
+        result = await get_chat_response_async(
             request.messages, mode=request.mode, provider=request.provider, model=request.model or ""
         )
         return {"message": "success", **result}

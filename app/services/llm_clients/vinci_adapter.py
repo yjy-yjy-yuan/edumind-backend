@@ -12,7 +12,7 @@ from typing import Any, Callable, Generator, Optional
 from app.analytics.pipeline import get_telemetry
 from app.analytics.schema import AnalyticsEvent, AnalyticsStatus
 from app.core.config import settings
-from app.services.vinci_client import (
+from app.services.llm_clients.vinci import (
     VinciClient,
     VinciHTTPError,
     VinciTimeoutError,
