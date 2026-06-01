@@ -93,6 +93,7 @@ def test_describe_allows_external_video_for_isolated_local_qwen(client, monkeypa
     assert "application/x-ndjson" in response.headers["content-type"]
     assert "画面中正在播放云端视频" in response.text
     assert mock_service.describe_frames.call_args.kwargs["video_title"] == "云端短视频"
+    assert mock_service.describe_frames.call_args.kwargs["session_id"].startswith("video-99999:frame-desc:")
 
 
 @pytest.mark.api

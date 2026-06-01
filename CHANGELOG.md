@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-01
+
+### 实时画面描述链路延迟优化与重复请求抑制
+
+- **config**：更新 `app/core/config.py` 与 `.env.example`，大幅收紧实时描述链路超时参数：`FRAME_DESC_TIMEOUT_SECONDS` 20→8、`QWEN3VL_REQUEST_TIMEOUT_SECONDS` 8→6、`QWEN3VL_STREAM_TIMEOUT_SECONDS` 30→9、`FRAME_DESC_SERVER_FRAME_FETCH_TIMEOUT_SECONDS` 35→3；默认关闭推理前探活（`FRAME_DESC_PROBE_UPSTREAM_BEFORE_INFER=false`），降低每轮额外延迟；新增 `FRAME_DESC_REUSE_RECENT_SECONDS=1.2`、`FRAME_DESC_MAX_FRAMES_PER_REQUEST=1`、`FRAME_DESC_SERVER_FRAME_FETCH_MAX_ATTEMPTS=2`、`FRAME_DESC_DEGRADED_INTERVAL_SECONDS=3`（原 10），`QWEN3VL_MAX_NEW_TOKENS` 64→48。
+- **backend**：更新 `app/services/frame_desc/service.py`，新增 `_RecentDescription` 缓存与 `_session_inflight` 并发锁：同一会话短时间内重复请求直接复用上一条结果（`reused` 阶段），在途推理未结束时后续请求返回 `busy` 阶段并跳过模型调用；新增 `_max_new_tokens_for_detail` 按 detail_level 上限收窄 token 生成（brief 32/standard 48/detailed 64），减少不必要输出。
+- **backend**：重构 `app/routers/frame_description.py`，将 `generate()` 内联闭包拆分为 `_resolve_frame_source_auth_token`、`_stable_request_session_id`、`_extract_request_frames`、`_iter_router_degraded_events`、`stream_frame_description_events` 五个独立函数，消除 ~200 行重复降级事件构建代码；session_id 由 auth token 指纹稳定派生（`video-{id}:frame-desc:{sha1[:12]}`），替代原先每次请求 uuid4 的不确定行为。
+- **backend**：更新 `app/services/frame_desc/source_extractor.py`，`_candidate_timestamps` 新增 `max_attempts` 参数，限制 ffmpeg 重试次数（默认 2 次）；最低超时阈值从 5.0s 降至 0.5s。
+- **tests**：更新 `tests/unit/test_frame_description_service.py`，新增 `test_recent_duplicate_suppresses_description_event`（验证短时间重复请求只触发一次模型调用）、`test_inflight_session_suppresses_overlapping_request`（验证在途推理阻断后续请求）、`test_candidate_timestamps_respects_max_attempts`；新增 `CountingQwenClient` 辅助类统计模型调用次数。
+- **tests**：更新 `tests/api/test_frame_description_api.py`，新增 session_id 稳定派生断言（`session_id.startswith("video-99999:frame-desc:")`）。
+- **impact**：实时画面描述端到端延迟显著下降（超时收敛 + 探活关闭 + 单帧输入 + token 收窄）；快速拖动进度条或频繁触发描述时不再堆积重复推理请求，前端不再出现"排队等待"或"描述延迟"现象。降级模式间隔从 10s 缩短至 3s，用户体感更连续。
+
+---
+
 ## 2026-05-20
 
 ### 文档同步：Async 架构状态与已知阻塞点
