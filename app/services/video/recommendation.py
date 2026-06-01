@@ -156,14 +156,27 @@ def list_recommendation_scenes() -> list[dict]:
     return [dict(item) for item in SCENE_OPTIONS]
 
 
-def load_candidate_videos_for_recommendation(db: Session, seed_video: Optional[Video], max_scan: int) -> list[Video]:
-    """加载推荐用站内候选：按更新时间倒序截断，related 场景保证包含 seed。"""
+def load_candidate_videos_for_recommendation(
+    db: Session,
+    seed_video: Optional[Video],
+    max_scan: int,
+    user_id: Optional[int] = None,
+) -> list[Video]:
+    """加载推荐用站内候选：按更新时间倒序截断，related 场景保证包含 seed。
+
+    Args:
+        user_id: 当前用户 ID。提供时会过滤仅返回该用户未删除的视频。
+                 为 None 时返回空列表（推荐需用户上下文）。
+    """
     if max_scan < 1:
         return []
     order_cols = (Video.updated_at.desc(), Video.upload_time.desc())
+    base_filter = db.query(Video).filter(Video.is_deleted.is_(False))
+    if user_id is not None:
+        base_filter = base_filter.filter(Video.user_id == user_id)
     if seed_video is None:
-        return db.query(Video).order_by(*order_cols).limit(max_scan).all()
-    others = db.query(Video).filter(Video.id != seed_video.id).order_by(*order_cols).limit(max(0, max_scan - 1)).all()
+        return base_filter.order_by(*order_cols).limit(max_scan).all()
+    others = base_filter.filter(Video.id != seed_video.id).order_by(*order_cols).limit(max(0, max_scan - 1)).all()
     merged: list[Video] = [seed_video, *others]
     seen: set[int] = set()
     deduped: list[Video] = []

@@ -364,19 +364,24 @@ async def get_video_recommendations(
     if scene_option["requires_seed"] and not seed_video_id:
         raise HTTPException(status_code=422, detail="scene=related 时必须传入 seed_video_id")
 
+    user = resolve_user_from_request(db, user_id, authorization)
+
     seed_video = None
     if seed_video_id is not None:
-        seed_video = db.query(Video).filter(Video.id == seed_video_id).first()
+        query = db.query(Video).filter(Video.id == seed_video_id, Video.is_deleted.is_(False))
+        if user is not None:
+            query = query.filter(Video.user_id == user.id)
+        seed_video = query.first()
         if seed_video is None:
-            raise HTTPException(status_code=404, detail="seed 视频不存在")
+            raise HTTPException(status_code=404, detail="seed 视频不存在或无权访问")
 
     excluded_video_ids = parse_exclude_ids(exclude_video_ids)
     if seed_video_id is not None:
         excluded_video_ids.add(seed_video_id)
-
-    user = resolve_user_from_request(db, user_id, authorization)
     max_scan = int(settings.RECOMMENDATION_MAX_CANDIDATES_SCAN)
-    videos = load_candidate_videos_for_recommendation(db, seed_video, max_scan)
+    videos = load_candidate_videos_for_recommendation(
+        db, seed_video, max_scan, user_id=user.id if user is not None else None
+    )
     payload = recommend_videos(
         videos=videos,
         scene=normalized_scene,

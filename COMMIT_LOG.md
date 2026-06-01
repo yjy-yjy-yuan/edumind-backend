@@ -11,6 +11,10 @@
 
 ---
 
+### 2026-06-01
+
+- (pending) fix(recommendation): enforce user-scope isolation and sync docs for runtime hardening
+
 ### 2026-05-20
 
 - `c74fc98` docs: add async architecture status and blocking points to CLAUDE.md and AGENTS.md
@@ -53,7 +57,7 @@
 
 - `91c74a4` fix(frame-description): subtitle-driven degraded output when vinci unavailable
 - `f631361` fix: stabilize frame-description/delete flow and improve partial tag search
-- `docs`: sync commit log docs and add commit log sync rule to AGENTS.md/CLAUDE.md; add COMMIT_LOG.md to .gitignore
+- `(unknown)` docs: sync commit log docs and add commit log sync rule to AGENTS.md/CLAUDE.md; add COMMIT_LOG.md to .gitignore
 - `66367ec` fix(subtitles): use RFC5987 filename for non-ascii export headers
 - `6258064` fix(subtitles): harden chinese charset handling and vtt conversion
 - `3b92163` fix(storage): ensure temp audio cleanup on processing failures
