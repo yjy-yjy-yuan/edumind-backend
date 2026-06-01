@@ -129,7 +129,7 @@ def _resize_frame_bytes(frame_data: bytes) -> bytes:
 def _normalize_frames(raw_frames: list[str]) -> list[bytes]:
     """将 base64 字符串列表解码为模型可消费的 JPEG 字节列表。"""
     result: list[bytes] = []
-    max_frames = max(1, int(getattr(settings, "FRAME_DESC_MAX_FRAMES_PER_REQUEST", 3) or 3))
+    max_frames = max(1, int(getattr(settings, "FRAME_DESC_MAX_FRAMES_PER_REQUEST", 1) or 1))
     for item in raw_frames:
         text = str(item or "").strip()
         if not text:
@@ -508,7 +508,7 @@ class FrameDescriptionService:
         )
         self._degraded_interval = max(
             1.0,
-            float(getattr(settings, "FRAME_DESC_DEGRADED_INTERVAL_SECONDS", 10.0) or 10.0),
+            float(getattr(settings, "FRAME_DESC_DEGRADED_INTERVAL_SECONDS", 3.0) or 3.0),
         )
         self._degraded_prefix = str(
             getattr(settings, "FRAME_DESC_DEGRADED_PREFIX", "（描述服务暂不可用，仅供参考）") or ""
@@ -534,7 +534,7 @@ class FrameDescriptionService:
         self._probe_before_infer = _as_bool(probe_setting, default=True)
         self._probe_timeout = max(
             0.2,
-            float(getattr(settings, "FRAME_DESC_PROBE_TIMEOUT_SECONDS", 1.5) or 1.5),
+            float(getattr(settings, "FRAME_DESC_PROBE_TIMEOUT_SECONDS", 0.5) or 0.5),
         )
         self._debug_log_enabled = _as_bool(
             getattr(settings, "FRAME_DESC_DEBUG_LOG", False),
@@ -882,7 +882,7 @@ class FrameDescriptionService:
             answer = self._resolve_qwen3vl_client().describe(
                 base64_frames=safe_frames,
                 prompt=prompt,
-                max_new_tokens=_safe_setting_int("QWEN3VL_MAX_NEW_TOKENS", 64),
+                max_new_tokens=_safe_setting_int("QWEN3VL_MAX_NEW_TOKENS", 48),
             )
             self._debug(
                 "call_qwen3vl_sync done | session=%s | trace=%s | answer_len=%d",
@@ -945,7 +945,7 @@ class FrameDescriptionService:
             for event in self._resolve_qwen3vl_client().stream_describe(
                 base64_frames=safe_frames,
                 prompt=prompt,
-                max_new_tokens=_safe_setting_int("QWEN3VL_MAX_NEW_TOKENS", 64),
+                max_new_tokens=_safe_setting_int("QWEN3VL_MAX_NEW_TOKENS", 48),
             ):
                 if str(event.get("event") or "").lower() == "error":
                     error_code = str(event.get("error_code") or "QWEN3VL_STREAM_ERROR")

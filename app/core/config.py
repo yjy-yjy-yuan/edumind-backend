@@ -111,10 +111,10 @@ class Settings(BaseSettings):
     # 帧描述服务超时（秒）
     FRAME_DESC_TIMEOUT_SECONDS: float = 8.0
     # 推理前是否快速探测视觉模型服务可达性（不可达时直接降级，避免长时间卡在 connecting）
-    FRAME_DESC_PROBE_UPSTREAM_BEFORE_INFER: bool = True
+    FRAME_DESC_PROBE_UPSTREAM_BEFORE_INFER: bool = False
     # 历史配置名，保留兼容旧环境变量
-    FRAME_DESC_PROBE_VINCI_BEFORE_INFER: bool = True
-    FRAME_DESC_PROBE_TIMEOUT_SECONDS: float = 1.5
+    FRAME_DESC_PROBE_VINCI_BEFORE_INFER: bool = False
+    FRAME_DESC_PROBE_TIMEOUT_SECONDS: float = 0.5
     # 上下文融合窗口（描述历史条数）
     FRAME_DESC_CONTEXT_WINDOW_SIZE: int = 5
     # 相似度阈值：帧描述文本与上条描述相似度超过此值时跳过推理
@@ -126,11 +126,11 @@ class Settings(BaseSettings):
     # 是否开启上下文融合二次推理；默认关闭，优先保障实时性与连接稳定
     FRAME_DESC_ENABLE_CONTEXT_FUSION: bool = False
     # 降级模式下描述频率（秒）：Vinci 不可用时降为低频描述
-    FRAME_DESC_DEGRADED_INTERVAL_SECONDS: float = 10.0
+    FRAME_DESC_DEGRADED_INTERVAL_SECONDS: float = 3.0
     # 降级模式：描述文本固定前缀（可标注"可能"等置信度词汇）
     FRAME_DESC_DEGRADED_PREFIX: str = "（描述服务暂不可用，仅供参考）"
     # 单次推理最大输入帧数
-    FRAME_DESC_MAX_FRAMES_PER_REQUEST: int = 3
+    FRAME_DESC_MAX_FRAMES_PER_REQUEST: int = 1
     # 输入帧最大边长（像素）；超过此值会自动缩放
     FRAME_DESC_MAX_FRAME_SIZE: int = 320
     # Token 预算上限（估算），超预算时自动降频
@@ -147,7 +147,8 @@ class Settings(BaseSettings):
     # 该开关仅允许实时画面描述后端按白名单 URL 抽取单帧，不影响常规视频播放接口。
     FRAME_DESC_ALLOW_SERVER_FRAME_FETCH: bool = False
     FRAME_DESC_SERVER_FRAME_ALLOWED_HOSTS: Union[str, List[str]] = ""
-    FRAME_DESC_SERVER_FRAME_FETCH_TIMEOUT_SECONDS: float = 35.0
+    FRAME_DESC_SERVER_FRAME_FETCH_TIMEOUT_SECONDS: float = 3.0
+    FRAME_DESC_SERVER_FRAME_FETCH_MAX_ATTEMPTS: int = 2
     # 实时描述链路 DEBUG 日志开关（建议本地联调开启）
     FRAME_DESC_DEBUG_LOG: bool = False
     # 实时描述链路 DEBUG 文件日志；相对路径基于后端仓库根目录。
@@ -165,9 +166,9 @@ class Settings(BaseSettings):
     QWEN3VL_DESCRIBE_PATH: str = "/api/v1/video/describe"
     QWEN3VL_STREAM_PATH: str = "/api/v1/video/describe/stream"
     QWEN3VL_CONNECT_TIMEOUT_SECONDS: float = 2.0
-    QWEN3VL_REQUEST_TIMEOUT_SECONDS: float = 8.0
-    QWEN3VL_STREAM_TIMEOUT_SECONDS: float = 30.0
-    QWEN3VL_MAX_NEW_TOKENS: int = 64
+    QWEN3VL_REQUEST_TIMEOUT_SECONDS: float = 6.0
+    QWEN3VL_STREAM_TIMEOUT_SECONDS: float = 9.0
+    QWEN3VL_MAX_NEW_TOKENS: int = 48
 
     # Ollama 配置
     OLLAMA_BASE_URL: str = "http://localhost:11434/api"
