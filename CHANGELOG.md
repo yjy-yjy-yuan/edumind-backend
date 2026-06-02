@@ -7,6 +7,17 @@
 
 ---
 
+## 2026-06-02
+
+### Ollama 本地运行时状态探测代理隔离
+
+- **backend**：更新 `app/services/llm_clients/ollama_runtime.py`，将 Ollama `/tags` 探测切换为独立 `requests.Session` 并关闭 `trust_env`，避免系统代理劫持 `localhost` 运行时健康检查。
+- **tests**：更新 `tests/unit/test_ollama_runtime.py`，改为 mock 新增的 `_get_ollama_tags` 边界函数，覆盖服务可用与不可用两条状态探测路径。
+- **repo hygiene**：清理本地 ignored `__pycache__` 与 `.pyc` 缓存文件，避免 worktree 结束前被运行时杂质干扰。
+- **impact**：本地 Ollama runtime 状态展示在代理环境下更稳定；不改变 API 响应契约或模型调用行为。
+
+---
+
 ## 2026-06-01
 
 ### 本地配置迁移与实时画面描述链路参数收敛
