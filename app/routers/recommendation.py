@@ -368,7 +368,6 @@ async def get_video_recommendations(
 
     seed_video = None
     if seed_video_id is not None:
-        query = db.query(Video).filter(Video.id == seed_video_id, Video.is_deleted.is_(False))
         if user is not None:
             query = query.filter(Video.user_id == user.id)
         seed_video = query.first()

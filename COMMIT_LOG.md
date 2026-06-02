@@ -11,6 +11,9 @@
 
 ---
 
+### 2026-06-02
+
+- `1c98096` fix(video): enforce soft-delete filter across all video access paths
 ### 2026-06-01
 
 - (pending) fix(recommendation): enforce user-scope isolation and sync docs for runtime hardening

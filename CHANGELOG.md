@@ -7,6 +7,14 @@
 
 ---
 
+## 2026-06-02
+
+### 视频软删除访问过滤补齐
+
+- **backend**：更新 `app/routers/qa.py`、`app/routers/subtitle.py`、`app/routers/recommendation.py`、`app/routers/frame_description.py`、`app/routers/note.py`，为 QA、字幕、推荐 seed、帧描述和笔记关联视频查询补齐 `Video.is_deleted.is_(False)` 过滤，避免软删除视频继续通过非 video 核心守卫端点访问。
+- **backend**：更新 `app/services/video/recommendation.py`、`app/services/search/search.py` 与 `app/routers/search.py`，推荐候选加载和语义搜索结果元数据回查排除软删除视频，并将显式搜索软删除视频的访问守卫对齐为 404，降低推荐/搜索结果泄漏已删除视频的风险。
+- **tests**：更新 `tests/api/test_recommendation_api.py`、`tests/api/test_video_api.py`、`tests/api/test_qa_api.py`、`tests/api/test_frame_description_api.py` 与 `tests/api/test_search_api.py`，修正 0518 领域服务重构后的旧 import/mock 路径，并补充软删除访问回归测试。
+- **impact**：已删除视频在 QA、字幕、笔记、帧描述、推荐和搜索链路中按软删除语义隐藏；字幕路由仍保持当前认证契约，本次仅补齐软删除过滤。
 ## 2026-06-01
 
 ### 推荐用户作用域隔离修复 + 实时画面描述链路参数收敛

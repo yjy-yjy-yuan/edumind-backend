@@ -158,7 +158,15 @@ async def create_note(
     )
 
     if data.video_id:
-        video = db.query(Video).filter(Video.id == data.video_id, Video.user_id == current_user_id).first()
+        video = (
+            db.query(Video)
+            .filter(
+                Video.id == data.video_id,
+                Video.user_id == current_user_id,
+                Video.is_deleted.is_(False),
+            )
+            .first()
+        )
         if not video:
             raise HTTPException(status_code=404, detail="视频不存在或无权访问")
 
@@ -225,7 +233,15 @@ async def update_note(
         if data.video_id is None:
             note.video_id = None
         else:
-            video = db.query(Video).filter(Video.id == data.video_id, Video.user_id == current_user_id).first()
+            video = (
+                db.query(Video)
+                .filter(
+                    Video.id == data.video_id,
+                    Video.user_id == current_user_id,
+                    Video.is_deleted.is_(False),
+                )
+                .first()
+            )
             if not video:
                 raise HTTPException(status_code=404, detail="视频不存在或无权访问")
             note.video_id = data.video_id

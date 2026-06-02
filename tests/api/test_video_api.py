@@ -63,8 +63,8 @@ class TestVideoAPI:
         """重提标签后应写回科目标签，便于视频详情页直接展示。"""
         from app.models.video import Video, VideoStatus
 
-        monkeypatch.setattr("app.services.video_content_service.call_online_chat", lambda *args, **kwargs: None)
-        monkeypatch.setattr("app.services.video_content_service.call_ollama", lambda *args, **kwargs: None)
+        monkeypatch.setattr("app.services.video.content.call_online_chat", lambda *args, **kwargs: None)
+        monkeypatch.setattr("app.services.video.content.call_ollama", lambda *args, **kwargs: None)
 
         video = Video(
             user_id=sample_user.id,
@@ -264,6 +264,20 @@ class TestVideoAPI:
         payload = response.json()
         assert [item["text"] for item in payload["subtitles"]] == ["第一句", "第二句"]
         assert payload["subtitles"][0]["start_time"] == 2.0
+
+    def test_subtitle_routes_reject_soft_deleted_video(self, client, db, sample_video):
+        """软删除视频的字幕读取与导出都应返回 404。"""
+        from app.models.subtitle import Subtitle
+
+        db.add(Subtitle(video_id=sample_video.id, start_time=1.0, end_time=2.0, text="已删除", source="asr"))
+        sample_video.is_deleted = True
+        db.commit()
+
+        response = client.get(f"/api/subtitles/videos/{sample_video.id}/subtitles")
+        assert response.status_code == 404
+
+        export_response = client.get(f"/api/subtitles/videos/{sample_video.id}/subtitles/export")
+        assert export_response.status_code == 404
 
     def test_get_video_subtitles_falls_back_to_srt_file_when_db_rows_missing(self, client, db, sample_video, tmp_path):
         """测试旧视频缺少 subtitles 表数据时仍可从 SRT 文件回退读取字幕"""
@@ -749,7 +763,7 @@ class TestVideoAPI:
     def test_generate_summary_from_transcript(self, client, monkeypatch):
         """测试本地转录文本也可以复用在线摘要生成逻辑。"""
         monkeypatch.setattr(
-            "app.services.video_content_service.generate_video_summary",
+            "app.services.video.content.generate_video_summary",
             lambda *args, **kwargs: {
                 "success": True,
                 "summary": "这是基于本地转录文本生成的摘要。",
@@ -1005,6 +1019,18 @@ class TestNoteAPI:
         # FastAPI 返回 422 表示验证错误
         assert response.status_code in [400, 422]
 
+    def test_create_note_rejects_soft_deleted_video(self, client, db, sample_video):
+        """创建笔记时不能关联软删除视频。"""
+        sample_video.is_deleted = True
+        db.commit()
+
+        response = client.post(
+            "/api/notes/notes",
+            json={"title": "新笔记", "content": "笔记内容", "video_id": sample_video.id},
+        )
+
+        assert response.status_code == 404
+
     def test_get_note_by_id(self, client, sample_note):
         """测试通过 ID 获取笔记"""
         response = client.get(f"/api/notes/notes/{sample_note.id}")
@@ -1023,6 +1049,29 @@ class TestNoteAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["data"]["title"] == "更新后的标题"
+
+    def test_update_note_rejects_soft_deleted_video(self, client, db, sample_note, sample_video):
+        """更新笔记时不能改绑到软删除视频。"""
+        from app.models.video import Video, VideoStatus
+
+        deleted_video = Video(
+            user_id=sample_video.user_id,
+            filename="deleted_video.mp4",
+            filepath="/tmp/deleted_video.mp4",
+            title="已删除视频",
+            status=VideoStatus.COMPLETED,
+            is_deleted=True,
+        )
+        db.add(deleted_video)
+        db.commit()
+        db.refresh(deleted_video)
+
+        response = client.put(
+            f"/api/notes/notes/{sample_note.id}",
+            json={"video_id": deleted_video.id},
+        )
+
+        assert response.status_code == 404
 
     def test_update_note_video_and_clear_tags(self, client, db, sample_note, sample_video):
         """测试更新笔记的视频关联并清空标签。"""
