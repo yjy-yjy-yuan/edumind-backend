@@ -406,7 +406,12 @@ def semantic_search_videos(
         if db:
             from app.models.video import Video
 
-            videos = db.query(Video).filter(Video.id.in_(video_ids)).all()
+            videos = db.query(Video).filter(Video.id.in_(video_ids), Video.is_deleted.is_(False)).all()
+            active_video_ids = {v.id for v in videos}
+            video_ids = [video_id for video_id in video_ids if video_id in active_video_ids]
+            if not video_ids:
+                logger.warning("No active videos to search")
+                return []
             video_title_map = {v.id: v.title for v in videos}
             if tag_match_active:
                 for video in videos:

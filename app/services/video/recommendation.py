@@ -161,9 +161,17 @@ def load_candidate_videos_for_recommendation(db: Session, seed_video: Optional[V
     if max_scan < 1:
         return []
     order_cols = (Video.updated_at.desc(), Video.upload_time.desc())
+    if seed_video is not None and seed_video.is_deleted:
+        seed_video = None
     if seed_video is None:
-        return db.query(Video).order_by(*order_cols).limit(max_scan).all()
-    others = db.query(Video).filter(Video.id != seed_video.id).order_by(*order_cols).limit(max(0, max_scan - 1)).all()
+        return db.query(Video).filter(Video.is_deleted.is_(False)).order_by(*order_cols).limit(max_scan).all()
+    others = (
+        db.query(Video)
+        .filter(Video.id != seed_video.id, Video.is_deleted.is_(False))
+        .order_by(*order_cols)
+        .limit(max(0, max_scan - 1))
+        .all()
+    )
     merged: list[Video] = [seed_video, *others]
     seen: set[int] = set()
     deduped: list[Video] = []

@@ -148,7 +148,15 @@ async def ask_question(
             if not request.video_id:
                 raise HTTPException(status_code=400, detail="视频问答模式需要提供视频ID")
 
-            video = db.query(Video).filter(Video.id == request.video_id, Video.user_id == current_user_id).first()
+            video = (
+                db.query(Video)
+                .filter(
+                    Video.id == request.video_id,
+                    Video.user_id == current_user_id,
+                    Video.is_deleted.is_(False),
+                )
+                .first()
+            )
             if not video:
                 raise HTTPException(status_code=404, detail="视频不存在或无权访问")
         qa_system = QASystem(video=video)
@@ -174,7 +182,11 @@ async def ask_question(
                     if normalized_mode == "video":
                         stream_video = (
                             stream_db.query(Video)
-                            .filter(Video.id == request.video_id, Video.user_id == current_user_id)
+                            .filter(
+                                Video.id == request.video_id,
+                                Video.user_id == current_user_id,
+                                Video.is_deleted.is_(False),
+                            )
                             .first()
                         )
                         if not stream_video:

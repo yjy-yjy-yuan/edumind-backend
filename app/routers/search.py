@@ -54,7 +54,7 @@ def verify_user_video_access(user_id: int, video_id: int, db: Session) -> Video:
     """验证用户对视频的访问权限"""
     video = db.query(Video).filter(Video.id == video_id, Video.user_id == user_id, Video.is_deleted.is_(False)).first()
     if not video:
-        raise HTTPException(status_code=403, detail="无权访问此视频")
+        raise HTTPException(status_code=404, detail="视频不存在或无权访问")
     return video
 
 

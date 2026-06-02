@@ -143,7 +143,7 @@ async def describe_frame(
             detail="实时画面描述功能未启用（FRAME_DESC_ENABLED=False）",
         )
 
-    video = db.query(Video).filter(Video.id == request.video_id).first()
+    video = db.query(Video).filter(Video.id == request.video_id, Video.is_deleted.is_(False)).first()
     if not video:
         if not _settings_bool("FRAME_DESC_ALLOW_EXTERNAL_VIDEO", False):
             raise HTTPException(status_code=404, detail="视频不存在")

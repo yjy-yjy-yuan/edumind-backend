@@ -366,7 +366,7 @@ async def get_video_recommendations(
 
     seed_video = None
     if seed_video_id is not None:
-        seed_video = db.query(Video).filter(Video.id == seed_video_id).first()
+        seed_video = db.query(Video).filter(Video.id == seed_video_id, Video.is_deleted.is_(False)).first()
         if seed_video is None:
             raise HTTPException(status_code=404, detail="seed 视频不存在")
 

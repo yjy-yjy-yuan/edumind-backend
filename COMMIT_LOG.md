@@ -11,6 +11,10 @@
 
 ---
 
+### 2026-06-02
+
+- `8118cd8` fix(video): enforce soft-delete filter across all video access paths
+
 ### 2026-05-20
 
 - `c74fc98` docs: add async architecture status and blocking points to CLAUDE.md and AGENTS.md
