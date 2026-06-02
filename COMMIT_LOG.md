@@ -13,7 +13,7 @@
 
 ### 2026-06-02
 
-- `8118cd8` fix(video): enforce soft-delete filter across all video access paths
+- `1c98096` fix(video): enforce soft-delete filter across all video access paths
 
 ### 2026-05-20
 
