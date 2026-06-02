@@ -77,13 +77,15 @@ def _convert_extracted_image_to_jpeg_bytes(image_path: str) -> bytes:
         raise FrameSourceExtractionError("服务端抽帧结果不是有效图片") from exc
 
 
-def _candidate_timestamps(timestamp: float) -> list[float]:
+def _candidate_timestamps(timestamp: float, *, max_attempts: int) -> list[float]:
     """Try the requested position first, then step backward near the video tail."""
     candidates: list[float] = []
     for offset in (0.0, -0.5, -1.0, -2.0, -5.0):
         candidate = max(0.0, float(timestamp or 0) + offset)
         if all(abs(candidate - existing) > 0.001 for existing in candidates):
             candidates.append(candidate)
+        if len(candidates) >= max(1, int(max_attempts or 1)):
+            break
     return candidates
 
 
@@ -169,9 +171,10 @@ def extract_frame_from_video_url(
         raise FrameSourceExtractionError("ffmpeg 不可用，无法服务端抽帧")
 
     timeout = max(
-        5.0,
-        float(getattr(settings, "FRAME_DESC_SERVER_FRAME_FETCH_TIMEOUT_SECONDS", 35.0) or 35.0),
+        0.5,
+        float(getattr(settings, "FRAME_DESC_SERVER_FRAME_FETCH_TIMEOUT_SECONDS", 3.0) or 3.0),
     )
+    max_attempts = max(1, int(getattr(settings, "FRAME_DESC_SERVER_FRAME_FETCH_MAX_ATTEMPTS", 2) or 2))
     started = perf_counter()
 
     # 构建请求头：Referer + 可选的 Authorization token
@@ -188,7 +191,10 @@ def extract_frame_from_video_url(
 
     last_error = "服务端抽帧失败"
     try:
-        for attempt_index, attempt_timestamp in enumerate(_candidate_timestamps(safe_timestamp), start=1):
+        for attempt_index, attempt_timestamp in enumerate(
+            _candidate_timestamps(safe_timestamp, max_attempts=max_attempts),
+            start=1,
+        ):
             fd, output_path = tempfile.mkstemp(prefix="edumind-frame-desc-", suffix=".png")
             os.close(fd)
             cmd = _build_ffmpeg_command(

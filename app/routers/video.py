@@ -351,7 +351,7 @@ def build_upload_recommendations(db: Session, *, video: Video, limit: int = 4) -
         scene = "related" if should_use_related_scene_for_upload(video) else "home"
         seed_video = video if scene == "related" else None
         max_scan = int(settings.RECOMMENDATION_MAX_CANDIDATES_SCAN)
-        videos = load_candidate_videos_for_recommendation(db, seed_video, max_scan)
+        videos = load_candidate_videos_for_recommendation(db, seed_video, max_scan, user_id=video.user_id)
         if not videos:
             return None
         payload = recommend_videos(

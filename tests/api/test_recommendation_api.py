@@ -702,6 +702,33 @@ class TestRecommendationAPI:
         )
         monkeypatch.setattr("app.core.executor.submit_task", lambda *args, **kwargs: None)
 
+        # Bypass URL import restrictions for test
+        def fake_import_remote_video_from_url(*args, **kwargs):
+            from dataclasses import dataclass
+
+            from app.models.video import Video, VideoStatus
+
+            @dataclass
+            class ImportResult:
+                video: Video
+                duplicate: bool = False
+
+            video = Video(
+                user_id=kwargs.get("user_id") or 1,
+                title=kwargs.get("preferred_title") or "Imported Video",
+                url=kwargs.get("video_url") or "https://example.com/test",
+                status=VideoStatus.DOWNLOADING,
+            )
+            db.add(video)
+            db.commit()
+            db.refresh(video)
+            return ImportResult(video=video, duplicate=False)
+
+        monkeypatch.setattr(
+            "app.routers.recommendation.import_remote_video_from_url",
+            fake_import_remote_video_from_url,
+        )
+
         response = client.get(
             "/api/recommendations/videos",
             params={"scene": "home", "limit": 4, "include_external": True},

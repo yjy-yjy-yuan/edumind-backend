@@ -160,6 +160,59 @@ def sync_videos_table_schema():
     print("videos 表离线同步字段同步完成。")
 
 
+def sync_user_scope_table_schema(table_name: str, index_name: str):
+    """为 notes/questions 补齐用户作用域字段。"""
+    if engine.dialect.name != "mysql":
+        return
+
+    inspector = inspect(engine)
+    if table_name not in inspector.get_table_names():
+        return
+
+    columns = {column["name"]: column for column in inspector.get_columns(table_name)}
+    indexes = {index["name"] for index in inspector.get_indexes(table_name)}
+    statements = []
+
+    if "user_id" not in columns:
+        statements.extend(
+            [
+                f"ALTER TABLE {table_name} ADD COLUMN user_id INT NULL",
+                (
+                    f"UPDATE {table_name} target "
+                    "LEFT JOIN videos v ON target.video_id = v.id "
+                    "SET target.user_id = COALESCE(v.user_id, 1) "
+                    "WHERE target.user_id IS NULL"
+                ),
+                f"ALTER TABLE {table_name} MODIFY COLUMN user_id INT NOT NULL",
+            ]
+        )
+    elif columns["user_id"].get("nullable", True):
+        statements.extend(
+            [
+                (
+                    f"UPDATE {table_name} target "
+                    "LEFT JOIN videos v ON target.video_id = v.id "
+                    "SET target.user_id = COALESCE(target.user_id, v.user_id, 1) "
+                    "WHERE target.user_id IS NULL"
+                ),
+                f"ALTER TABLE {table_name} MODIFY COLUMN user_id INT NOT NULL",
+            ]
+        )
+
+    if index_name not in indexes:
+        statements.append(f"CREATE INDEX {index_name} ON {table_name}(user_id)")
+
+    if not statements:
+        print(f"{table_name} 表用户作用域字段已是最新结构。")
+        return
+
+    print(f"正在同步 {table_name} 表用户作用域字段...")
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+    print(f"{table_name} 表用户作用域字段同步完成。")
+
+
 def init_database():
     """创建缺失的后端业务表，不删除现有数据。"""
     managed_tables = get_managed_tables()
@@ -168,6 +221,8 @@ def init_database():
     Base.metadata.create_all(bind=engine, tables=managed_tables, checkfirst=True)
     sync_users_table_schema()
     sync_videos_table_schema()
+    sync_user_scope_table_schema("notes", "idx_notes_user_id")
+    sync_user_scope_table_schema("questions", "idx_questions_user_id")
     print("数据库表创建完成。")
     print_managed_tables()
 

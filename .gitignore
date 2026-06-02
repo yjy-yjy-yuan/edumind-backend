@@ -29,6 +29,8 @@ env/
 *.db
 *.sqlite
 *.sqlite3
+backups/
+*.sql.bak
 
 # Logs
 *.log

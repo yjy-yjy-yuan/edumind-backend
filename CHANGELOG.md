@@ -15,6 +15,21 @@
 - **backend**：更新 `app/services/video/recommendation.py`、`app/services/search/search.py` 与 `app/routers/search.py`，推荐候选加载和语义搜索结果元数据回查排除软删除视频，并将显式搜索软删除视频的访问守卫对齐为 404，降低推荐/搜索结果泄漏已删除视频的风险。
 - **tests**：更新 `tests/api/test_recommendation_api.py`、`tests/api/test_video_api.py`、`tests/api/test_qa_api.py`、`tests/api/test_frame_description_api.py` 与 `tests/api/test_search_api.py`，修正 0518 领域服务重构后的旧 import/mock 路径，并补充软删除访问回归测试。
 - **impact**：已删除视频在 QA、字幕、笔记、帧描述、推荐和搜索链路中按软删除语义隐藏；字幕路由仍保持当前认证契约，本次仅补齐软删除过滤。
+## 2026-06-01
+
+### 推荐用户作用域隔离修复 + 实时画面描述链路参数收敛
+
+- **backend**：更新 `app/routers/recommendation.py`、`app/services/video/recommendation.py`、`app/routers/video.py`，推荐候选增加 `user_id` 与 `is_deleted` 过滤，`related` 场景 seed 校验归属，修复跨用户视频泄漏风险。
+- **backend**：更新 `scripts/init_db.py`，新增 `sync_user_scope_table_schema`，为 `notes`/`questions` 表补齐 `user_id` 字段与索引，补全历史数据的用户作用域基础。
+- **backend**：更新 `app/services/frame_desc/source_extractor.py`、`app/core/config.py`、`.env.example`，收紧服务端抽帧超时与重试参数，新增 `FRAME_DESC_SERVER_FRAME_FETCH_MAX_ATTEMPTS`，降低长尾等待。
+- **backend**：更新 `app/services/whisper/runtime.py`，在 MPS 模型加载失败时自动回退 CPU 重试，提升可用性。
+- **tests**：更新 `tests/api/test_recommendation_api.py`，并新增 `tests/api/test_recommendation_user_scope.py`，覆盖推荐用户隔离、软删除隔离、related seed 归属校验与未登录访问行为。
+- **ops**：新增 `scripts/worktree_manager.sh`，支持 worktree 列表、端口检查、创建与移除等本地并行开发辅助操作。
+- **docs**：新增 `微博画面描述功能技术分析.md`，沉淀画面描述链路技术分析与问题排查信息。
+- **repo hygiene**：更新 `.gitignore`，忽略本地 `backups/` 导出的 SQL 备份，避免误提交运行时数据。
+- **impact**：推荐接口的多用户隔离一致性提升；实时描述抽帧链路失败恢复更快；本地并行开发运维成本降低。
+
+---
 
 ## 2026-05-20
 
