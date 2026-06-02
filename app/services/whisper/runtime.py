@@ -428,6 +428,16 @@ class WhisperRuntimeManager:
             try:
                 model = self._load_model_with_timeout(normalized_name, device, resolved_path, timeout_seconds)
             except Exception as exc:
+                if self.should_retry_on_cpu(device, exc) and force_device != "cpu":
+                    logger.warning("MPS 加载 Whisper 模型失败，自动切换到 CPU 重试 | model=%s", normalized_name)
+                    _whisper_debug("Whisper MPS 加载失败，自动切换 CPU 重试 | model=%s", normalized_name)
+                    return self.load_model(
+                        normalized_name,
+                        force_device="cpu",
+                        model_path=resolved_path,
+                        source=source,
+                    )
+
                 integrity_error = self.diagnose_model_file_integrity(normalized_name, resolved_path)
                 error_message = integrity_error or str(exc)
                 self._update_status(
