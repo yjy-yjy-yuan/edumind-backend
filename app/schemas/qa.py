@@ -23,7 +23,9 @@ class AskRequest(BaseModel):
     stream: bool = Field(default=False, description="是否流式返回")
     # 对话模式（前端新接口）：direct=直接回答，deep_think=深度思考
     # 优先级高于 provider + deep_thinking
-    chat_mode: Literal["direct", "deep_think"] = Field(default=None, description="对话模式: direct, deep_think")
+    chat_mode: Optional[Literal["direct", "deep_think"]] = Field(
+        default=None, description="对话模式: direct, deep_think"
+    )
     # 以下字段保留，向后兼容；chat_mode 存在时会被忽略
     provider: str = Field(default="qwen", min_length=1, description="模型提供方: qwen, deepseek")
     model: Optional[str] = Field(default=None, description="可选模型名称，未传时按 provider 使用默认模型")
