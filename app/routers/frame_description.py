@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import uuid
@@ -111,6 +112,210 @@ def _settings_bool(name: str, default: bool = False) -> bool:
     return default
 
 
+def _resolve_frame_source_auth_token(request: FrameDescriptionRequest, authorization: Optional[str]) -> str:
+    if authorization and str(authorization).strip():
+        raw_auth = str(authorization).strip()
+        if raw_auth.lower().startswith("bearer "):
+            return raw_auth[7:].strip()
+        return raw_auth
+    if request.frame_source_auth_token:
+        return str(request.frame_source_auth_token).strip()
+    return ""
+
+
+def _stable_request_session_id(request: FrameDescriptionRequest, auth_token: str) -> str:
+    explicit_session_id = str(request.session_id or "").strip()
+    if explicit_session_id:
+        return explicit_session_id
+    token_source = auth_token or "anonymous"
+    token_fingerprint = hashlib.sha1(token_source.encode("utf-8")).hexdigest()[:12]
+    return f"video-{int(request.video_id)}:frame-desc:{token_fingerprint}"
+
+
+def _extract_request_frames(request: FrameDescriptionRequest, trace_id: str, auth_token: str) -> list[str]:
+    frames = list(request.frames or [])
+    if frames or not str(request.frame_source_url or "").strip():
+        return frames
+
+    frame_desc_debug_logger.debug(
+        "start extract frames from stream | trace_id=%s | url=%s | stream_url=%s | video_id=%s | session_id=%s | timestamp=%.3f | has_auth_token=%s",
+        trace_id,
+        request.frame_source_url,
+        request.frame_source_url,
+        request.video_id,
+        request.session_id,
+        float(request.timestamp or 0),
+        bool(auth_token),
+    )
+    try:
+        frames = [
+            extract_frame_from_video_url(
+                video_url=request.frame_source_url,
+                timestamp=request.timestamp,
+                trace_id=trace_id,
+                auth_token=auth_token,
+            )
+        ]
+        frame_desc_debug_logger.debug(
+            "server frame extracted for describe | trace_id=%s | video_id=%s | session_id=%s | base64_frames_count=%d",
+            trace_id,
+            request.video_id,
+            request.session_id,
+            len(frames),
+        )
+        return frames
+    except FrameSourceExtractionError as exc:
+        frame_desc_debug_logger.debug(
+            "frame extract failed | error_type=server_frame_extract_failed | error=%s | stream_url=%s | url=%s | session_id=%s | trace_id=%s | fallback_reason=frame_extract_failed | fallback_target=qwen3vl_text_only",
+            str(exc),
+            request.frame_source_url,
+            request.frame_source_url,
+            request.session_id,
+            trace_id,
+            exc_info=True,
+        )
+        return []
+
+
+def _iter_router_degraded_events(request: FrameDescriptionRequest, db: Session, error_detail: str):
+    degraded_text = _build_router_degraded_text(db, request.video_id, request.timestamp, error_detail)
+    yield {
+        "type": "status",
+        "stage": "degraded",
+        "message": f"实时描述服务不可用，已降级输出（{str(error_detail)[:120]}）",
+        "progress": 85,
+    }
+    yield {
+        "type": "description",
+        "delta": degraded_text,
+        "timestamp": request.timestamp,
+        "confidence": None,
+    }
+    yield {
+        "type": "complete",
+        "stage": "completed",
+        "full_description": degraded_text,
+        "timestamp": request.timestamp,
+        "confidence": None,
+        "context_summary": None,
+        "degraded": True,
+        "latency_ms": None,
+        "progress": 100,
+        "message": f"降级描述已完成（{str(error_detail)[:120]}）",
+    }
+
+
+def stream_frame_description_events(
+    *,
+    request: FrameDescriptionRequest,
+    video: Optional[Video],
+    trace_id: str,
+    authorization: Optional[str],
+    db: Session,
+):
+    service = get_frame_desc_service()
+    auth_token = _resolve_frame_source_auth_token(request, authorization)
+    session_id = _stable_request_session_id(request, auth_token)
+
+    frame_desc_debug_logger.debug(
+        "auth token resolved | trace_id=%s | has_token=%s | token_prefix=%s | resolved_session_id=%s",
+        trace_id,
+        bool(auth_token),
+        (auth_token[:8] + "***" if len(auth_token) > 8 else (auth_token if auth_token else "")),
+        session_id,
+    )
+
+    try:
+        if not request.frames and str(request.frame_source_url or "").strip():
+            yield serialize_stream_event(
+                {
+                    "type": "status",
+                    "stage": "sampling",
+                    "message": "正在服务端抽取视频帧",
+                    "progress": 15,
+                }
+            )
+        frames = _extract_request_frames(request, trace_id, auth_token)
+        video_title = request.video_title or str(getattr(video, "title", "") or "") or f"video-{request.video_id}"
+        for event in service.describe_frames(
+            frames=frames,
+            timestamp=request.timestamp,
+            video_id=request.video_id,
+            video_title=video_title,
+            detail_level=request.detail_level,
+            session_id=session_id,
+            trace_id=trace_id,
+            context_history=list(request.context_history or []),
+            allow_degrade=request.allow_degrade,
+            db=db,
+        ):
+            frame_desc_debug_logger.debug(
+                "frame_desc event | trace_id=%s | type=%s | stage=%s",
+                trace_id,
+                event.get("type"),
+                event.get("stage"),
+            )
+            yield serialize_stream_event(event)
+    except FrameDescConfigError as exc:
+        logger.error("frame desc config error | trace_id=%s | error=%s", trace_id, exc)
+        yield serialize_stream_event(
+            {
+                "type": "error",
+                "stage": "config",
+                "message": str(exc),
+                "detail": str(exc),
+                "progress": 100,
+                "degraded": False,
+            }
+        )
+    except FrameDescServiceError as exc:
+        logger.error("frame desc service error | trace_id=%s | error=%s", trace_id, exc)
+        if bool(request.allow_degrade):
+            frame_desc_debug_logger.debug(
+                "fallback_reason=%s | fallback_target=subtitle_description | trace_id=%s | session_id=%s",
+                str(exc)[:200],
+                trace_id,
+                session_id,
+                exc_info=True,
+            )
+            for event in _iter_router_degraded_events(request, db, str(exc)):
+                yield serialize_stream_event(event)
+            return
+        yield serialize_stream_event(
+            {
+                "type": "error",
+                "stage": "inference",
+                "message": "画面描述服务异常",
+                "detail": str(exc)[:500],
+                "progress": 100,
+                "degraded": False,
+            }
+        )
+    except Exception as exc:
+        logger.error("frame desc unexpected error | trace_id=%s | error=%s", trace_id, exc)
+        if bool(request.allow_degrade):
+            frame_desc_debug_logger.debug(
+                "fallback_reason=unexpected_error:%s | fallback_target=subtitle_description | trace_id=%s | session_id=%s",
+                str(exc)[:200],
+                trace_id,
+                session_id,
+                exc_info=True,
+            )
+            for event in _iter_router_degraded_events(request, db, str(exc)):
+                yield serialize_stream_event(event)
+            return
+        yield serialize_stream_event(
+            {
+                "type": "error",
+                "stage": "server",
+                "message": "描述处理失败，请稍后重试",
+                "detail": str(exc)[:500],
+                "progress": 100,
+                "degraded": False,
+            }
+        )
+
+
 @router.post("/describe")
 async def describe_frame(
     request: FrameDescriptionRequest,
@@ -154,216 +359,14 @@ async def describe_frame(
             str(request.video_title or "")[:120],
         )
 
-    def generate():
-        service = get_frame_desc_service()
-
-        # 认证 token 优先级：1. Authorization header  2. 请求体 frame_source_auth_token
-        auth_token = ""
-        if authorization and str(authorization).strip():
-            raw_auth = str(authorization).strip()
-            if raw_auth.lower().startswith("bearer "):
-                auth_token = raw_auth[7:].strip()
-            else:
-                auth_token = raw_auth
-        if not auth_token and request.frame_source_auth_token:
-            auth_token = str(request.frame_source_auth_token).strip()
-
-        frame_desc_debug_logger.debug(
-            "auth token resolved | trace_id=%s | has_token=%s | token_prefix=%s",
-            trace_id,
-            bool(auth_token),
-            (auth_token[:8] + "***" if len(auth_token) > 8 else (auth_token if auth_token else "")),
-        )
-
-        try:
-            frames = list(request.frames or [])
-            if not frames and str(request.frame_source_url or "").strip():
-                frame_desc_debug_logger.debug(
-                    "start extract frames from stream | trace_id=%s | url=%s | stream_url=%s | video_id=%s | session_id=%s | timestamp=%.3f | has_auth_token=%s",
-                    trace_id,
-                    request.frame_source_url,
-                    request.frame_source_url,
-                    request.video_id,
-                    request.session_id,
-                    float(request.timestamp or 0),
-                    bool(auth_token),
-                )
-                yield serialize_stream_event(
-                    {
-                        "type": "status",
-                        "stage": "sampling",
-                        "message": "正在服务端抽取视频帧",
-                        "progress": 15,
-                    }
-                )
-                try:
-                    frames = [
-                        extract_frame_from_video_url(
-                            video_url=request.frame_source_url,
-                            timestamp=request.timestamp,
-                            trace_id=trace_id,
-                            auth_token=auth_token,
-                        )
-                    ]
-                    frame_desc_debug_logger.debug(
-                        "server frame extracted for describe | trace_id=%s | video_id=%s | session_id=%s | base64_frames_count=%d",
-                        trace_id,
-                        request.video_id,
-                        request.session_id,
-                        len(frames),
-                    )
-                except FrameSourceExtractionError as exc:
-                    frame_desc_debug_logger.debug(
-                        "frame extract failed | error_type=server_frame_extract_failed | error=%s | stream_url=%s | url=%s | session_id=%s | trace_id=%s | fallback_reason=frame_extract_failed | fallback_target=qwen3vl_text_only",
-                        str(exc),
-                        request.frame_source_url,
-                        request.frame_source_url,
-                        request.session_id,
-                        trace_id,
-                        exc_info=True,
-                    )
-                    frames = []
-
-            for event in service.describe_frames(
-                frames=frames,
-                timestamp=request.timestamp,
-                video_id=request.video_id,
-                video_title=request.video_title
-                or str(getattr(video, "title", "") or "")
-                or f"video-{request.video_id}",
-                detail_level=request.detail_level,
-                session_id=request.session_id or str(uuid.uuid4()),
-                trace_id=trace_id,
-                context_history=list(request.context_history or []),
-                allow_degrade=request.allow_degrade,
-                db=db,
-            ):
-                frame_desc_debug_logger.debug(
-                    "frame_desc event | trace_id=%s | type=%s | stage=%s",
-                    trace_id,
-                    event.get("type"),
-                    event.get("stage"),
-                )
-                yield serialize_stream_event(event)
-        except FrameDescConfigError as exc:
-            logger.error("frame desc config error | trace_id=%s | error=%s", trace_id, exc)
-            yield serialize_stream_event(
-                {
-                    "type": "error",
-                    "stage": "config",
-                    "message": str(exc),
-                    "detail": str(exc),
-                    "progress": 100,
-                    "degraded": False,
-                }
-            )
-        except FrameDescServiceError as exc:
-            logger.error("frame desc service error | trace_id=%s | error=%s", trace_id, exc)
-            if bool(request.allow_degrade):
-                frame_desc_debug_logger.debug(
-                    "fallback_reason=%s | fallback_target=subtitle_description | trace_id=%s | session_id=%s",
-                    str(exc)[:200],
-                    trace_id,
-                    request.session_id,
-                    exc_info=True,
-                )
-                degraded_text = _build_router_degraded_text(db, request.video_id, request.timestamp, str(exc))
-                yield serialize_stream_event(
-                    {
-                        "type": "status",
-                        "stage": "degraded",
-                        "message": f"实时描述服务不可用，已降级输出（{str(exc)[:120]}）",
-                        "progress": 85,
-                    }
-                )
-                yield serialize_stream_event(
-                    {
-                        "type": "description",
-                        "delta": degraded_text,
-                        "timestamp": request.timestamp,
-                        "confidence": None,
-                    }
-                )
-                yield serialize_stream_event(
-                    {
-                        "type": "complete",
-                        "stage": "completed",
-                        "full_description": degraded_text,
-                        "timestamp": request.timestamp,
-                        "confidence": None,
-                        "context_summary": None,
-                        "degraded": True,
-                        "latency_ms": None,
-                        "progress": 100,
-                        "message": f"降级描述已完成（{str(exc)[:120]}）",
-                    }
-                )
-                return
-            yield serialize_stream_event(
-                {
-                    "type": "error",
-                    "stage": "inference",
-                    "message": "画面描述服务异常",
-                    "detail": str(exc)[:500],
-                    "progress": 100,
-                    "degraded": False,
-                }
-            )
-        except Exception as exc:
-            logger.error("frame desc unexpected error | trace_id=%s | error=%s", trace_id, exc)
-            if bool(request.allow_degrade):
-                frame_desc_debug_logger.debug(
-                    "fallback_reason=unexpected_error:%s | fallback_target=subtitle_description | trace_id=%s | session_id=%s",
-                    str(exc)[:200],
-                    trace_id,
-                    request.session_id,
-                    exc_info=True,
-                )
-                degraded_text = _build_router_degraded_text(db, request.video_id, request.timestamp, str(exc))
-                yield serialize_stream_event(
-                    {
-                        "type": "status",
-                        "stage": "degraded",
-                        "message": f"服务异常，已降级输出（{str(exc)[:120]}）",
-                        "progress": 85,
-                    }
-                )
-                yield serialize_stream_event(
-                    {
-                        "type": "description",
-                        "delta": degraded_text,
-                        "timestamp": request.timestamp,
-                        "confidence": None,
-                    }
-                )
-                yield serialize_stream_event(
-                    {
-                        "type": "complete",
-                        "stage": "completed",
-                        "full_description": degraded_text,
-                        "timestamp": request.timestamp,
-                        "confidence": None,
-                        "context_summary": None,
-                        "degraded": True,
-                        "latency_ms": None,
-                        "progress": 100,
-                        "message": f"降级描述已完成（{str(exc)[:120]}）",
-                    }
-                )
-                return
-            yield serialize_stream_event(
-                {
-                    "type": "error",
-                    "stage": "server",
-                    "message": "描述处理失败，请稍后重试",
-                    "detail": str(exc)[:500],
-                    "progress": 100,
-                    "degraded": False,
-                }
-            )
-
     return StreamingResponse(
-        generate(),
+        stream_frame_description_events(
+            request=request,
+            video=video,
+            trace_id=trace_id,
+            authorization=authorization,
+            db=db,
+        ),
         media_type="application/x-ndjson; charset=utf-8",
         headers={"X-Trace-Id": trace_id},
     )
