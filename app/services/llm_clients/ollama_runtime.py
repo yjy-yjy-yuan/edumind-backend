@@ -21,6 +21,13 @@ def _model_matches(configured_model: str, loaded_model: str) -> bool:
     return loaded == configured or loaded == f"{configured}:latest"
 
 
+def _get_ollama_tags(url: str, timeout: int) -> requests.Response:
+    """Request Ollama directly, bypassing system proxies for localhost runtimes."""
+    session = requests.Session()
+    session.trust_env = False
+    return session.get(url, timeout=timeout)
+
+
 def get_ollama_runtime_status(timeout: int = 3) -> dict[str, Any]:
     """返回当前 Ollama 运行时状态，供健康检查和兼容能力展示使用。"""
     status: dict[str, Any] = {
@@ -38,7 +45,7 @@ def get_ollama_runtime_status(timeout: int = 3) -> dict[str, Any]:
         return status
 
     try:
-        response = requests.get(f"{settings.OLLAMA_BASE_URL}/tags", timeout=timeout)
+        response = _get_ollama_tags(f"{settings.OLLAMA_BASE_URL}/tags", timeout=timeout)
         response.raise_for_status()
         payload = response.json() if response.content else {}
         models = payload.get("models") if isinstance(payload, dict) else []

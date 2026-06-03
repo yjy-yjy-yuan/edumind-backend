@@ -11,6 +11,10 @@
 
 ---
 
+### 2026-06-02
+
+- (pending) fix(ollama): bypass proxies for local runtime status
+
 ### 2026-06-01
 
 - (pending) feat(frame-description): tune local runtime config and reduce realtime latency
