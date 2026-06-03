@@ -194,6 +194,11 @@ class Settings(BaseSettings):
     WHISPER_DEBUG_LOG: bool = False
     WHISPER_DEBUG_LOG_FILE: str = "logs/whisper_debug.log"
 
+    # YouTube / MOOC 远程下载配置（yt-dlp）
+    YOUTUBE_DOWNLOAD_PROXY: str = ""
+    YOUTUBE_DOWNLOAD_BROWSER_COOKIE: str = ""
+    MOOC_DOWNLOAD_COOKIE_FILE: str = ""
+
     # 视频推荐：站内候选上限（避免全表扫描）、站外默认开关、站外 HTTP 超时与抓取策略
     RECOMMENDATION_MAX_CANDIDATES_SCAN: int = 400
     RECOMMENDATION_INCLUDE_EXTERNAL_DEFAULT: bool = False

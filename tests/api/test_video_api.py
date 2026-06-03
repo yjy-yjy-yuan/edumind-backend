@@ -632,31 +632,51 @@ class TestVideoAPI:
         assert video.summary == "适合配合当前数学主题继续学习。"
         assert json.loads(video.tags)[0] == "数学"
 
-    def test_upload_video_url_rejects_disabled_youtube_and_mooc_sources(self, client, db, monkeypatch, sample_user):
-        """YouTube 和中国大学慕课链接上传入口暂时关闭。"""
-        from app.models.video import Video
+    def test_upload_video_url_allows_youtube_and_mooc_sources(self, client, db, monkeypatch, sample_user):
+        """YouTube 和中国大学慕课链接上传应进入下载任务。"""
+        from app.models.video import Video, VideoStatus
         from app.utils.auth_token import build_auth_token
 
-        submitted = {"count": 0}
+        submitted = []
 
-        def fake_submit_task(*args, **kwargs):
-            submitted["count"] += 1
+        def fake_submit_task(task_func, *args, **kwargs):
+            submitted.append(
+                {
+                    "name": task_func.__name__,
+                    "args": args,
+                    "kwargs": kwargs,
+                }
+            )
             return None
 
         monkeypatch.setattr("app.core.executor.submit_task", fake_submit_task)
         auth = {"Authorization": f"Bearer {build_auth_token(sample_user.id)}"}
-        urls = [
-            "https://www.youtube.com/watch?v=abc123",
-            "https://www.icourse163.org/learn/HIT-1001527001",
+        cases = [
+            ("https://www.youtube.com/watch?v=abc123", "youtube"),
+            ("https://www.icourse163.org/learn/HIT-1001527001", "mooc"),
         ]
 
-        for url in urls:
+        for url, source_type in cases:
             response = client.post("/api/videos/upload-url", json={"url": url, "model": "medium"}, headers=auth)
-            assert response.status_code == 400
-            assert "暂不支持通过链接上传 YouTube 或中国大学慕课视频" in response.json()["detail"]
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["status"] == "downloading"
+            assert payload["duplicate"] is False
 
-        assert submitted["count"] == 0
-        assert db.query(Video).count() == 0
+            video = db.query(Video).filter(Video.id == payload["id"]).first()
+            assert video is not None
+            assert video.url == url
+            assert video.status == VideoStatus.DOWNLOADING
+
+            task = submitted[-1]
+            assert task["name"] == "download_video_from_url_task"
+            assert task["args"][0] == video.id
+            assert task["args"][1] == url
+            assert task["args"][2] == source_type
+            assert task["kwargs"]["model"] == "medium"
+
+        assert len(submitted) == len(cases)
+        assert db.query(Video).count() == len(cases)
 
     def test_upload_video_url_duplicate_reuses_existing_video(self, client, db, monkeypatch, sample_user):
         """测试重复提交同一链接时复用已有视频记录。"""

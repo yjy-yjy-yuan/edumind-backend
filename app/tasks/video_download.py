@@ -60,10 +60,35 @@ def build_ydl_options(download_folder: str, source_type: str, outtmpl: Optional[
     }
 
     if source_type == "youtube":
-        options["proxy"] = "http://127.0.0.1:7890"
-        options["cookiesfrombrowser"] = ("chrome",)
+        proxy = str(getattr(settings, "YOUTUBE_DOWNLOAD_PROXY", "") or "").strip()
+        browser_cookie = str(getattr(settings, "YOUTUBE_DOWNLOAD_BROWSER_COOKIE", "") or "").strip()
+        if proxy:
+            options["proxy"] = proxy
+        if browser_cookie:
+            options["cookiesfrombrowser"] = (browser_cookie,)
+
+    if source_type == "mooc":
+        cookie_file = str(getattr(settings, "MOOC_DOWNLOAD_COOKIE_FILE", "") or "").strip()
+        if cookie_file:
+            options["cookiefile"] = cookie_file
 
     return options
+
+
+def build_download_error_message(source_type: str, error_message: str) -> str:
+    """补充远程平台下载配置提示，避免反爬/网络失败时只暴露 yt-dlp 原始错误。"""
+    normalized_error = str(error_message or "").strip()
+    source_hints = {
+        "youtube": "请检查 YOUTUBE_DOWNLOAD_PROXY 或 YOUTUBE_DOWNLOAD_BROWSER_COOKIE 配置。",
+        "mooc": "请检查网络访问和 MOOC_DOWNLOAD_COOKIE_FILE 配置；中国大学慕课课程可能需要登录态，且 yt-dlp 可能不支持该页面。",
+    }
+    hint = source_hints.get(source_type)
+    if not hint:
+        return normalized_error
+
+    if hint in normalized_error:
+        return normalized_error
+    return f"{normalized_error} {hint}".strip()
 
 
 def resolve_downloaded_file_path(download_folder: str, output_title: str) -> str:
@@ -248,4 +273,4 @@ def download_video_from_url_task(
                     video_id,
                     cleaned,
                 )
-        mark_download_failed(video_id, str(exc))
+        mark_download_failed(video_id, build_download_error_message(source_type, str(exc)))

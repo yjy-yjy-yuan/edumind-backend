@@ -45,9 +45,20 @@ def detect_remote_video_source(video_url: str) -> tuple[str, str]:
     is_youtube = "youtube.com" in normalized_url or "youtu.be" in normalized_url
     is_mooc = "icourse163.org" in normalized_url
 
-    if is_youtube or is_mooc:
-        # YouTube / 中国大学慕课链接上传链路暂时下线，避免进入下载和处理任务。
-        raise HTTPException(status_code=400, detail=DISABLED_REMOTE_VIDEO_SOURCE_MESSAGE)
+    if is_youtube:
+        video_id = ""
+        watch_match = re.search(r"[?&]v=([0-9A-Za-z_-]+)", normalized_url)
+        short_match = re.search(r"youtu\.be/([0-9A-Za-z_-]+)", normalized_url)
+        if watch_match:
+            video_id = watch_match.group(1)
+        elif short_match:
+            video_id = short_match.group(1)
+        return "youtube", f"youtube-{video_id or 'remote-video'}"
+
+    if is_mooc:
+        course_match = re.search(r"icourse163\.org/learn/([^/?#]+)", normalized_url)
+        course_id = course_match.group(1) if course_match else "remote-course"
+        return "mooc", f"mooc-{course_id}"
 
     if is_bilibili:
         bv_match = re.search(r"BV[0-9A-Za-z]+", normalized_url)
@@ -60,7 +71,7 @@ def detect_remote_video_source(video_url: str) -> tuple[str, str]:
             return "bilibili", f"bilibili-{video_id}"
         raise HTTPException(status_code=400, detail="无效的B站视频链接")
 
-    raise HTTPException(status_code=400, detail="目前仅支持B站视频链接")
+    raise HTTPException(status_code=400, detail="目前仅支持B站、YouTube 和中国大学慕课视频链接")
 
 
 def find_existing_remote_video(db: Session, video_url: str, user_id: int) -> Optional[Video]:

@@ -11,6 +11,10 @@
 
 ---
 
+### 2026-06-03
+
+- (pending) fix(video): reopen YouTube/MOOC URL import and make yt-dlp config env-driven
+
 ### 2026-06-02
 
 - (pending) fix(ollama): bypass proxies for local runtime status

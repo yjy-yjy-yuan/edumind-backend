@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-03
+
+### YouTube / 慕课 URL 导入入口放开与 yt-dlp 配置环境变量化
+
+- **backend**：更新 `app/services/video/url_import.py`，移除 `detect_remote_video_source()` 中对 YouTube 和中国大学慕课链接的 400 拦截，两者现在正常返回 `source_type="youtube"` / `"mooc"` 并提交下载任务。
+- **backend**：更新 `app/tasks/video_download.py`，`build_ydl_options()` 移除硬编码 `127.0.0.1:7890` 代理和 `chrome` 浏览器 Cookie，改为从 `settings.YOUTUBE_DOWNLOAD_PROXY` / `settings.YOUTUBE_DOWNLOAD_BROWSER_COOKIE` / `settings.MOOC_DOWNLOAD_COOKIE_FILE` 读取；配置留空时不启用代理/Cookie（向后兼容）；`build_download_error_message()` 对 YouTube/MOOC 下载失败统一追加配置检查提示，非 YouTube/MOOC 平台保持原错误不变。
+- **config**：更新 `app/core/config.py`，新增 `YOUTUBE_DOWNLOAD_PROXY`、`YOUTUBE_DOWNLOAD_BROWSER_COOKIE`、`MOOC_DOWNLOAD_COOKIE_FILE` 三个配置项（默认空字符串）。
+- **config**：更新 `.env.example`，同步新增上述三个配置的模板行及注释说明。
+- **tests**：更新 `tests/api/test_video_api.py`，将原 `test_upload_video_url_rejects_disabled_youtube_and_mooc_sources` 改为 `test_upload_video_url_allows_youtube_and_mooc_sources`，验证 YouTube/慕课返回 200、状态 downloading、`submit_task` 被正确调用。
+- **tests**：新增 `tests/unit/test_video_download.py`，覆盖 YouTube 403 提示、慕课 Unsupported URL 提示、B 站错误不被污染三种场景。
+- **impact**：YouTube 和中国大学慕课链接不再被入口拦截（400），正常进入下载流水线；下载配置可按部署环境灵活调整；失败时错误信息清晰，包含配置检查指引。
+
+---
+
 ## 2026-06-02
 
 ### Ollama 本地运行时状态探测代理隔离
