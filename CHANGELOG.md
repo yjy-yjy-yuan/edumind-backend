@@ -9,6 +9,14 @@
 
 ## 2026-06-01
 
+### 本地配置迁移与实时画面描述链路参数收敛
+
+- **config**：更新 `.env.example` 与 `app/core/config.py`，将 `FRAME_DESC_PROBE_UPSTREAM_BEFORE_INFER`/`FRAME_DESC_PROBE_VINCI_BEFORE_INFER` 默认关闭，`FRAME_DESC_PROBE_TIMEOUT_SECONDS` 收敛至 `0.5`；同时收敛 `QWEN3VL_REQUEST_TIMEOUT_SECONDS`、`QWEN3VL_STREAM_TIMEOUT_SECONDS` 与 `QWEN3VL_MAX_NEW_TOKENS`。
+- **backend**：更新 `app/services/frame_desc/service.py`，同步降低默认降级间隔与单次输入帧数上限（`FRAME_DESC_DEGRADED_INTERVAL_SECONDS=3`、`FRAME_DESC_MAX_FRAMES_PER_REQUEST=1`），减少实时链路阻塞窗口。
+- **backend**：更新 `app/services/frame_desc/source_extractor.py`，新增/接入 `FRAME_DESC_SERVER_FRAME_FETCH_MAX_ATTEMPTS`，收紧服务端抽帧重试与超时。
+- **backend**：更新 `app/services/llm_clients/qwen3vl.py`，统一实时客户端默认超时与 token 配置，避免配置漂移。
+- **tests**：更新 `tests/api/test_frame_description_api.py`，将服务端抽帧回退测试改为本地可复现的 host/url（`localhost/127.0.0.1`），确保本地联调与 CI 环境一致。
+- **impact**：本地实时画面描述链路在弱网络或上游波动时的等待时长显著降低，联调配置更贴近本地实际运行场景。
 ### 实时画面描述链路延迟优化与重复请求抑制
 
 - **config**：更新 `app/core/config.py` 与 `.env.example`，大幅收紧实时描述链路超时参数：`FRAME_DESC_TIMEOUT_SECONDS` 20→8、`QWEN3VL_REQUEST_TIMEOUT_SECONDS` 8→6、`QWEN3VL_STREAM_TIMEOUT_SECONDS` 30→9、`FRAME_DESC_SERVER_FRAME_FETCH_TIMEOUT_SECONDS` 35→3；默认关闭推理前探活（`FRAME_DESC_PROBE_UPSTREAM_BEFORE_INFER=false`），降低每轮额外延迟；新增 `FRAME_DESC_REUSE_RECENT_SECONDS=1.2`、`FRAME_DESC_MAX_FRAMES_PER_REQUEST=1`、`FRAME_DESC_SERVER_FRAME_FETCH_MAX_ATTEMPTS=2`、`FRAME_DESC_DEGRADED_INTERVAL_SECONDS=3`（原 10），`QWEN3VL_MAX_NEW_TOKENS` 64→48。

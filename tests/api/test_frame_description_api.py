@@ -128,7 +128,7 @@ def test_describe_can_use_server_frame_source_when_frontend_capture_is_blocked(c
             FRAME_DESC_ENABLED=True,
             FRAME_DESC_ALLOW_EXTERNAL_VIDEO=True,
             FRAME_DESC_ALLOW_SERVER_FRAME_FETCH=True,
-            FRAME_DESC_SERVER_FRAME_ALLOWED_HOSTS="47.84.228.226",
+            FRAME_DESC_SERVER_FRAME_ALLOWED_HOSTS="localhost,127.0.0.1",
         ),
     )
     monkeypatch.setattr(
@@ -163,7 +163,7 @@ def test_describe_can_use_server_frame_source_when_frontend_capture_is_blocked(c
         json={
             "video_id": 99999,
             "frames": [],
-            "frame_source_url": "https://47.84.228.226/api/videos/25/stream",
+            "frame_source_url": "http://127.0.0.1:2004/api/videos/25/stream",
             "timestamp": 10.0,
             "video_title": "云端短视频",
             "detail_level": "standard",
@@ -185,7 +185,7 @@ def test_describe_continues_text_only_when_server_frame_source_fails(client, mon
             FRAME_DESC_ENABLED=True,
             FRAME_DESC_ALLOW_EXTERNAL_VIDEO=True,
             FRAME_DESC_ALLOW_SERVER_FRAME_FETCH=True,
-            FRAME_DESC_SERVER_FRAME_ALLOWED_HOSTS="47.84.228.226",
+            FRAME_DESC_SERVER_FRAME_ALLOWED_HOSTS="localhost,127.0.0.1",
         ),
     )
 
@@ -224,7 +224,7 @@ def test_describe_continues_text_only_when_server_frame_source_fails(client, mon
         json={
             "video_id": 99999,
             "frames": [],
-            "frame_source_url": "https://47.84.228.226/api/videos/25/stream",
+            "frame_source_url": "http://127.0.0.1:2004/api/videos/25/stream",
             "timestamp": 75.0,
             "video_title": "云端短视频",
             "detail_level": "standard",

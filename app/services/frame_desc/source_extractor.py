@@ -80,7 +80,8 @@ def _convert_extracted_image_to_jpeg_bytes(image_path: str) -> bytes:
 def _candidate_timestamps(timestamp: float, *, max_attempts: int) -> list[float]:
     """Try the requested position first, then step backward near the video tail."""
     candidates: list[float] = []
-    for offset in (0.0, -0.5, -1.0, -2.0, -5.0):
+    offsets = (0.0, -0.5, -1.0, -2.0, -5.0)
+    for offset in offsets[: max(1, int(max_attempts or 1))]:
         candidate = max(0.0, float(timestamp or 0) + offset)
         if all(abs(candidate - existing) > 0.001 for existing in candidates):
             candidates.append(candidate)

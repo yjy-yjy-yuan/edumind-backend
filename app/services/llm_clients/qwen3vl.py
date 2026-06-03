@@ -94,15 +94,15 @@ class Qwen3VLRealtimeClient:
         self.request_timeout_seconds = float(
             request_timeout_seconds
             if request_timeout_seconds is not None
-            else getattr(settings, "QWEN3VL_REQUEST_TIMEOUT_SECONDS", 8.0)
+            else getattr(settings, "QWEN3VL_REQUEST_TIMEOUT_SECONDS", 6.0)
         )
         self.stream_timeout_seconds = float(
             stream_timeout_seconds
             if stream_timeout_seconds is not None
-            else getattr(settings, "QWEN3VL_STREAM_TIMEOUT_SECONDS", 30.0)
+            else getattr(settings, "QWEN3VL_STREAM_TIMEOUT_SECONDS", 9.0)
         )
         self.max_new_tokens = int(
-            max_new_tokens if max_new_tokens is not None else getattr(settings, "QWEN3VL_MAX_NEW_TOKENS", 64)
+            max_new_tokens if max_new_tokens is not None else getattr(settings, "QWEN3VL_MAX_NEW_TOKENS", 48)
         )
         if bool(getattr(settings, "FRAME_DESC_DEBUG_LOG", False)):
             logger.setLevel(logging.DEBUG)
