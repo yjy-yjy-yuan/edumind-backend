@@ -5,7 +5,7 @@ import logging
 
 import pytest
 
-from app.services import video_recommendation_service as recommendation_service
+from app.services.video import recommendation as recommendation_service
 from app.services.video.external_candidate import (
     ExternalCandidate,
     ExternalCandidateFetchReport,
@@ -57,6 +57,35 @@ def fake_fetch_external_candidates_report(*args, **kwargs):
                 candidate_count=0,
                 error_message="search failed",
                 latency_ms=620,
+            ),
+        ],
+    )
+
+
+def fake_fetch_importable_external_candidates_report(*args, **kwargs):
+    """返回自动物化测试用的可导入站外候选。"""
+    return ExternalCandidateFetchReport(
+        candidates=[
+            ExternalCandidate(
+                id="bilibili:BV1math12345",
+                provider="bilibili",
+                source_label="Bilibili",
+                title="Bilibili · Calculus Review",
+                external_url="https://www.bilibili.com/video/BV1math12345",
+                summary="适合配合当前数学主题继续学习。",
+                tags=["数学", "导数"],
+                subject="数学",
+                primary_topic="导数",
+                cluster_key="数学::导数",
+            )
+        ],
+        providers=[
+            ExternalProviderFetchSummary(
+                provider="bilibili",
+                source_label="Bilibili",
+                status="success",
+                candidate_count=1,
+                latency_ms=145,
             ),
         ],
     )
@@ -166,6 +195,39 @@ class TestRecommendationAPI:
         assert payload["seed_video_title"] == seed_video.title
         assert payload["items"][0]["reason_code"] == "related"
         assert payload["items"][0]["reason_text"] == ""
+
+    def test_home_recommendations_exclude_soft_deleted_video(self, client, db, sample_user):
+        """首页推荐候选不应包含软删除视频。"""
+        from app.models.video import Video, VideoStatus
+
+        active_video = Video(
+            user_id=sample_user.id,
+            title="函数导数复习",
+            filename="active.mp4",
+            filepath="/tmp/active.mp4",
+            status=VideoStatus.COMPLETED,
+            summary="导数复习",
+            tags='["数学","导数"]',
+        )
+        deleted_video = Video(
+            user_id=sample_user.id,
+            title="已删除导数课程",
+            filename="deleted.mp4",
+            filepath="/tmp/deleted.mp4",
+            status=VideoStatus.COMPLETED,
+            summary="不应出现",
+            tags='["数学","导数"]',
+            is_deleted=True,
+        )
+        db.add_all([active_video, deleted_video])
+        db.commit()
+
+        response = client.get("/api/recommendations/videos", params={"scene": "home", "limit": 10})
+
+        assert response.status_code == 200
+        item_ids = {item["id"] for item in response.json()["items"] if item.get("item_type") == "video"}
+        assert active_video.id in item_ids
+        assert deleted_video.id not in item_ids
 
     def test_home_recommendations_prioritize_active_video(self, client, db, sample_user):
         """首页推荐优先返回当前需要继续跟进的处理中视频。"""
@@ -282,6 +344,28 @@ class TestRecommendationAPI:
         response = client.get("/api/recommendations/videos", params={"scene": "related"})
         assert response.status_code == 422
         assert response.json()["detail"] == "scene=related 时必须传入 seed_video_id"
+
+    def test_related_recommendations_reject_soft_deleted_seed_video(self, client, db, sample_user):
+        """软删除视频不能作为 related 推荐 seed。"""
+        from app.models.video import Video, VideoStatus
+
+        seed_video = Video(
+            user_id=sample_user.id,
+            title="已删除导数课程",
+            filename="deleted-seed.mp4",
+            filepath="/tmp/deleted-seed.mp4",
+            status=VideoStatus.COMPLETED,
+            is_deleted=True,
+        )
+        db.add(seed_video)
+        db.commit()
+
+        response = client.get(
+            "/api/recommendations/videos",
+            params={"scene": "related", "seed_video_id": seed_video.id},
+        )
+
+        assert response.status_code == 404
 
     def test_related_recommendations_rank_overlap_video_first(self, client, db, sample_user):
         """相关推荐优先返回与 seed 视频主题重合度更高的视频。"""
@@ -614,9 +698,36 @@ class TestRecommendationAPI:
         monkeypatch.setattr(
             recommendation_service,
             "fetch_external_candidates_report",
-            fake_fetch_external_candidates_report,
+            fake_fetch_importable_external_candidates_report,
         )
         monkeypatch.setattr("app.core.executor.submit_task", lambda *args, **kwargs: None)
+
+        # Bypass URL import restrictions for test
+        def fake_import_remote_video_from_url(*args, **kwargs):
+            from dataclasses import dataclass
+
+            from app.models.video import Video, VideoStatus
+
+            @dataclass
+            class ImportResult:
+                video: Video
+                duplicate: bool = False
+
+            video = Video(
+                user_id=kwargs.get("user_id") or 1,
+                title=kwargs.get("preferred_title") or "Imported Video",
+                url=kwargs.get("video_url") or "https://example.com/test",
+                status=VideoStatus.DOWNLOADING,
+            )
+            db.add(video)
+            db.commit()
+            db.refresh(video)
+            return ImportResult(video=video, duplicate=False)
+
+        monkeypatch.setattr(
+            "app.routers.recommendation.import_remote_video_from_url",
+            fake_import_remote_video_from_url,
+        )
 
         response = client.get(
             "/api/recommendations/videos",
@@ -643,7 +754,7 @@ class TestRecommendationAPI:
 
         created = (
             db.query(Video)
-            .filter(Video.user_id == sample_user.id, Video.url == "https://www.youtube.com/watch?v=abc123")
+            .filter(Video.user_id == sample_user.id, Video.url == "https://www.bilibili.com/video/BV1math12345")
             .first()
         )
         assert created is not None

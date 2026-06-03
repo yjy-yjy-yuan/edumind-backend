@@ -119,7 +119,7 @@ def parse_srt_content(content: str) -> list:
 @router.get("/videos/{video_id}/subtitles")
 async def get_video_subtitles(video_id: int, db: Session = Depends(get_db)):
     """获取视频的所有字幕"""
-    video = db.query(Video).filter(Video.id == video_id).first()
+    video = db.query(Video).filter(Video.id == video_id, Video.is_deleted.is_(False)).first()
     if not video:
         raise HTTPException(status_code=404, detail=f"未找到ID为{video_id}的视频")
 
@@ -171,7 +171,7 @@ async def get_merged_subtitles(
     db: Session = Depends(get_db),
 ):
     """获取语义合并后的字幕"""
-    video = db.query(Video).filter(Video.id == video_id).first()
+    video = db.query(Video).filter(Video.id == video_id, Video.is_deleted.is_(False)).first()
     if not video:
         raise HTTPException(status_code=404, detail="视频不存在")
 
@@ -275,7 +275,7 @@ async def get_merged_subtitles(
 @router.post("/videos/{video_id}/subtitles/semantic-merge")
 async def trigger_semantic_merge(video_id: int, db: Session = Depends(get_db)):
     """触发字幕的语义合并处理"""
-    video = db.query(Video).filter(Video.id == video_id).first()
+    video = db.query(Video).filter(Video.id == video_id, Video.is_deleted.is_(False)).first()
     if not video:
         raise HTTPException(status_code=404, detail="视频不存在")
 
@@ -334,7 +334,9 @@ async def export_subtitles(video_id: int, format: str = "srt", db: Session = Dep
     if not subtitles:
         raise HTTPException(status_code=404, detail="未找到字幕数据")
 
-    video = db.query(Video).filter(Video.id == video_id).first()
+    video = db.query(Video).filter(Video.id == video_id, Video.is_deleted.is_(False)).first()
+    if not video:
+        raise HTTPException(status_code=404, detail="视频不存在")
 
     # 转换格式
     if format == "srt":
