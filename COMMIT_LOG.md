@@ -13,7 +13,7 @@
 
 ### 2026-06-02
 
-- `1c98096` fix(video): enforce soft-delete filter across all video access paths
+- `c34ecad` fix(video): enforce soft-delete filter across all video access paths (#11)
 ### 2026-06-01
 
 - `d7395ed` fix(recommendation): enforce user scope and sync docs
