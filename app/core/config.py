@@ -110,7 +110,7 @@ class Settings(BaseSettings):
     FRAME_DESC_SAMPLE_INTERVAL_SECONDS: float = 3.0
     # 帧描述服务超时（秒）
     FRAME_DESC_TIMEOUT_SECONDS: float = 8.0
-    # 推理前是否快速探测视觉模型服务可达性（不可达时直接降级，避免长时间卡在 connecting）
+    # 推理前是否探测视觉模型服务可达性；实时链路默认关闭，避免每轮额外探活放大延迟。
     FRAME_DESC_PROBE_UPSTREAM_BEFORE_INFER: bool = False
     # 历史配置名，保留兼容旧环境变量
     FRAME_DESC_PROBE_VINCI_BEFORE_INFER: bool = False
@@ -125,8 +125,10 @@ class Settings(BaseSettings):
     FRAME_DESC_SKIP_STABLE_SCENE: bool = False
     # 是否开启上下文融合二次推理；默认关闭，优先保障实时性与连接稳定
     FRAME_DESC_ENABLE_CONTEXT_FUSION: bool = False
-    # 降级模式下描述频率（秒）：Vinci 不可用时降为低频描述
+    # 降级模式下描述频率（秒）：保持短间隔反馈，避免前端呈现 10 秒等待。
     FRAME_DESC_DEGRADED_INTERVAL_SECONDS: float = 3.0
+    # 短时间内重复请求复用上一条完整结果，不重复发送 description 事件。
+    FRAME_DESC_REUSE_RECENT_SECONDS: float = 1.2
     # 降级模式：描述文本固定前缀（可标注"可能"等置信度词汇）
     FRAME_DESC_DEGRADED_PREFIX: str = "（描述服务暂不可用，仅供参考）"
     # 单次推理最大输入帧数

@@ -17,12 +17,24 @@ from app.services.frame_desc.service import (
     _safe_trace_id,
     _VinciCircuitBreaker,
 )
+from app.services.frame_desc.source_extractor import _candidate_timestamps
 from app.services.llm_clients.qwen3vl import Qwen3VLUnavailableError
 from app.services.llm_clients.vinci_adapter import VinciAdapterError
 
 # ----------------------------------------------------------------------
 # 工具函数测试
 # ----------------------------------------------------------------------
+
+
+class CountingQwenClient:
+    def __init__(self, answer: str = "画面描述完成"):
+        self.answer = answer
+        self.calls = 0
+
+    def describe(self, *, base64_frames, prompt, max_new_tokens):
+        _ = base64_frames, prompt, max_new_tokens
+        self.calls += 1
+        return self.answer
 
 
 class TestComputeTextSimilarity:
@@ -74,6 +86,9 @@ class TestNormalizeFrames:
     def test_empty_list(self):
         frames = _normalize_frames([])
         assert frames == []
+
+    def test_candidate_timestamps_respects_max_attempts(self):
+        assert _candidate_timestamps(10.0, max_attempts=2) == [10.0, 9.5]
 
 
 class TestSafeHistory:
@@ -885,6 +900,120 @@ class TestFrameDescriptionDegradedMode:
         error_events = [e for e in events if e["type"] == "error"]
         assert len(error_events) == 1
         assert error_events[0]["degraded"] is False
+
+    def test_recent_duplicate_suppresses_description_event(self, monkeypatch):
+        """短时间重复请求同一会话时，只返回 complete，不重复输出 description。"""
+        monkeypatch.setattr(
+            "app.services.frame_desc.service.get_telemetry",
+            lambda: MagicMock(emit=MagicMock()),
+        )
+        monkeypatch.setattr(
+            "app.services.frame_desc.service.settings",
+            MagicMock(
+                FRAME_DESC_ENABLED=True,
+                FRAME_DESC_BACKEND="qwen3vl",
+                FRAME_DESC_TIMEOUT_SECONDS=8.0,
+                FRAME_DESC_CONTEXT_WINDOW_SIZE=5,
+                FRAME_DESC_SIMILARITY_THRESHOLD=0.82,
+                FRAME_DESC_SCENE_STABLE_THRESHOLD=4,
+                FRAME_DESC_DEGRADED_INTERVAL_SECONDS=3.0,
+                FRAME_DESC_REUSE_RECENT_SECONDS=30.0,
+                FRAME_DESC_DEGRADED_PREFIX="",
+                VINCI_CIRCUIT_BREAKER_FAILURE_THRESHOLD=3,
+                VINCI_CIRCUIT_BREAKER_RECOVERY_SECONDS=30.0,
+                FRAME_DESC_AUTO_DEGRADE=True,
+                FRAME_DESC_USE_QWEN3VL_STREAM=False,
+                FRAME_DESC_PROBE_UPSTREAM_BEFORE_INFER=False,
+                FRAME_DESC_CLOUD_FALLBACK_ENABLED=False,
+                QWEN3VL_MAX_NEW_TOKENS=48,
+                ANALYTICS_TRACE_ID_PLACEHOLDER="unset",
+            ),
+        )
+        qwen_client = CountingQwenClient(answer="老师正在讲解公式")
+        service = FrameDescriptionService(qwen3vl_client=qwen_client)
+
+        first_events = list(
+            service.describe_frames(
+                frames=["/9j/4AAQSkZJRg=="],
+                timestamp=10.0,
+                video_id=1,
+                video_title="Test",
+                detail_level="standard",
+                session_id="reuse-session",
+                trace_id="trace-reuse-1",
+                allow_degrade=True,
+                db=None,
+            )
+        )
+        second_events = list(
+            service.describe_frames(
+                frames=["/9j/4AAQSkZJRg=="],
+                timestamp=10.2,
+                video_id=1,
+                video_title="Test",
+                detail_level="standard",
+                session_id="reuse-session",
+                trace_id="trace-reuse-2",
+                allow_degrade=True,
+                db=None,
+            )
+        )
+
+        assert qwen_client.calls == 1
+        assert [event["type"] for event in first_events].count("description") == 1
+        assert [event["type"] for event in second_events].count("description") == 0
+        assert second_events[-1]["suppressed_duplicate"] is True
+
+    def test_inflight_session_suppresses_overlapping_request(self, monkeypatch):
+        """同一会话已有推理在途时，后续请求不再触发第二次模型调用。"""
+        monkeypatch.setattr(
+            "app.services.frame_desc.service.get_telemetry",
+            lambda: MagicMock(emit=MagicMock()),
+        )
+        monkeypatch.setattr(
+            "app.services.frame_desc.service.settings",
+            MagicMock(
+                FRAME_DESC_ENABLED=True,
+                FRAME_DESC_BACKEND="qwen3vl",
+                FRAME_DESC_TIMEOUT_SECONDS=8.0,
+                FRAME_DESC_CONTEXT_WINDOW_SIZE=5,
+                FRAME_DESC_SIMILARITY_THRESHOLD=0.82,
+                FRAME_DESC_SCENE_STABLE_THRESHOLD=4,
+                FRAME_DESC_DEGRADED_INTERVAL_SECONDS=3.0,
+                FRAME_DESC_REUSE_RECENT_SECONDS=1.2,
+                FRAME_DESC_DEGRADED_PREFIX="",
+                VINCI_CIRCUIT_BREAKER_FAILURE_THRESHOLD=3,
+                VINCI_CIRCUIT_BREAKER_RECOVERY_SECONDS=30.0,
+                FRAME_DESC_AUTO_DEGRADE=True,
+                FRAME_DESC_USE_QWEN3VL_STREAM=False,
+                FRAME_DESC_PROBE_UPSTREAM_BEFORE_INFER=False,
+                FRAME_DESC_CLOUD_FALLBACK_ENABLED=False,
+                QWEN3VL_MAX_NEW_TOKENS=48,
+                ANALYTICS_TRACE_ID_PLACEHOLDER="unset",
+            ),
+        )
+        qwen_client = CountingQwenClient(answer="不会被调用")
+        service = FrameDescriptionService(qwen3vl_client=qwen_client)
+        assert service._try_mark_session_inflight("busy-session") is True
+
+        events = list(
+            service.describe_frames(
+                frames=["/9j/4AAQSkZJRg=="],
+                timestamp=10.0,
+                video_id=1,
+                video_title="Test",
+                detail_level="standard",
+                session_id="busy-session",
+                trace_id="trace-busy",
+                allow_degrade=True,
+                db=None,
+            )
+        )
+
+        assert qwen_client.calls == 0
+        assert [event["type"] for event in events].count("description") == 0
+        assert events[-1]["stage"] == "busy"
+        assert events[-1]["suppressed_duplicate"] is True
 
 
 # ----------------------------------------------------------------------

@@ -1,6 +1,7 @@
 """问答 API 测试。"""
 
 import json
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -25,8 +26,8 @@ def test_ask_question_uses_video_rag_pipeline(client, db, sample_video, monkeypa
     db.commit()
 
     monkeypatch.setattr(
-        "app.utils.qa_utils.call_provider_chat",
-        lambda messages, *, provider, model: "根据字幕，导数的几何意义是切线斜率。[1]",
+        "app.utils.qa_utils.call_provider_chat_async",
+        AsyncMock(return_value="根据字幕，导数的几何意义是切线斜率。[1]"),
     )
 
     response = client.post(
@@ -67,6 +68,26 @@ def test_ask_question_rejects_video_without_context(client, sample_video):
 
     assert response.status_code == 400
     assert "暂无可用于问答的字幕或摘要内容" in response.json()["detail"]
+
+
+@pytest.mark.api
+def test_ask_question_rejects_soft_deleted_video(client, db, sample_video):
+    sample_video.summary = "本节课重点讲导数。"
+    sample_video.is_deleted = True
+    db.commit()
+
+    response = client.post(
+        "/api/qa/ask",
+        json={
+            "video_id": sample_video.id,
+            "question": "这节课讲了什么？",
+            "mode": "video",
+            "provider": "qwen",
+            "stream": False,
+        },
+    )
+
+    assert response.status_code == 404
 
 
 @pytest.mark.api

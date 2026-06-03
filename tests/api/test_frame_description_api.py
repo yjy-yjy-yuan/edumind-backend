@@ -49,6 +49,29 @@ def test_describe_returns_404_when_video_not_found(client, monkeypatch):
 
 
 @pytest.mark.api
+def test_describe_returns_404_for_soft_deleted_video(client, db, sample_video, monkeypatch):
+    """软删除视频不应继续进入画面描述链路。"""
+    sample_video.is_deleted = True
+    db.commit()
+    monkeypatch.setattr(
+        "app.routers.frame_description.settings",
+        MagicMock(FRAME_DESC_ENABLED=True, FRAME_DESC_ALLOW_EXTERNAL_VIDEO=False),
+    )
+
+    response = client.post(
+        "/api/frame_description/describe",
+        json={
+            "video_id": sample_video.id,
+            "frames": ["/9j/4AAQSkZJRg=="],
+            "timestamp": 10.0,
+            "detail_level": "standard",
+        },
+    )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.api
 def test_describe_allows_external_video_for_isolated_local_qwen(client, monkeypatch):
     """本地 Qwen 联调可允许云端视频 ID，不因本地库缺记录而提前 404。"""
     monkeypatch.setattr(
@@ -93,6 +116,7 @@ def test_describe_allows_external_video_for_isolated_local_qwen(client, monkeypa
     assert "application/x-ndjson" in response.headers["content-type"]
     assert "画面中正在播放云端视频" in response.text
     assert mock_service.describe_frames.call_args.kwargs["video_title"] == "云端短视频"
+    assert mock_service.describe_frames.call_args.kwargs["session_id"].startswith("video-99999:frame-desc:")
 
 
 @pytest.mark.api

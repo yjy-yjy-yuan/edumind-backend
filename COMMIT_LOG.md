@@ -14,6 +14,17 @@
 ### 2026-06-01
 
 - (pending) feat(frame-description): tune local runtime config and reduce realtime latency
+- (pending) feat(frame-description): optimize realtime latency and suppress duplicate requests
+### 2026-06-02
+
+- `1c98096` fix(video): enforce soft-delete filter across all video access paths
+### 2026-06-01
+
+- `d7395ed` fix(recommendation): enforce user scope and sync docs
+  - 修复 `load_candidate_videos_for_recommendation` 缺少 `user_id` / `is_deleted` 过滤导致的跨用户视频泄漏
+  - 修复 `related` 场景 `seed_video` 校验未过滤 `user_id` 的问题
+  - 新增 `tests/api/test_recommendation_user_scope.py` 覆盖用户隔离、软删除隔离、seed 归属校验
+  - 同步 CHANGELOG.md、COMMIT_LOG.md 及相关文档
 
 ### 2026-05-20
 

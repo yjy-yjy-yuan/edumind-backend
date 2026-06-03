@@ -30,10 +30,7 @@ from app.analytics.schema import AnalyticsEvent, AnalyticsStatus
 from app.core.config import settings
 from app.models.subtitle import Subtitle
 from app.services.frame_desc.debug import get_frame_description_debug_logger
-from app.services.llm_clients.qwen3vl import (
-    Qwen3VLClientError,
-    Qwen3VLRealtimeClient,
-)
+from app.services.llm_clients.qwen3vl import Qwen3VLClientError, Qwen3VLRealtimeClient
 from app.services.llm_clients.qwen_vl_cloud import (
     QwenVLCloudClient,
     QwenVLCloudClientError,
@@ -258,6 +255,16 @@ def _safe_setting_int(name: str, default: int) -> int:
     return int(value if isinstance(value, (int, float, str)) else default)
 
 
+def _max_new_tokens_for_detail(detail_level: str) -> int:
+    configured = _safe_setting_int("QWEN3VL_MAX_NEW_TOKENS", 48)
+    caps = {
+        "brief": 32,
+        "standard": 48,
+        "detailed": 64,
+    }
+    return min(max(16, configured), caps.get(str(detail_level or "standard").strip().lower(), 48))
+
+
 def _build_description_prompt(
     frames_context: str,
     timestamp: float,
@@ -440,6 +447,15 @@ class FrameDescTrajectory:
     trace_id: str
 
 
+@dataclass
+class _RecentDescription:
+    description: str
+    timestamp: float
+    degraded: bool
+    latency_ms: float
+    updated_at: float
+
+
 _FRAME_DESC_TRAJECTORY_BUFFER: list[FrameDescTrajectory] = []
 _FRAME_DESC_TRAJECTORY_LOCK = threading.Lock()
 _FRAME_DESC_TRAJECTORY_MAX_BUFFER = 200
@@ -510,6 +526,10 @@ class FrameDescriptionService:
             1.0,
             float(getattr(settings, "FRAME_DESC_DEGRADED_INTERVAL_SECONDS", 3.0) or 3.0),
         )
+        self._reuse_recent_seconds = max(
+            0.0,
+            float(getattr(settings, "FRAME_DESC_REUSE_RECENT_SECONDS", 1.2) or 0.0),
+        )
         self._degraded_prefix = str(
             getattr(settings, "FRAME_DESC_DEGRADED_PREFIX", "（描述服务暂不可用，仅供参考）") or ""
         )
@@ -530,8 +550,8 @@ class FrameDescriptionService:
         )
         probe_setting = getattr(settings, "FRAME_DESC_PROBE_UPSTREAM_BEFORE_INFER", None)
         if not isinstance(probe_setting, (bool, int, float, str)):
-            probe_setting = getattr(settings, "FRAME_DESC_PROBE_VINCI_BEFORE_INFER", True)
-        self._probe_before_infer = _as_bool(probe_setting, default=True)
+            probe_setting = getattr(settings, "FRAME_DESC_PROBE_VINCI_BEFORE_INFER", False)
+        self._probe_before_infer = _as_bool(probe_setting, default=False)
         self._probe_timeout = max(
             0.2,
             float(getattr(settings, "FRAME_DESC_PROBE_TIMEOUT_SECONDS", 0.5) or 0.5),
@@ -558,6 +578,8 @@ class FrameDescriptionService:
         # 会话上下文存储（session_id -> 描述历史）
         self._session_histories: dict[str, list[str]] = {}
         self._session_stable_counts: dict[str, int] = {}
+        self._session_recent_results: dict[str, _RecentDescription] = {}
+        self._session_inflight: set[str] = set()
         self._session_lock = threading.Lock()
 
     def _debug(self, message: str, *args, **kwargs) -> None:
@@ -582,6 +604,47 @@ class FrameDescriptionService:
     def _get_recent_descriptions(self, session_id: str) -> list[str]:
         with self._session_lock:
             return list(self._session_histories.get(session_id, []))
+
+    def _try_mark_session_inflight(self, session_id: str) -> bool:
+        with self._session_lock:
+            if session_id in self._session_inflight:
+                return False
+            self._session_inflight.add(session_id)
+            return True
+
+    def _clear_session_inflight(self, session_id: str) -> None:
+        with self._session_lock:
+            self._session_inflight.discard(session_id)
+
+    def _get_recent_reusable_result(self, session_id: str) -> Optional[_RecentDescription]:
+        if self._reuse_recent_seconds <= 0:
+            return None
+        now = monotonic()
+        with self._session_lock:
+            result = self._session_recent_results.get(session_id)
+            if result is None:
+                return None
+            if now - result.updated_at > self._reuse_recent_seconds:
+                return None
+            return result
+
+    def _store_recent_result(
+        self,
+        session_id: str,
+        *,
+        description: str,
+        timestamp: float,
+        degraded: bool,
+        latency_ms: float,
+    ) -> None:
+        with self._session_lock:
+            self._session_recent_results[session_id] = _RecentDescription(
+                description=description,
+                timestamp=float(timestamp or 0),
+                degraded=bool(degraded),
+                latency_ms=float(latency_ms or 0.0),
+                updated_at=monotonic(),
+            )
 
     def _get_context_summary(self, session_id: str) -> Optional[str]:
         """基于最近描述生成上下文摘要（简单取最近一条）。"""
@@ -882,7 +945,7 @@ class FrameDescriptionService:
             answer = self._resolve_qwen3vl_client().describe(
                 base64_frames=safe_frames,
                 prompt=prompt,
-                max_new_tokens=_safe_setting_int("QWEN3VL_MAX_NEW_TOKENS", 48),
+                max_new_tokens=_max_new_tokens_for_detail("standard"),
             )
             self._debug(
                 "call_qwen3vl_sync done | session=%s | trace=%s | answer_len=%d",
@@ -945,7 +1008,7 @@ class FrameDescriptionService:
             for event in self._resolve_qwen3vl_client().stream_describe(
                 base64_frames=safe_frames,
                 prompt=prompt,
-                max_new_tokens=_safe_setting_int("QWEN3VL_MAX_NEW_TOKENS", 48),
+                max_new_tokens=_max_new_tokens_for_detail("standard"),
             ):
                 if str(event.get("event") or "").lower() == "error":
                     error_code = str(event.get("error_code") or "QWEN3VL_STREAM_ERROR")
@@ -1111,6 +1174,51 @@ class FrameDescriptionService:
             len(frames or []),
         )
 
+        reusable_result = self._get_recent_reusable_result(safe_session_id)
+        if reusable_result is not None:
+            yield {
+                "type": "status",
+                "stage": "reused",
+                "message": "已复用刚完成的画面描述，跳过重复分析",
+                "progress": 100,
+            }
+            yield {
+                "type": "complete",
+                "stage": "completed",
+                "full_description": reusable_result.description,
+                "timestamp": reusable_result.timestamp,
+                "confidence": None,
+                "context_summary": None,
+                "degraded": reusable_result.degraded,
+                "latency_ms": reusable_result.latency_ms,
+                "progress": 100,
+                "message": "重复请求已抑制",
+                "suppressed_duplicate": True,
+            }
+            return
+
+        if not self._try_mark_session_inflight(safe_session_id):
+            yield {
+                "type": "status",
+                "stage": "busy",
+                "message": "上一轮画面分析仍在进行，已跳过本次重复请求",
+                "progress": 100,
+            }
+            yield {
+                "type": "complete",
+                "stage": "busy",
+                "full_description": "",
+                "timestamp": timestamp,
+                "confidence": None,
+                "context_summary": None,
+                "degraded": True,
+                "latency_ms": 0,
+                "progress": 100,
+                "message": "重复请求已抑制",
+                "suppressed_duplicate": True,
+            }
+            return
+
         yield {
             "type": "status",
             "stage": "connecting",
@@ -1130,6 +1238,7 @@ class FrameDescriptionService:
                 "progress": 100,
                 "degraded": False,
             }
+            self._clear_session_inflight(safe_session_id)
             return
 
         normalized_frames = _normalize_frames(frames)
@@ -1493,6 +1602,7 @@ class FrameDescriptionService:
                         "progress": 100,
                         "degraded": False,
                     }
+                    self._clear_session_inflight(safe_session_id)
                     return
 
         if degraded:
@@ -1542,6 +1652,7 @@ class FrameDescriptionService:
                 "degraded": degraded,
                 "latency_ms": total_latency_ms,
             }
+            self._clear_session_inflight(safe_session_id)
             return
 
         # ------------------------------------------------------------------
@@ -1621,6 +1732,13 @@ class FrameDescriptionService:
 
         # 更新会话历史
         self._push_session_history(safe_session_id, description)
+        self._store_recent_result(
+            safe_session_id,
+            description=description,
+            timestamp=timestamp,
+            degraded=degraded,
+            latency_ms=total_latency_ms,
+        )
 
         # 遥测
         self._emit_telemetry(
@@ -1659,6 +1777,7 @@ class FrameDescriptionService:
             stable_count,
             total_latency_ms,
         )
+        self._clear_session_inflight(safe_session_id)
 
     def start_session(
         self,
@@ -1689,6 +1808,8 @@ class FrameDescriptionService:
         with self._session_lock:
             self._session_histories.pop(session_id, None)
             self._session_stable_counts.pop(session_id, None)
+            self._session_recent_results.pop(session_id, None)
+            self._session_inflight.discard(session_id)
         self._emit_telemetry(
             "frame_desc_session_stopped",
             trace_id=session_id,

@@ -78,6 +78,6 @@ class NoteTimestamp(Base):
             "id": self.id,
             "note_id": self.note_id,
             "time_seconds": self.time_seconds,
-            "subtitle_text": repair_mojibake_text(self.subtitle_text),
+            "subtitle_text": repair_mojibake_text(self.subtitle_text or ""),
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

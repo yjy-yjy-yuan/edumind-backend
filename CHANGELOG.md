@@ -17,6 +17,36 @@
 - **backend**：更新 `app/services/llm_clients/qwen3vl.py`，统一实时客户端默认超时与 token 配置，避免配置漂移。
 - **tests**：更新 `tests/api/test_frame_description_api.py`，将服务端抽帧回退测试改为本地可复现的 host/url（`localhost/127.0.0.1`），确保本地联调与 CI 环境一致。
 - **impact**：本地实时画面描述链路在弱网络或上游波动时的等待时长显著降低，联调配置更贴近本地实际运行场景。
+### 实时画面描述链路延迟优化与重复请求抑制
+
+- **config**：更新 `app/core/config.py` 与 `.env.example`，大幅收紧实时描述链路超时参数：`FRAME_DESC_TIMEOUT_SECONDS` 20→8、`QWEN3VL_REQUEST_TIMEOUT_SECONDS` 8→6、`QWEN3VL_STREAM_TIMEOUT_SECONDS` 30→9、`FRAME_DESC_SERVER_FRAME_FETCH_TIMEOUT_SECONDS` 35→3；默认关闭推理前探活（`FRAME_DESC_PROBE_UPSTREAM_BEFORE_INFER=false`），降低每轮额外延迟；新增 `FRAME_DESC_REUSE_RECENT_SECONDS=1.2`、`FRAME_DESC_MAX_FRAMES_PER_REQUEST=1`、`FRAME_DESC_SERVER_FRAME_FETCH_MAX_ATTEMPTS=2`、`FRAME_DESC_DEGRADED_INTERVAL_SECONDS=3`（原 10），`QWEN3VL_MAX_NEW_TOKENS` 64→48。
+- **backend**：更新 `app/services/frame_desc/service.py`，新增 `_RecentDescription` 缓存与 `_session_inflight` 并发锁：同一会话短时间内重复请求直接复用上一条结果（`reused` 阶段），在途推理未结束时后续请求返回 `busy` 阶段并跳过模型调用；新增 `_max_new_tokens_for_detail` 按 detail_level 上限收窄 token 生成（brief 32/standard 48/detailed 64），减少不必要输出。
+- **backend**：重构 `app/routers/frame_description.py`，将 `generate()` 内联闭包拆分为 `_resolve_frame_source_auth_token`、`_stable_request_session_id`、`_extract_request_frames`、`_iter_router_degraded_events`、`stream_frame_description_events` 五个独立函数，消除 ~200 行重复降级事件构建代码；session_id 由 auth token 指纹稳定派生（`video-{id}:frame-desc:{sha1[:12]}`），替代原先每次请求 uuid4 的不确定行为。
+- **backend**：更新 `app/services/frame_desc/source_extractor.py`，`_candidate_timestamps` 新增 `max_attempts` 参数，限制 ffmpeg 重试次数（默认 2 次）；最低超时阈值从 5.0s 降至 0.5s。
+- **tests**：更新 `tests/unit/test_frame_description_service.py`，新增 `test_recent_duplicate_suppresses_description_event`（验证短时间重复请求只触发一次模型调用）、`test_inflight_session_suppresses_overlapping_request`（验证在途推理阻断后续请求）、`test_candidate_timestamps_respects_max_attempts`；新增 `CountingQwenClient` 辅助类统计模型调用次数。
+- **tests**：更新 `tests/api/test_frame_description_api.py`，新增 session_id 稳定派生断言（`session_id.startswith("video-99999:frame-desc:")`）。
+- **impact**：实时画面描述端到端延迟显著下降（超时收敛 + 探活关闭 + 单帧输入 + token 收窄）；快速拖动进度条或频繁触发描述时不再堆积重复推理请求，前端不再出现"排队等待"或"描述延迟"现象。降级模式间隔从 10s 缩短至 3s，用户体感更连续。
+## 2026-06-02
+
+### 视频软删除访问过滤补齐
+
+- **backend**：更新 `app/routers/qa.py`、`app/routers/subtitle.py`、`app/routers/recommendation.py`、`app/routers/frame_description.py`、`app/routers/note.py`，为 QA、字幕、推荐 seed、帧描述和笔记关联视频查询补齐 `Video.is_deleted.is_(False)` 过滤，避免软删除视频继续通过非 video 核心守卫端点访问。
+- **backend**：更新 `app/services/video/recommendation.py`、`app/services/search/search.py` 与 `app/routers/search.py`，推荐候选加载和语义搜索结果元数据回查排除软删除视频，并将显式搜索软删除视频的访问守卫对齐为 404，降低推荐/搜索结果泄漏已删除视频的风险。
+- **tests**：更新 `tests/api/test_recommendation_api.py`、`tests/api/test_video_api.py`、`tests/api/test_qa_api.py`、`tests/api/test_frame_description_api.py` 与 `tests/api/test_search_api.py`，修正 0518 领域服务重构后的旧 import/mock 路径，并补充软删除访问回归测试。
+- **impact**：已删除视频在 QA、字幕、笔记、帧描述、推荐和搜索链路中按软删除语义隐藏；字幕路由仍保持当前认证契约，本次仅补齐软删除过滤。
+## 2026-06-01
+
+### 推荐用户作用域隔离修复 + 实时画面描述链路参数收敛
+
+- **backend**：更新 `app/routers/recommendation.py`、`app/services/video/recommendation.py`、`app/routers/video.py`，推荐候选增加 `user_id` 与 `is_deleted` 过滤，`related` 场景 seed 校验归属，修复跨用户视频泄漏风险。
+- **backend**：更新 `scripts/init_db.py`，新增 `sync_user_scope_table_schema`，为 `notes`/`questions` 表补齐 `user_id` 字段与索引，补全历史数据的用户作用域基础。
+- **backend**：更新 `app/services/frame_desc/source_extractor.py`、`app/core/config.py`、`.env.example`，收紧服务端抽帧超时与重试参数，新增 `FRAME_DESC_SERVER_FRAME_FETCH_MAX_ATTEMPTS`，降低长尾等待。
+- **backend**：更新 `app/services/whisper/runtime.py`，在 MPS 模型加载失败时自动回退 CPU 重试，提升可用性。
+- **tests**：更新 `tests/api/test_recommendation_api.py`，并新增 `tests/api/test_recommendation_user_scope.py`，覆盖推荐用户隔离、软删除隔离、related seed 归属校验与未登录访问行为。
+- **ops**：新增 `scripts/worktree_manager.sh`，支持 worktree 列表、端口检查、创建与移除等本地并行开发辅助操作。
+- **docs**：新增 `微博画面描述功能技术分析.md`，沉淀画面描述链路技术分析与问题排查信息。
+- **repo hygiene**：更新 `.gitignore`，忽略本地 `backups/` 导出的 SQL 备份，避免误提交运行时数据。
+- **impact**：推荐接口的多用户隔离一致性提升；实时描述抽帧链路失败恢复更快；本地并行开发运维成本降低。
 
 ---
 
