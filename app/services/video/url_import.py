@@ -7,6 +7,7 @@ import logging
 import re
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import urlparse
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -59,8 +60,7 @@ def detect_remote_video_source(video_url: str) -> tuple[str, str]:
         return "youtube", f"youtube-{video_id or 'remote-video'}"
 
     if is_mooc:
-        course_match = re.search(r"icourse163\.org/learn/([^/?#]+)", normalized_url)
-        course_id = course_match.group(1) if course_match else "remote-course"
+        course_id = extract_mooc_course_id(normalized_url) or "remote-course"
         return "mooc", f"mooc-{course_id}"
 
     if is_bilibili:
@@ -79,15 +79,17 @@ def detect_remote_video_source(video_url: str) -> tuple[str, str]:
 
 def is_mooc_video_url(video_url: str) -> bool:
     """识别中国大学慕课 URL。"""
-    normalized_url = str(video_url or "").strip().lower()
-    return any(
-        host in normalized_url
-        for host in (
-            "icourse163.org",
-            "www.icourse163.org",
-            "study.icourse163.org",
-        )
-    )
+    parsed = urlparse(str(video_url or "").strip())
+    hostname = str(parsed.hostname or "").lower()
+    return hostname == "icourse163.org" or hostname.endswith(".icourse163.org")
+
+
+def extract_mooc_course_id(video_url: str) -> str:
+    """从中国大学慕课 course/learn URL 中提取课程 ID。"""
+    parsed = urlparse(str(video_url or "").strip())
+    path = str(parsed.path or "")
+    match = re.search(r"/(?:learn|course)/([^/?#]+)", path)
+    return match.group(1) if match else ""
 
 
 def reject_mooc_direct_import(video_url: str) -> None:

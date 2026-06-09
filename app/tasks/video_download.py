@@ -37,6 +37,36 @@ SENSITIVE_OPTION_KEYS = {
 }
 
 
+def parse_non_negative_int_config(name: str, raw_value: object) -> Optional[int]:
+    """解析非负整数配置；非法时记录 warning 并忽略。"""
+    if raw_value is None or raw_value == "":
+        return None
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        logger.warning("%s 必须是非负整数，已忽略 | value=%s", name, raw_value)
+        return None
+    if value < 0:
+        logger.warning("%s 必须是非负整数，已忽略 | value=%s", name, raw_value)
+        return None
+    return value
+
+
+def parse_non_negative_float_config(name: str, raw_value: object) -> Optional[float]:
+    """解析非负浮点配置；非法时记录 warning 并忽略。"""
+    if raw_value is None or raw_value == "":
+        return None
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        logger.warning("%s 必须是非负数字，已忽略 | value=%s", name, raw_value)
+        return None
+    if value < 0:
+        logger.warning("%s 必须是非负数字，已忽略 | value=%s", name, raw_value)
+        return None
+    return value
+
+
 def secure_filename_with_chinese(filename: str) -> str:
     """安全的文件名处理，保留中文字符"""
     safe_name = re.sub(r'[<>:"/\\|?*]', "_", filename)
@@ -131,6 +161,19 @@ def build_ydl_options(download_folder: str, source_type: str, outtmpl: Optional[
         user_agent = str(getattr(settings, "YOUTUBE_DOWNLOAD_USER_AGENT", "") or "").strip()
         referer = str(getattr(settings, "YOUTUBE_DOWNLOAD_REFERER", "") or "").strip()
         requested_format = str(getattr(settings, "YOUTUBE_DOWNLOAD_FORMAT", "") or "").strip()
+        impersonate = str(getattr(settings, "YOUTUBE_DOWNLOAD_IMPERSONATE", "") or "").strip()
+        sleep_requests = parse_non_negative_float_config(
+            "YOUTUBE_DOWNLOAD_SLEEP_REQUESTS",
+            getattr(settings, "YOUTUBE_DOWNLOAD_SLEEP_REQUESTS", 0.0),
+        )
+        retries = parse_non_negative_int_config(
+            "YOUTUBE_DOWNLOAD_RETRIES",
+            getattr(settings, "YOUTUBE_DOWNLOAD_RETRIES", 10),
+        )
+        extractor_retries = parse_non_negative_int_config(
+            "YOUTUBE_DOWNLOAD_EXTRACTOR_RETRIES",
+            getattr(settings, "YOUTUBE_DOWNLOAD_EXTRACTOR_RETRIES", 3),
+        )
         extractor_args = parse_youtube_extractor_args(getattr(settings, "YOUTUBE_EXTRACTOR_ARGS", ""))
         if proxy:
             options["proxy"] = proxy
@@ -147,6 +190,14 @@ def build_ydl_options(download_folder: str, source_type: str, outtmpl: Optional[
         if headers:
             options["http_headers"] = headers
         options["format"] = requested_format or YOUTUBE_DEFAULT_FORMAT
+        if impersonate:
+            options["impersonate"] = impersonate
+        if sleep_requests is not None:
+            options["sleep_interval_requests"] = sleep_requests
+        if retries is not None:
+            options["retries"] = retries
+        if extractor_retries is not None:
+            options["extractor_retries"] = extractor_retries
         if extractor_args:
             options["extractor_args"] = extractor_args
 

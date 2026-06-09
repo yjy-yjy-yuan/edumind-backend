@@ -13,7 +13,8 @@
 
 ### 2026-06-03
 
-- (pending) fix(video): block MOOC direct import and expand yt-dlp env config
+- (pending) fix(video): harden MOOC URL parsing, add YouTube anti-ban config, fix recommendation seed query
+- `cee5ed7` fix(video): block MOOC direct import, expand yt-dlp env config, and sync docs
 
 ### 2026-06-02
 

@@ -89,6 +89,10 @@ def test_build_youtube_ydl_options_includes_runtime_config(monkeypatch, tmp_path
     monkeypatch.setattr(video_download.settings, "YOUTUBE_DOWNLOAD_USER_AGENT", "Mozilla/5.0 Test")
     monkeypatch.setattr(video_download.settings, "YOUTUBE_DOWNLOAD_REFERER", "https://www.youtube.com/")
     monkeypatch.setattr(video_download.settings, "YOUTUBE_DOWNLOAD_FORMAT", "18")
+    monkeypatch.setattr(video_download.settings, "YOUTUBE_DOWNLOAD_IMPERSONATE", "chrome")
+    monkeypatch.setattr(video_download.settings, "YOUTUBE_DOWNLOAD_SLEEP_REQUESTS", 1.5)
+    monkeypatch.setattr(video_download.settings, "YOUTUBE_DOWNLOAD_RETRIES", 4)
+    monkeypatch.setattr(video_download.settings, "YOUTUBE_DOWNLOAD_EXTRACTOR_RETRIES", 2)
     monkeypatch.setattr(
         video_download.settings,
         "YOUTUBE_EXTRACTOR_ARGS",
@@ -103,6 +107,10 @@ def test_build_youtube_ydl_options_includes_runtime_config(monkeypatch, tmp_path
     assert options["http_headers"]["User-Agent"] == "Mozilla/5.0 Test"
     assert options["http_headers"]["Referer"] == "https://www.youtube.com/"
     assert options["format"] == "18"
+    assert options["impersonate"] == "chrome"
+    assert options["sleep_interval_requests"] == 1.5
+    assert options["retries"] == 4
+    assert options["extractor_retries"] == 2
     assert options["extractor_args"] == {"youtube": {"player_client": ["android", "web"]}}
 
 
@@ -113,11 +121,18 @@ def test_build_youtube_ydl_options_uses_default_format(monkeypatch, tmp_path):
     monkeypatch.setattr(video_download.settings, "YOUTUBE_DOWNLOAD_USER_AGENT", "")
     monkeypatch.setattr(video_download.settings, "YOUTUBE_DOWNLOAD_REFERER", "")
     monkeypatch.setattr(video_download.settings, "YOUTUBE_DOWNLOAD_FORMAT", "")
+    monkeypatch.setattr(video_download.settings, "YOUTUBE_DOWNLOAD_IMPERSONATE", "")
+    monkeypatch.setattr(video_download.settings, "YOUTUBE_DOWNLOAD_SLEEP_REQUESTS", 0)
+    monkeypatch.setattr(video_download.settings, "YOUTUBE_DOWNLOAD_RETRIES", 10)
+    monkeypatch.setattr(video_download.settings, "YOUTUBE_DOWNLOAD_EXTRACTOR_RETRIES", 3)
     monkeypatch.setattr(video_download.settings, "YOUTUBE_EXTRACTOR_ARGS", "")
 
     options = build_ydl_options(str(tmp_path), "youtube")
 
     assert options["format"] == YOUTUBE_DEFAULT_FORMAT
+    assert options["sleep_interval_requests"] == 0.0
+    assert options["retries"] == 10
+    assert options["extractor_retries"] == 3
 
 
 def test_invalid_youtube_extractor_args_is_logged_and_ignored(monkeypatch, tmp_path, caplog):
@@ -128,6 +143,22 @@ def test_invalid_youtube_extractor_args_is_logged_and_ignored(monkeypatch, tmp_p
 
     assert "extractor_args" not in options
     assert "YOUTUBE_EXTRACTOR_ARGS 不是合法 JSON" in caplog.text
+
+
+def test_invalid_youtube_numeric_options_are_logged_and_ignored(monkeypatch, tmp_path, caplog):
+    monkeypatch.setattr(video_download.settings, "YOUTUBE_DOWNLOAD_SLEEP_REQUESTS", -1)
+    monkeypatch.setattr(video_download.settings, "YOUTUBE_DOWNLOAD_RETRIES", "bad")
+    monkeypatch.setattr(video_download.settings, "YOUTUBE_DOWNLOAD_EXTRACTOR_RETRIES", -3)
+
+    with caplog.at_level(logging.WARNING):
+        options = build_ydl_options(str(tmp_path), "youtube")
+
+    assert "sleep_interval_requests" not in options
+    assert "retries" not in options
+    assert "extractor_retries" not in options
+    assert "YOUTUBE_DOWNLOAD_SLEEP_REQUESTS 必须是非负数字" in caplog.text
+    assert "YOUTUBE_DOWNLOAD_RETRIES 必须是非负整数" in caplog.text
+    assert "YOUTUBE_DOWNLOAD_EXTRACTOR_RETRIES 必须是非负整数" in caplog.text
 
 
 def test_youtube_forbidden_error_detection():

@@ -9,6 +9,17 @@
 
 ## 2026-06-03
 
+### YouTube 反爬配置强化、慕课 URL 解析加固与推荐 seed 查询修复
+
+- **backend**：更新 `app/tasks/video_download.py`，`build_ydl_options()` 新增 YouTube 反爬配置项：`YOUTUBE_DOWNLOAD_IMPERSONATE`（curl_cffi 客户端伪装）、`YOUTUBE_DOWNLOAD_SLEEP_REQUESTS`（请求间隔）、`YOUTUBE_DOWNLOAD_RETRIES`（重试次数）、`YOUTUBE_DOWNLOAD_EXTRACTOR_RETRIES`（解析器重试）；新增 `parse_non_negative_int_config()` 和 `parse_non_negative_float_config()` 辅助函数，非法值记录 warning 并忽略。
+- **backend**：更新 `app/services/video/url_import.py`，`is_mooc_video_url()` 从字符串匹配改为 `urlparse` 正确提取 hostname，防止 `evil-icourse163.org` 等仿冒域名绕过；新增 `extract_mooc_course_id()` 辅助函数，从 `/learn/` 和 `/course/` 路径提取课程 ID。
+- **backend**：修复 `app/routers/recommendation.py` 推荐 seed 查询 bug：当 `seed_video_id` 存在但 `user` 为 `None` 时，原代码引用未定义的 `query` 变量导致 `NameError`；现在在 `if seed_video_id is not None` 块内先初始化 `query = db.query(Video).filter(Video.id == seed_video_id, Video.is_deleted.is_(False))`。
+- **config**：更新 `app/core/config.py`，新增 `YOUTUBE_DOWNLOAD_IMPERSONATE`、`YOUTUBE_DOWNLOAD_SLEEP_REQUESTS`、`YOUTUBE_DOWNLOAD_RETRIES`、`YOUTUBE_DOWNLOAD_EXTRACTOR_RETRIES` 配置项。
+- **config**：更新 `.env.example`，同步新增上述配置模板行及注释说明。
+- **tests**：更新 `tests/unit/test_video_download.py`，新增 `test_invalid_youtube_numeric_options_are_logged_and_ignored`，覆盖负数和非法字符串配置值的降级处理；更新 `test_build_youtube_ydl_options_includes_runtime_config` 和 `test_build_youtube_ydl_options_uses_default_format` 断言新增配置项。
+- **tests**：更新 `tests/unit/test_video_url_import.py`，新增 `test_mooc_detection_does_not_match_lookalike_domain`（验证仿冒域名不被识别为慕课）和 `test_mooc_course_url_placeholder_uses_course_id_for_course_path`（验证 `/course/` 路径正确提取课程 ID）。
+- **impact**：YouTube 下载在无代理/Cookie 场景下通过客户端伪装、请求间隔和重试机制提高成功率；慕课 URL 识别更健壮，防止仿冒域名绕过；推荐接口 seed 查询在未登录场景下不再崩溃。
+
 ### YouTube URL 导入放开、慕课直导拦截与 yt-dlp 配置扩展
 
 - **backend**：更新 `app/services/video/url_import.py`，移除 YouTube 链接 400 拦截使其正常进入下载任务；新增 `is_mooc_video_url()`、`reject_mooc_direct_import()` 辅助函数，慕课链接在 `import_remote_video_from_url()` 入口直接返回 422，不创建视频记录也不提交下载任务；导出 `MOOC_UNSUPPORTED_DIRECT_IMPORT_MESSAGE` 常量。
