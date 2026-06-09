@@ -1,6 +1,6 @@
 # Dependencies Reference
 
-更新时间：2026-05-09 00:00:00 Asia/Shanghai
+更新时间：2026-06-09 21:45:00 Asia/Shanghai
 
 ## 依赖来源
 
@@ -20,6 +20,7 @@
 | pytest | 测试 |
 | Whisper/Ollama/httpx | AI runtime 与外部 HTTP 客户端 |
 | Chroma/Embedding 相关依赖 | 语义搜索 |
+| yt-dlp/curl-cffi | 远程视频下载；`curl-cffi` 用于 yt-dlp `impersonate` 客户端伪装 |
 
 ## 维护建议
 

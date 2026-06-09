@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-09
+
+### YouTube 下载客户端伪装依赖补齐
+
+- **dependency**：更新 `requirements.txt`，新增 `curl-cffi>=0.7.0`，用于支持 yt-dlp 的 `impersonate` 客户端伪装能力，避免配置 `YOUTUBE_DOWNLOAD_IMPERSONATE` 后运行环境缺少对应传输层依赖。
+- **docs**：更新 `docs/reference/dependencies.md`，记录 `yt-dlp/curl-cffi` 在远程视频下载链路中的用途。
+- **impact**：不改变默认下载行为；仅在部署方配置 `YOUTUBE_DOWNLOAD_IMPERSONATE` 时提供运行时依赖支撑，不包含任何代理、Cookie 或账号信息。
+
+---
+
 ## 2026-06-03
 
 ### YouTube 反爬配置强化、慕课 URL 解析加固与推荐 seed 查询修复

@@ -11,9 +11,13 @@
 
 ---
 
+### 2026-06-09
+
+- (pending) chore(deps): add curl-cffi for yt-dlp impersonate support
+
 ### 2026-06-03
 
-- (pending) fix(video): harden MOOC URL parsing, add YouTube anti-ban config, fix recommendation seed query
+- `772ffa0` fix(video): harden MOOC URL parsing, add YouTube anti-ban config, fix recommendation seed query
 - `cee5ed7` fix(video): block MOOC direct import, expand yt-dlp env config, and sync docs
 
 ### 2026-06-02

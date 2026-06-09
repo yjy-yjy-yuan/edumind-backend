@@ -32,6 +32,7 @@ Pillow>=10.0.0
 # 工具
 python-dotenv==1.0.0
 yt-dlp>=2024.3.10
+curl-cffi>=0.7.0
 opencv-python>=4.9.0.80
 pydub==0.25.1
 jieba==0.42.1
