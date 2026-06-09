@@ -1,6 +1,7 @@
 """视频链接下载后台任务"""
 
 import hashlib
+import json
 import logging
 import os
 import re
@@ -21,12 +22,76 @@ DOWNLOAD_RUNNING_PROGRESS = 45.0
 DOWNLOAD_VERIFY_PROGRESS = 85.0
 DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 PARTIAL_RESIDUE_SUFFIXES = {".part", ".ytdl", ".tmp", ".temp", ".download"}
+YOUTUBE_DEFAULT_FORMAT = "bestvideo*+bestaudio/best"
+YOUTUBE_FORBIDDEN_PATTERNS = (
+    "http error 403",
+    "forbidden",
+    "unable to download video data",
+)
+SENSITIVE_OPTION_KEYS = {
+    "cookie",
+    "cookies",
+    "cookiefile",
+    "cookiesfrombrowser",
+    "http_headers",
+}
 
 
 def secure_filename_with_chinese(filename: str) -> str:
     """安全的文件名处理，保留中文字符"""
     safe_name = re.sub(r'[<>:"/\\|?*]', "_", filename)
     return safe_name.strip(". ")
+
+
+def parse_browser_cookie_spec(raw_value: str) -> Optional[tuple]:
+    """解析浏览器 Cookie 来源配置，输出 yt-dlp cookiesfrombrowser 参数。"""
+    value = str(raw_value or "").strip()
+    if not value:
+        return None
+
+    browser, _, profile = value.partition(":")
+    browser = browser.strip().lower()
+    profile = profile.strip()
+    supported = {"chrome", "firefox", "edge", "safari"}
+    if browser not in supported:
+        logger.warning("忽略不支持的 YouTube 浏览器 Cookie 来源 | browser=%s", browser)
+        return None
+    if profile:
+        return (browser, profile)
+    return (browser,)
+
+
+def parse_youtube_extractor_args(raw_value: str) -> Optional[dict]:
+    """解析 YouTube extractor args JSON；失败时记录日志并继续使用默认配置。"""
+    value = str(raw_value or "").strip()
+    if not value:
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as exc:
+        logger.warning("YOUTUBE_EXTRACTOR_ARGS 不是合法 JSON，已忽略 | error=%s", exc)
+        return None
+    if not isinstance(parsed, dict):
+        logger.warning("YOUTUBE_EXTRACTOR_ARGS 必须是 JSON object，已忽略")
+        return None
+    return parsed
+
+
+def is_youtube_forbidden_error(error_message: str) -> bool:
+    """判断 YouTube 下载错误是否为 403/反爬下载失败。"""
+    normalized = str(error_message or "").lower()
+    return any(pattern in normalized for pattern in YOUTUBE_FORBIDDEN_PATTERNS)
+
+
+def sanitize_ydl_options_for_log(options: dict) -> dict:
+    """脱敏 yt-dlp 配置，避免日志泄露 Cookie 或认证头。"""
+    sanitized = {}
+    for key, value in (options or {}).items():
+        if key in SENSITIVE_OPTION_KEYS:
+            sanitized[key] = "***redacted***"
+        else:
+            sanitized[key] = value
+    return sanitized
 
 
 def get_video_db_session() -> Tuple[object, Session]:
@@ -62,15 +127,45 @@ def build_ydl_options(download_folder: str, source_type: str, outtmpl: Optional[
     if source_type == "youtube":
         proxy = str(getattr(settings, "YOUTUBE_DOWNLOAD_PROXY", "") or "").strip()
         browser_cookie = str(getattr(settings, "YOUTUBE_DOWNLOAD_BROWSER_COOKIE", "") or "").strip()
+        cookie_file = str(getattr(settings, "YOUTUBE_DOWNLOAD_COOKIE_FILE", "") or "").strip()
+        user_agent = str(getattr(settings, "YOUTUBE_DOWNLOAD_USER_AGENT", "") or "").strip()
+        referer = str(getattr(settings, "YOUTUBE_DOWNLOAD_REFERER", "") or "").strip()
+        requested_format = str(getattr(settings, "YOUTUBE_DOWNLOAD_FORMAT", "") or "").strip()
+        extractor_args = parse_youtube_extractor_args(getattr(settings, "YOUTUBE_EXTRACTOR_ARGS", ""))
         if proxy:
             options["proxy"] = proxy
-        if browser_cookie:
-            options["cookiesfrombrowser"] = (browser_cookie,)
+        browser_cookie_spec = parse_browser_cookie_spec(browser_cookie)
+        if browser_cookie_spec:
+            options["cookiesfrombrowser"] = browser_cookie_spec
+        if cookie_file:
+            options["cookiefile"] = cookie_file
+        headers = {}
+        if user_agent:
+            headers["User-Agent"] = user_agent
+        if referer:
+            headers["Referer"] = referer
+        if headers:
+            options["http_headers"] = headers
+        options["format"] = requested_format or YOUTUBE_DEFAULT_FORMAT
+        if extractor_args:
+            options["extractor_args"] = extractor_args
 
     if source_type == "mooc":
         cookie_file = str(getattr(settings, "MOOC_DOWNLOAD_COOKIE_FILE", "") or "").strip()
+        cookie_header = str(getattr(settings, "MOOC_DOWNLOAD_COOKIE", "") or "").strip()
+        user_agent = str(getattr(settings, "MOOC_DOWNLOAD_USER_AGENT", "") or "").strip()
+        referer = str(getattr(settings, "MOOC_DOWNLOAD_REFERER", "") or "").strip()
         if cookie_file:
             options["cookiefile"] = cookie_file
+        headers = {}
+        if cookie_header:
+            headers["Cookie"] = cookie_header
+        if user_agent:
+            headers["User-Agent"] = user_agent
+        if referer:
+            headers["Referer"] = referer
+        if headers:
+            options["http_headers"] = headers
 
     return options
 
@@ -78,9 +173,18 @@ def build_ydl_options(download_folder: str, source_type: str, outtmpl: Optional[
 def build_download_error_message(source_type: str, error_message: str) -> str:
     """补充远程平台下载配置提示，避免反爬/网络失败时只暴露 yt-dlp 原始错误。"""
     normalized_error = str(error_message or "").strip()
+    if source_type == "youtube" and is_youtube_forbidden_error(normalized_error):
+        youtube_hint = (
+            "YouTube 下载被平台拒绝，请配置 YOUTUBE_DOWNLOAD_PROXY、"
+            "YOUTUBE_DOWNLOAD_BROWSER_COOKIE 或 YOUTUBE_DOWNLOAD_COOKIE_FILE。"
+        )
+        if youtube_hint in normalized_error:
+            return normalized_error
+        return f"{normalized_error} {youtube_hint}".strip()
+
     source_hints = {
-        "youtube": "请检查 YOUTUBE_DOWNLOAD_PROXY 或 YOUTUBE_DOWNLOAD_BROWSER_COOKIE 配置。",
-        "mooc": "请检查网络访问和 MOOC_DOWNLOAD_COOKIE_FILE 配置；中国大学慕课课程可能需要登录态，且 yt-dlp 可能不支持该页面。",
+        "youtube": "请检查 YOUTUBE_DOWNLOAD_PROXY、YOUTUBE_DOWNLOAD_BROWSER_COOKIE 或 YOUTUBE_DOWNLOAD_COOKIE_FILE 配置。",
+        "mooc": "当前暂不支持中国大学慕课课程页直接视频处理；请上传本地视频/音频文件，或等待 icourse163 专用解析器上线。",
     }
     hint = source_hints.get(source_type)
     if not hint:
@@ -146,6 +250,27 @@ def cleanup_download_residue(download_folder: str, output_title: str) -> int:
     return removed
 
 
+def cleanup_failed_download_files(download_folder: str, output_title: str) -> int:
+    """下载失败后清理同名前缀残留，包括未完成视频和临时文件。"""
+    removed = 0
+    prefix = f"{output_title}."
+    if not os.path.isdir(download_folder):
+        return removed
+
+    for name in os.listdir(download_folder):
+        if not name.startswith(prefix):
+            continue
+        file_path = os.path.join(download_folder, name)
+        if not os.path.isfile(file_path):
+            continue
+        try:
+            os.remove(file_path)
+            removed += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("清理下载失败残留文件失败 | path=%s | error=%s", file_path, exc)
+    return removed
+
+
 def finalize_video_record(
     video_id: int,
     *,
@@ -203,6 +328,9 @@ def download_video_from_url_task(
     download_folder = settings.UPLOAD_FOLDER
     output_title = None
     try:
+        if source_type == "mooc":
+            raise RuntimeError(build_download_error_message("mooc", "unsupported_direct_import"))
+
         import yt_dlp
 
         from app.tasks.video_processing import process_video_task
@@ -217,7 +345,13 @@ def download_video_from_url_task(
             DOWNLOAD_METADATA_PROGRESS,
             "获取视频信息",
         )
-        with yt_dlp.YoutubeDL(build_ydl_options(download_folder, source_type)) as ydl:
+        metadata_options = build_ydl_options(download_folder, source_type)
+        logger.debug(
+            "远程视频元信息解析配置 | source=%s | options=%s",
+            source_type,
+            sanitize_ydl_options_for_log(metadata_options),
+        )
+        with yt_dlp.YoutubeDL(metadata_options) as ydl:
             info = ydl.extract_info(video_url, download=False)
 
         raw_title = info.get("title") or f"{source_type}-{video_id}"
@@ -226,7 +360,11 @@ def download_video_from_url_task(
         output_pattern = os.path.join(download_folder, f"{output_title}.%(ext)s")
 
         update_video_status(video_id, VideoStatus.DOWNLOADING, DOWNLOAD_RUNNING_PROGRESS, "下载视频")
-        with yt_dlp.YoutubeDL(build_ydl_options(download_folder, source_type, output_pattern)) as ydl:
+        download_options = build_ydl_options(download_folder, source_type, output_pattern)
+        logger.debug(
+            "远程视频下载配置 | source=%s | options=%s", source_type, sanitize_ydl_options_for_log(download_options)
+        )
+        with yt_dlp.YoutubeDL(download_options) as ydl:
             ydl.download([video_url])
 
         update_video_status(video_id, VideoStatus.DOWNLOADING, DOWNLOAD_VERIFY_PROGRESS, "校验视频文件")
@@ -266,7 +404,7 @@ def download_video_from_url_task(
     except Exception as exc:
         logger.error("链接视频下载失败: id=%s error=%s", video_id, exc)
         if output_title:
-            cleaned = cleanup_download_residue(download_folder, output_title)
+            cleaned = cleanup_failed_download_files(download_folder, output_title)
             if cleaned > 0:
                 logger.info(
                     "下载失败后已清理残留临时文件 | video_id=%s | count=%s",

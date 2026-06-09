@@ -197,7 +197,15 @@ class Settings(BaseSettings):
     # YouTube / MOOC 远程下载配置（yt-dlp）
     YOUTUBE_DOWNLOAD_PROXY: str = ""
     YOUTUBE_DOWNLOAD_BROWSER_COOKIE: str = ""
+    YOUTUBE_DOWNLOAD_COOKIE_FILE: str = ""
+    YOUTUBE_DOWNLOAD_USER_AGENT: str = ""
+    YOUTUBE_DOWNLOAD_REFERER: str = ""
+    YOUTUBE_DOWNLOAD_FORMAT: str = ""
+    YOUTUBE_EXTRACTOR_ARGS: str = ""
     MOOC_DOWNLOAD_COOKIE_FILE: str = ""
+    MOOC_DOWNLOAD_COOKIE: str = ""
+    MOOC_DOWNLOAD_USER_AGENT: str = ""
+    MOOC_DOWNLOAD_REFERER: str = ""
 
     # 视频推荐：站内候选上限（避免全表扫描）、站外默认开关、站外 HTTP 超时与抓取策略
     RECOMMENDATION_MAX_CANDIDATES_SCAN: int = 400

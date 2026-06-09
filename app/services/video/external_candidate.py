@@ -601,10 +601,11 @@ class MoocExternalCandidateAdapter(ExternalCandidateAdapter):
                 raw_id=external_url.rstrip("/").split("/")[-1].split("?")[0] or quote_plus(query_text),
                 title=title,
                 external_url=external_url,
-                summary=f"来自中国大学慕课的 {query_text} 相关课程，可直接进入课程页后导入学习。",
+                summary=f"来自中国大学慕课的 {query_text} 相关课程，可打开课程页继续学习。",
                 tags=list(preferred_tags or []),
                 subject_hint=subject_hint,
-                can_import=True,
+                can_import=False,
+                import_hint="当前暂不支持中国大学慕课课程页直接视频处理；请打开来源学习或上传本地视频/音频。",
             )
             candidates.append(candidate)
             if len(candidates) >= max(1, limit):

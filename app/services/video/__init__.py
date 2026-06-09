@@ -48,5 +48,7 @@ from app.services.video.recommendation import (
 )
 from app.services.video.url_import import (
     DISABLED_REMOTE_VIDEO_SOURCE_MESSAGE,
+    MOOC_UNSUPPORTED_DIRECT_IMPORT_MESSAGE,
     import_remote_video_from_url,
+    is_mooc_video_url,
 )

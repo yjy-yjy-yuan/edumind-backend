@@ -18,6 +18,9 @@ from app.services.video.processing_registry import remember_video_processing_req
 logger = logging.getLogger(__name__)
 
 DISABLED_REMOTE_VIDEO_SOURCE_MESSAGE = "暂不支持通过链接上传 YouTube 或中国大学慕课视频，请使用本地视频上传。"
+MOOC_UNSUPPORTED_DIRECT_IMPORT_MESSAGE = (
+    "当前暂不支持中国大学慕课课程页直接视频处理；需要后续实现 icourse163 专用解析器，" "或由用户上传本地视频/音频文件。"
+)
 
 
 @dataclass
@@ -43,7 +46,7 @@ def detect_remote_video_source(video_url: str) -> tuple[str, str]:
     normalized_url = str(video_url or "").strip()
     is_bilibili = "bilibili.com" in normalized_url or "b23.tv" in normalized_url
     is_youtube = "youtube.com" in normalized_url or "youtu.be" in normalized_url
-    is_mooc = "icourse163.org" in normalized_url
+    is_mooc = is_mooc_video_url(normalized_url)
 
     if is_youtube:
         video_id = ""
@@ -72,6 +75,26 @@ def detect_remote_video_source(video_url: str) -> tuple[str, str]:
         raise HTTPException(status_code=400, detail="无效的B站视频链接")
 
     raise HTTPException(status_code=400, detail="目前仅支持B站、YouTube 和中国大学慕课视频链接")
+
+
+def is_mooc_video_url(video_url: str) -> bool:
+    """识别中国大学慕课 URL。"""
+    normalized_url = str(video_url or "").strip().lower()
+    return any(
+        host in normalized_url
+        for host in (
+            "icourse163.org",
+            "www.icourse163.org",
+            "study.icourse163.org",
+        )
+    )
+
+
+def reject_mooc_direct_import(video_url: str) -> None:
+    """中国大学慕课当前仅可作为推荐候选，不进入直导下载队列。"""
+    if not is_mooc_video_url(video_url):
+        return
+    raise HTTPException(status_code=422, detail=MOOC_UNSUPPORTED_DIRECT_IMPORT_MESSAGE)
 
 
 def find_existing_remote_video(db: Session, video_url: str, user_id: int) -> Optional[Video]:
@@ -164,6 +187,7 @@ def import_remote_video_from_url(
 ) -> VideoURLImportResult:
     """通过共享导入链路提交远程视频下载并入库。"""
     normalized_url = str(video_url or "").strip()
+    reject_mooc_direct_import(normalized_url)
     source_type, placeholder_title = detect_remote_video_source(normalized_url)
     existing_video = find_existing_remote_video(db, normalized_url, user_id)
     if existing_video:

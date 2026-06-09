@@ -632,8 +632,8 @@ class TestVideoAPI:
         assert video.summary == "适合配合当前数学主题继续学习。"
         assert json.loads(video.tags)[0] == "数学"
 
-    def test_upload_video_url_allows_youtube_and_mooc_sources(self, client, db, monkeypatch, sample_user):
-        """YouTube 和中国大学慕课链接上传应进入下载任务。"""
+    def test_upload_video_url_allows_youtube_source(self, client, db, monkeypatch, sample_user):
+        """YouTube 链接上传应进入下载任务。"""
         from app.models.video import Video, VideoStatus
         from app.utils.auth_token import build_auth_token
 
@@ -651,32 +651,48 @@ class TestVideoAPI:
 
         monkeypatch.setattr("app.core.executor.submit_task", fake_submit_task)
         auth = {"Authorization": f"Bearer {build_auth_token(sample_user.id)}"}
-        cases = [
-            ("https://www.youtube.com/watch?v=abc123", "youtube"),
-            ("https://www.icourse163.org/learn/HIT-1001527001", "mooc"),
-        ]
+        url = "https://www.youtube.com/watch?v=abc123"
 
-        for url, source_type in cases:
-            response = client.post("/api/videos/upload-url", json={"url": url, "model": "medium"}, headers=auth)
-            assert response.status_code == 200
-            payload = response.json()
-            assert payload["status"] == "downloading"
-            assert payload["duplicate"] is False
+        response = client.post("/api/videos/upload-url", json={"url": url, "model": "medium"}, headers=auth)
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "downloading"
+        assert payload["duplicate"] is False
 
-            video = db.query(Video).filter(Video.id == payload["id"]).first()
-            assert video is not None
-            assert video.url == url
-            assert video.status == VideoStatus.DOWNLOADING
+        video = db.query(Video).filter(Video.id == payload["id"]).first()
+        assert video is not None
+        assert video.url == url
+        assert video.status == VideoStatus.DOWNLOADING
 
-            task = submitted[-1]
-            assert task["name"] == "download_video_from_url_task"
-            assert task["args"][0] == video.id
-            assert task["args"][1] == url
-            assert task["args"][2] == source_type
-            assert task["kwargs"]["model"] == "medium"
+        task = submitted[-1]
+        assert task["name"] == "download_video_from_url_task"
+        assert task["args"][0] == video.id
+        assert task["args"][1] == url
+        assert task["args"][2] == "youtube"
+        assert task["kwargs"]["model"] == "medium"
 
-        assert len(submitted) == len(cases)
-        assert db.query(Video).count() == len(cases)
+        assert len(submitted) == 1
+        assert db.query(Video).count() == 1
+
+    def test_upload_video_url_rejects_mooc_direct_import(self, client, db, monkeypatch, sample_user):
+        """中国大学慕课课程页不可直导，不应进入下载任务。"""
+        from app.models.video import Video
+        from app.utils.auth_token import build_auth_token
+
+        submitted = []
+        monkeypatch.setattr("app.core.executor.submit_task", lambda *args, **kwargs: submitted.append(args))
+
+        response = client.post(
+            "/api/videos/upload-url",
+            json={"url": "https://www.icourse163.org/course/PKU-1002534001?tid=1475372482", "model": "medium"},
+            headers={"Authorization": f"Bearer {build_auth_token(sample_user.id)}"},
+        )
+
+        assert response.status_code == 422
+        assert "暂不支持中国大学慕课课程页直接视频处理" in response.json()["detail"]
+        assert "上传本地视频/音频文件" in response.json()["detail"]
+        assert submitted == []
+        assert db.query(Video).count() == 0
 
     def test_upload_video_url_duplicate_reuses_existing_video(self, client, db, monkeypatch, sample_user):
         """测试重复提交同一链接时复用已有视频记录。"""

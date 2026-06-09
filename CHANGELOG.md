@@ -9,15 +9,28 @@
 
 ## 2026-06-03
 
-### YouTube / 慕课 URL 导入入口放开与 yt-dlp 配置环境变量化
+### YouTube URL 导入放开、慕课直导拦截与 yt-dlp 配置扩展
 
-- **backend**：更新 `app/services/video/url_import.py`，移除 `detect_remote_video_source()` 中对 YouTube 和中国大学慕课链接的 400 拦截，两者现在正常返回 `source_type="youtube"` / `"mooc"` 并提交下载任务。
-- **backend**：更新 `app/tasks/video_download.py`，`build_ydl_options()` 移除硬编码 `127.0.0.1:7890` 代理和 `chrome` 浏览器 Cookie，改为从 `settings.YOUTUBE_DOWNLOAD_PROXY` / `settings.YOUTUBE_DOWNLOAD_BROWSER_COOKIE` / `settings.MOOC_DOWNLOAD_COOKIE_FILE` 读取；配置留空时不启用代理/Cookie（向后兼容）；`build_download_error_message()` 对 YouTube/MOOC 下载失败统一追加配置检查提示，非 YouTube/MOOC 平台保持原错误不变。
-- **config**：更新 `app/core/config.py`，新增 `YOUTUBE_DOWNLOAD_PROXY`、`YOUTUBE_DOWNLOAD_BROWSER_COOKIE`、`MOOC_DOWNLOAD_COOKIE_FILE` 三个配置项（默认空字符串）。
-- **config**：更新 `.env.example`，同步新增上述三个配置的模板行及注释说明。
-- **tests**：更新 `tests/api/test_video_api.py`，将原 `test_upload_video_url_rejects_disabled_youtube_and_mooc_sources` 改为 `test_upload_video_url_allows_youtube_and_mooc_sources`，验证 YouTube/慕课返回 200、状态 downloading、`submit_task` 被正确调用。
-- **tests**：新增 `tests/unit/test_video_download.py`，覆盖 YouTube 403 提示、慕课 Unsupported URL 提示、B 站错误不被污染三种场景。
-- **impact**：YouTube 和中国大学慕课链接不再被入口拦截（400），正常进入下载流水线；下载配置可按部署环境灵活调整；失败时错误信息清晰，包含配置检查指引。
+- **backend**：更新 `app/services/video/url_import.py`，移除 YouTube 链接 400 拦截使其正常进入下载任务；新增 `is_mooc_video_url()`、`reject_mooc_direct_import()` 辅助函数，慕课链接在 `import_remote_video_from_url()` 入口直接返回 422，不创建视频记录也不提交下载任务；导出 `MOOC_UNSUPPORTED_DIRECT_IMPORT_MESSAGE` 常量。
+- **backend**：更新 `app/services/video/__init__.py`，补充导出 `MOOC_UNSUPPORTED_DIRECT_IMPORT_MESSAGE` 和 `is_mooc_video_url`。
+- **backend**：更新 `app/services/video/external_candidate.py`，慕课站外候选 `can_import` 改为 `False`，新增 `import_hint` 字段提示当前不支持课程页直导。
+- **backend**：更新 `app/tasks/video_download.py`：
+  - `build_ydl_options()` 新增 YouTube 配置项：`YOUTUBE_DOWNLOAD_COOKIE_FILE`、`YOUTUBE_DOWNLOAD_USER_AGENT`、`YOUTUBE_DOWNLOAD_REFERER`、`YOUTUBE_DOWNLOAD_FORMAT`、`YOUTUBE_EXTRACTOR_ARGS`；新增 MOOC 配置项：`MOOC_DOWNLOAD_COOKIE`、`MOOC_DOWNLOAD_USER_AGENT`、`MOOC_DOWNLOAD_REFERER`。
+  - 新增 `parse_browser_cookie_spec()` 支持 `chrome:Profile Name` 格式解析。
+  - 新增 `parse_youtube_extractor_args()` 解析 JSON 格式 extractor args，非法 JSON 记录日志并忽略。
+  - 新增 `is_youtube_forbidden_error()` 识别 403/Forbidden 下载失败。
+  - 新增 `sanitize_ydl_options_for_log()` 脱敏 Cookie/认证头后再写日志。
+  - 新增 `cleanup_failed_download_files()` 替代原 `cleanup_download_residue()` 用于下载失败后清理同名前缀残留。
+  - `build_download_error_message()` 对 YouTube 403 错误追加详细的代理/Cookie/CookieFile 配置提示；MOOC 提示改为当前不支持课程页直导。
+  - 下载任务入口对 `source_type="mooc"` 直接 `raise RuntimeError`，防止进入 yt-dlp 下载。
+  - 元信息解析与下载阶段新增 debug 日志，输出脱敏后的 yt-dlp 配置。
+- **config**：更新 `app/core/config.py`，新增 `YOUTUBE_DOWNLOAD_COOKIE_FILE`、`YOUTUBE_DOWNLOAD_USER_AGENT`、`YOUTUBE_DOWNLOAD_REFERER`、`YOUTUBE_DOWNLOAD_FORMAT`、`YOUTUBE_EXTRACTOR_ARGS`、`MOOC_DOWNLOAD_COOKIE`、`MOOC_DOWNLOAD_USER_AGENT`、`MOOC_DOWNLOAD_REFERER` 配置项（默认空字符串）。
+- **config**：更新 `.env.example`，同步新增上述配置模板行及注释说明；修正原有 YouTube/MOOC 配置注释使其更准确。
+- **tests**：更新 `tests/api/test_video_api.py`，将原 `test_upload_video_url_allows_youtube_and_mooc_sources` 拆分为 `test_upload_video_url_allows_youtube_source`（验证 YouTube 返回 200）和 `test_upload_video_url_rejects_mooc_direct_import`（验证慕课返回 422 且不提交任务）。
+- **tests**：新增 `tests/unit/test_video_url_import.py`，覆盖慕课 URL 识别（含 `icourse163.org`、`www.icourse163.org`、`study.icourse163.org`）和慕课直导 422 拦截。
+- **tests**：更新 `tests/unit/test_video_download.py`，新增 `test_parse_browser_cookie_spec`、`test_build_youtube_ydl_options_includes_runtime_config`、`test_build_youtube_ydl_options_uses_default_format`、`test_invalid_youtube_extractor_args_is_logged_and_ignored`、`test_youtube_forbidden_error_detection`、`test_youtube_403_task_marks_failed_and_cleans_residue`（后者在 yt-dlp 未安装时自动跳过）；更新现有错误提示断言以匹配新文案。
+- **tests**：新增 `tests/integration/test_remote_video_e2e.py`，默认跳过（需设置 `RUN_REMOTE_VIDEO_E2E=1`），覆盖慕课直导拦截和 YouTube 完整下载链路。
+- **impact**：YouTube 链接正常进入下载流水线，配置可按部署环境灵活调整（代理、Cookie、格式、UA、Referer、extractor args）；慕课链接在入口和下载任务两层拦截，明确提示当前不支持课程页直导；下载失败时错误信息包含详细配置检查指引；日志不再泄露 Cookie 等敏感信息。
 
 ---
 

@@ -13,7 +13,7 @@
 
 ### 2026-06-03
 
-- (pending) fix(video): reopen YouTube/MOOC URL import and make yt-dlp config env-driven
+- (pending) fix(video): block MOOC direct import and expand yt-dlp env config
 
 ### 2026-06-02
 
