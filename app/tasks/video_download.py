@@ -235,7 +235,11 @@ def build_download_error_message(source_type: str, error_message: str) -> str:
 
     source_hints = {
         "youtube": "请检查 YOUTUBE_DOWNLOAD_PROXY、YOUTUBE_DOWNLOAD_BROWSER_COOKIE 或 YOUTUBE_DOWNLOAD_COOKIE_FILE 配置。",
-        "mooc": "当前暂不支持中国大学慕课课程页直接视频处理；请上传本地视频/音频文件，或等待 icourse163 专用解析器上线。",
+        "mooc": (
+            "中国大学慕课直导需要 MOOC_DIRECT_IMPORT_ENABLED=true，并配置 "
+            "MOOC_DOWNLOAD_COOKIE_FILE 或 MOOC_DOWNLOAD_COOKIE；若课程视频受 DRM/API 限制，"
+            "请上传本地视频/音频文件。"
+        ),
     }
     hint = source_hints.get(source_type)
     if not hint:
@@ -364,6 +368,95 @@ def mark_download_failed(video_id: int, error_message: str):
     )
 
 
+def mooc_download_configured() -> bool:
+    """判断中国大学慕课下载任务是否允许进入实验直导链路。"""
+    if not bool(getattr(settings, "MOOC_DIRECT_IMPORT_ENABLED", False)):
+        return False
+    cookie_file = str(getattr(settings, "MOOC_DOWNLOAD_COOKIE_FILE", "") or "").strip()
+    cookie_header = str(getattr(settings, "MOOC_DOWNLOAD_COOKIE", "") or "").strip()
+    return bool(cookie_file or cookie_header)
+
+
+def _download_mooc_video(
+    video_id: int,
+    video_url: str,
+    download_folder: str,
+    *,
+    auto_generate_summary: bool = True,
+    auto_generate_tags: bool = True,
+    summary_style: str = "study",
+    model: Optional[str] = None,
+    language: str = "zh",
+) -> None:
+    """通过 icourse163 专用解析器执行实验性慕课视频下载。"""
+    from app.services.video.icourse163_parser import (
+        normalize_mooc_parser_error,
+        parse_and_download_mooc,
+    )
+    from app.tasks.video_processing import process_video_task
+
+    if not mooc_download_configured():
+        raise RuntimeError(build_download_error_message("mooc", "unsupported_direct_import"))
+
+    os.makedirs(download_folder, exist_ok=True)
+    update_video_status(video_id, VideoStatus.DOWNLOADING, DOWNLOAD_PREPARE_PROGRESS, "准备下载慕课视频")
+
+    cookie_file = str(getattr(settings, "MOOC_DOWNLOAD_COOKIE_FILE", "") or "").strip()
+    cookie_header = str(getattr(settings, "MOOC_DOWNLOAD_COOKIE", "") or "").strip()
+    user_agent = str(getattr(settings, "MOOC_DOWNLOAD_USER_AGENT", "") or "").strip()
+    referer = str(getattr(settings, "MOOC_DOWNLOAD_REFERER", "") or "").strip()
+
+    update_video_status(video_id, VideoStatus.DOWNLOADING, DOWNLOAD_METADATA_PROGRESS, "解析慕课视频信息")
+    try:
+        downloaded_path, video_title = parse_and_download_mooc(
+            url=video_url,
+            output_dir=download_folder,
+            cookie_file=cookie_file,
+            cookie_header=cookie_header,
+            user_agent=user_agent,
+            referer=referer,
+        )
+    except Exception as exc:  # noqa: BLE001
+        normalized_error = normalize_mooc_parser_error(exc)
+        if getattr(normalized_error, "debug_detail", ""):
+            logger.error(
+                "中国大学慕课解析失败 | video_id=%s | code=%s | detail=%s",
+                video_id,
+                getattr(normalized_error, "code", "mooc_parser_error"),
+                normalized_error.debug_detail,
+            )
+        raise RuntimeError(build_download_error_message("mooc", str(normalized_error))) from exc
+
+    safe_title = secure_filename_with_chinese(video_title) or f"mooc-{video_id}"
+    output_title = f"{build_source_prefix('mooc')}{safe_title}"
+
+    update_video_status(video_id, VideoStatus.DOWNLOADING, DOWNLOAD_VERIFY_PROGRESS, "校验视频文件")
+    md5 = compute_file_md5(downloaded_path)
+    finalize_video_record(
+        video_id,
+        filename=os.path.basename(downloaded_path),
+        filepath=downloaded_path,
+        title=output_title,
+        md5=md5,
+        model=model or settings.WHISPER_MODEL,
+    )
+    update_video_status(
+        video_id,
+        VideoStatus.PENDING,
+        0.0,
+        f"下载完成，准备处理（{model or settings.WHISPER_MODEL}）",
+    )
+    process_video_task(
+        video_id,
+        language,
+        model or settings.WHISPER_MODEL,
+        auto_generate_summary=auto_generate_summary,
+        auto_generate_tags=auto_generate_tags,
+        summary_style=summary_style,
+    )
+    logger.info("慕课视频下载完成: id=%s path=%s", video_id, downloaded_path)
+
+
 def download_video_from_url_task(
     video_id: int,
     video_url: str,
@@ -380,7 +473,16 @@ def download_video_from_url_task(
     output_title = None
     try:
         if source_type == "mooc":
-            raise RuntimeError(build_download_error_message("mooc", "unsupported_direct_import"))
+            return _download_mooc_video(
+                video_id,
+                video_url,
+                download_folder,
+                auto_generate_summary=auto_generate_summary,
+                auto_generate_tags=auto_generate_tags,
+                summary_style=summary_style,
+                model=model,
+                language=language,
+            )
 
         import yt_dlp
 

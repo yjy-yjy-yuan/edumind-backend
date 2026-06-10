@@ -9,6 +9,16 @@
 
 ## 2026-06-09
 
+### 中国大学慕课实验直导入口与解析器骨架
+
+- **backend**：新增 `app/services/video/icourse163_parser.py`，提供中国大学慕课 URL 参数解析、Cookie 文件/请求头加载、请求 Session 构建、错误分类和受控解析入口；当前不声明已完成 DRM/视频源 API 解析，避免误导用户。
+- **backend**：更新 `app/services/video/url_import.py`，将中国大学慕课直导改为实验配置门控：默认继续 422 拦截；只有 `MOOC_DIRECT_IMPORT_ENABLED=true` 且配置 `MOOC_DOWNLOAD_COOKIE_FILE` 或 `MOOC_DOWNLOAD_COOKIE` 时才允许进入下载队列。
+- **backend**：更新 `app/tasks/video_download.py`，新增中国大学慕课任务层实验下载入口和兜底配置校验；即使入口层被绕过，也不会 fallback 到 yt-dlp，失败信息包含实验开关、Cookie 和 DRM/API 限制说明。
+- **backend**：更新 `app/services/video/external_candidate.py`，中国大学慕课站外候选的 `can_import` 和 `import_hint` 根据实验开关与 Cookie 配置动态生成。
+- **config**：更新 `app/core/config.py` 和 `.env.example`，新增 `MOOC_DIRECT_IMPORT_ENABLED=false`，并补充 MOOC Cookie 配置说明。
+- **tests**：新增 `tests/unit/test_icourse163_parser.py`，覆盖 icourse163 URL、content id、Cookie 配置和 Cookie 文件错误；更新 `tests/unit/test_video_url_import.py` 与 `tests/unit/test_video_download.py`，覆盖默认拦截、实验配置放行和任务层失败写回。
+- **impact**：为后续接入真实 icourse163 抓包 API 留出稳定扩展点；默认生产行为仍是明确不可直导，不会把课程页交给 yt-dlp，也不会把未验证的 API 当作完整支持。
+
 ### YouTube 下载客户端伪装依赖补齐
 
 - **dependency**：更新 `requirements.txt`，新增 `curl-cffi>=0.7.0`，用于支持 yt-dlp 的 `impersonate` 客户端伪装能力，避免配置 `YOUTUBE_DOWNLOAD_IMPERSONATE` 后运行环境缺少对应传输层依赖。

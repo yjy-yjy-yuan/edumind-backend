@@ -12,15 +12,18 @@ from urllib.parse import urlparse
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.video import Video, VideoStatus
 from app.services.video.content import build_subject_enriched_tags
+from app.services.video.icourse163_parser import has_mooc_auth_config, parse_mooc_url
 from app.services.video.processing_registry import remember_video_processing_request
 
 logger = logging.getLogger(__name__)
 
 DISABLED_REMOTE_VIDEO_SOURCE_MESSAGE = "暂不支持通过链接上传 YouTube 或中国大学慕课视频，请使用本地视频上传。"
 MOOC_UNSUPPORTED_DIRECT_IMPORT_MESSAGE = (
-    "当前暂不支持中国大学慕课课程页直接视频处理；需要后续实现 icourse163 专用解析器，" "或由用户上传本地视频/音频文件。"
+    "当前默认不支持中国大学慕课课程页直接视频处理；如需实验性直导，请配置 MOOC_DIRECT_IMPORT_ENABLED=true "
+    "以及 MOOC_DOWNLOAD_COOKIE_FILE 或 MOOC_DOWNLOAD_COOKIE。也可以上传本地视频/音频文件。"
 )
 
 
@@ -86,15 +89,23 @@ def is_mooc_video_url(video_url: str) -> bool:
 
 def extract_mooc_course_id(video_url: str) -> str:
     """从中国大学慕课 course/learn URL 中提取课程 ID。"""
-    parsed = urlparse(str(video_url or "").strip())
-    path = str(parsed.path or "")
-    match = re.search(r"/(?:learn|course)/([^/?#]+)", path)
-    return match.group(1) if match else ""
+    return parse_mooc_url(video_url).course_id
+
+
+def mooc_direct_import_configured() -> bool:
+    """判断中国大学慕课实验直导配置是否完整。"""
+    if not bool(getattr(settings, "MOOC_DIRECT_IMPORT_ENABLED", False)):
+        return False
+    cookie_file = str(getattr(settings, "MOOC_DOWNLOAD_COOKIE_FILE", "") or "").strip()
+    cookie_header = str(getattr(settings, "MOOC_DOWNLOAD_COOKIE", "") or "").strip()
+    return has_mooc_auth_config(cookie_file, cookie_header)
 
 
 def reject_mooc_direct_import(video_url: str) -> None:
-    """中国大学慕课当前仅可作为推荐候选，不进入直导下载队列。"""
+    """中国大学慕课默认仅可作为推荐候选；实验配置完整时才进入专用解析链路。"""
     if not is_mooc_video_url(video_url):
+        return
+    if mooc_direct_import_configured():
         return
     raise HTTPException(status_code=422, detail=MOOC_UNSUPPORTED_DIRECT_IMPORT_MESSAGE)
 

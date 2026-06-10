@@ -62,7 +62,9 @@ def test_build_download_error_message_adds_mooc_cookie_and_extractor_hint():
     message = build_download_error_message("mooc", "Unsupported URL: https://www.icourse163.org/learn/HIT-1001527001")
 
     assert "Unsupported URL" in message
-    assert "暂不支持中国大学慕课课程页直接视频处理" in message
+    assert "MOOC_DIRECT_IMPORT_ENABLED" in message
+    assert "MOOC_DOWNLOAD_COOKIE" in message
+    assert "DRM/API" in message
     assert "上传本地视频/音频文件" in message
 
 
@@ -191,3 +193,24 @@ def test_youtube_403_task_marks_failed_and_cleans_residue(monkeypatch, tmp_path,
     assert "YOUTUBE_DOWNLOAD_BROWSER_COOKIE" in FAKE_STATUS_UPDATES[-1]["error_message"]
     assert "YOUTUBE_DOWNLOAD_COOKIE_FILE" in FAKE_STATUS_UPDATES[-1]["error_message"]
     assert "HTTP Error 403" in caplog.text
+
+
+def test_mooc_task_marks_failed_when_experimental_import_not_configured(monkeypatch, tmp_path):
+    """慕课任务层兜底应拒绝未配置的直导请求，避免 fallback 到 yt-dlp。"""
+    FAKE_STATUS_UPDATES.clear()
+    monkeypatch.setattr(video_download.settings, "UPLOAD_FOLDER", str(tmp_path))
+    monkeypatch.setattr(video_download.settings, "MOOC_DIRECT_IMPORT_ENABLED", False)
+    monkeypatch.setattr(video_download.settings, "MOOC_DOWNLOAD_COOKIE_FILE", "")
+    monkeypatch.setattr(video_download.settings, "MOOC_DOWNLOAD_COOKIE", "")
+    monkeypatch.setattr(video_download, "update_video_status", fake_update_video_status)
+
+    video_download.download_video_from_url_task(
+        123,
+        "https://www.icourse163.org/course/PKU-1002534001?tid=1475372482",
+        "mooc",
+    )
+
+    assert FAKE_STATUS_UPDATES[-1]["status"] == "failed"
+    assert FAKE_STATUS_UPDATES[-1]["step"] == "下载失败"
+    assert "MOOC_DIRECT_IMPORT_ENABLED" in FAKE_STATUS_UPDATES[-1]["error_message"]
+    assert "MOOC_DOWNLOAD_COOKIE" in FAKE_STATUS_UPDATES[-1]["error_message"]

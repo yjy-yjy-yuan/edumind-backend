@@ -13,7 +13,7 @@
 
 ### 2026-06-09
 
-- (pending) chore(deps): add curl-cffi for yt-dlp impersonate support
+- `b89b522` chore(deps): add curl-cffi for yt-dlp impersonate support
 
 ### 2026-06-03
 
@@ -22,17 +22,13 @@
 
 ### 2026-06-02
 
-- (pending) fix(ollama): bypass proxies for local runtime status
-
-### 2026-06-01
-
-- (pending) feat(frame-description): tune local runtime config and reduce realtime latency
-- (pending) feat(frame-description): optimize realtime latency and suppress duplicate requests
-### 2026-06-02
-
+- `8aeb9d6` fix(ollama): bypass proxies for local runtime status (#14)
 - `1c98096` fix(video): enforce soft-delete filter across all video access paths
+
 ### 2026-06-01
 
+- `f1bb1bd` feat(frame-description): tune local runtime config migration (#13)
+- `de37143` feat(frame-description): optimize realtime latency and suppress duplicate requests (#12)
 - `d7395ed` fix(recommendation): enforce user scope and sync docs
   - 修复 `load_candidate_videos_for_recommendation` 缺少 `user_id` / `is_deleted` 过滤导致的跨用户视频泄漏
   - 修复 `related` 场景 `seed_video` 校验未过滤 `user_id` 的问题
