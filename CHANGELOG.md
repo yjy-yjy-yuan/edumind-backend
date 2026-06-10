@@ -7,6 +7,64 @@
 
 ---
 
+## 2026-06-09
+
+### 中国大学慕课实验直导入口与解析器骨架
+
+- **backend**：新增 `app/services/video/icourse163_parser.py`，提供中国大学慕课 URL 参数解析、Cookie 文件/请求头加载、请求 Session 构建、错误分类和受控解析入口；当前不声明已完成 DRM/视频源 API 解析，避免误导用户。
+- **backend**：更新 `app/services/video/url_import.py`，将中国大学慕课直导改为实验配置门控：默认继续 422 拦截；只有 `MOOC_DIRECT_IMPORT_ENABLED=true` 且配置 `MOOC_DOWNLOAD_COOKIE_FILE` 或 `MOOC_DOWNLOAD_COOKIE` 时才允许进入下载队列。
+- **backend**：更新 `app/tasks/video_download.py`，新增中国大学慕课任务层实验下载入口和兜底配置校验；即使入口层被绕过，也不会 fallback 到 yt-dlp，失败信息包含实验开关、Cookie 和 DRM/API 限制说明。
+- **backend**：更新 `app/services/video/external_candidate.py`，中国大学慕课站外候选的 `can_import` 和 `import_hint` 根据实验开关与 Cookie 配置动态生成。
+- **config**：更新 `app/core/config.py` 和 `.env.example`，新增 `MOOC_DIRECT_IMPORT_ENABLED=false`，并补充 MOOC Cookie 配置说明。
+- **tests**：新增 `tests/unit/test_icourse163_parser.py`，覆盖 icourse163 URL、content id、Cookie 配置和 Cookie 文件错误；更新 `tests/unit/test_video_url_import.py` 与 `tests/unit/test_video_download.py`，覆盖默认拦截、实验配置放行和任务层失败写回。
+- **impact**：为后续接入真实 icourse163 抓包 API 留出稳定扩展点；默认生产行为仍是明确不可直导，不会把课程页交给 yt-dlp，也不会把未验证的 API 当作完整支持。
+
+### YouTube 下载客户端伪装依赖补齐
+
+- **dependency**：更新 `requirements.txt`，新增 `curl-cffi>=0.7.0`，用于支持 yt-dlp 的 `impersonate` 客户端伪装能力，避免配置 `YOUTUBE_DOWNLOAD_IMPERSONATE` 后运行环境缺少对应传输层依赖。
+- **docs**：更新 `docs/reference/dependencies.md`，记录 `yt-dlp/curl-cffi` 在远程视频下载链路中的用途。
+- **impact**：不改变默认下载行为；仅在部署方配置 `YOUTUBE_DOWNLOAD_IMPERSONATE` 时提供运行时依赖支撑，不包含任何代理、Cookie 或账号信息。
+
+---
+
+## 2026-06-03
+
+### YouTube 反爬配置强化、慕课 URL 解析加固与推荐 seed 查询修复
+
+- **backend**：更新 `app/tasks/video_download.py`，`build_ydl_options()` 新增 YouTube 反爬配置项：`YOUTUBE_DOWNLOAD_IMPERSONATE`（curl_cffi 客户端伪装）、`YOUTUBE_DOWNLOAD_SLEEP_REQUESTS`（请求间隔）、`YOUTUBE_DOWNLOAD_RETRIES`（重试次数）、`YOUTUBE_DOWNLOAD_EXTRACTOR_RETRIES`（解析器重试）；新增 `parse_non_negative_int_config()` 和 `parse_non_negative_float_config()` 辅助函数，非法值记录 warning 并忽略。
+- **backend**：更新 `app/services/video/url_import.py`，`is_mooc_video_url()` 从字符串匹配改为 `urlparse` 正确提取 hostname，防止 `evil-icourse163.org` 等仿冒域名绕过；新增 `extract_mooc_course_id()` 辅助函数，从 `/learn/` 和 `/course/` 路径提取课程 ID。
+- **backend**：修复 `app/routers/recommendation.py` 推荐 seed 查询 bug：当 `seed_video_id` 存在但 `user` 为 `None` 时，原代码引用未定义的 `query` 变量导致 `NameError`；现在在 `if seed_video_id is not None` 块内先初始化 `query = db.query(Video).filter(Video.id == seed_video_id, Video.is_deleted.is_(False))`。
+- **config**：更新 `app/core/config.py`，新增 `YOUTUBE_DOWNLOAD_IMPERSONATE`、`YOUTUBE_DOWNLOAD_SLEEP_REQUESTS`、`YOUTUBE_DOWNLOAD_RETRIES`、`YOUTUBE_DOWNLOAD_EXTRACTOR_RETRIES` 配置项。
+- **config**：更新 `.env.example`，同步新增上述配置模板行及注释说明。
+- **tests**：更新 `tests/unit/test_video_download.py`，新增 `test_invalid_youtube_numeric_options_are_logged_and_ignored`，覆盖负数和非法字符串配置值的降级处理；更新 `test_build_youtube_ydl_options_includes_runtime_config` 和 `test_build_youtube_ydl_options_uses_default_format` 断言新增配置项。
+- **tests**：更新 `tests/unit/test_video_url_import.py`，新增 `test_mooc_detection_does_not_match_lookalike_domain`（验证仿冒域名不被识别为慕课）和 `test_mooc_course_url_placeholder_uses_course_id_for_course_path`（验证 `/course/` 路径正确提取课程 ID）。
+- **impact**：YouTube 下载在无代理/Cookie 场景下通过客户端伪装、请求间隔和重试机制提高成功率；慕课 URL 识别更健壮，防止仿冒域名绕过；推荐接口 seed 查询在未登录场景下不再崩溃。
+
+### YouTube URL 导入放开、慕课直导拦截与 yt-dlp 配置扩展
+
+- **backend**：更新 `app/services/video/url_import.py`，移除 YouTube 链接 400 拦截使其正常进入下载任务；新增 `is_mooc_video_url()`、`reject_mooc_direct_import()` 辅助函数，慕课链接在 `import_remote_video_from_url()` 入口直接返回 422，不创建视频记录也不提交下载任务；导出 `MOOC_UNSUPPORTED_DIRECT_IMPORT_MESSAGE` 常量。
+- **backend**：更新 `app/services/video/__init__.py`，补充导出 `MOOC_UNSUPPORTED_DIRECT_IMPORT_MESSAGE` 和 `is_mooc_video_url`。
+- **backend**：更新 `app/services/video/external_candidate.py`，慕课站外候选 `can_import` 改为 `False`，新增 `import_hint` 字段提示当前不支持课程页直导。
+- **backend**：更新 `app/tasks/video_download.py`：
+  - `build_ydl_options()` 新增 YouTube 配置项：`YOUTUBE_DOWNLOAD_COOKIE_FILE`、`YOUTUBE_DOWNLOAD_USER_AGENT`、`YOUTUBE_DOWNLOAD_REFERER`、`YOUTUBE_DOWNLOAD_FORMAT`、`YOUTUBE_EXTRACTOR_ARGS`；新增 MOOC 配置项：`MOOC_DOWNLOAD_COOKIE`、`MOOC_DOWNLOAD_USER_AGENT`、`MOOC_DOWNLOAD_REFERER`。
+  - 新增 `parse_browser_cookie_spec()` 支持 `chrome:Profile Name` 格式解析。
+  - 新增 `parse_youtube_extractor_args()` 解析 JSON 格式 extractor args，非法 JSON 记录日志并忽略。
+  - 新增 `is_youtube_forbidden_error()` 识别 403/Forbidden 下载失败。
+  - 新增 `sanitize_ydl_options_for_log()` 脱敏 Cookie/认证头后再写日志。
+  - 新增 `cleanup_failed_download_files()` 替代原 `cleanup_download_residue()` 用于下载失败后清理同名前缀残留。
+  - `build_download_error_message()` 对 YouTube 403 错误追加详细的代理/Cookie/CookieFile 配置提示；MOOC 提示改为当前不支持课程页直导。
+  - 下载任务入口对 `source_type="mooc"` 直接 `raise RuntimeError`，防止进入 yt-dlp 下载。
+  - 元信息解析与下载阶段新增 debug 日志，输出脱敏后的 yt-dlp 配置。
+- **config**：更新 `app/core/config.py`，新增 `YOUTUBE_DOWNLOAD_COOKIE_FILE`、`YOUTUBE_DOWNLOAD_USER_AGENT`、`YOUTUBE_DOWNLOAD_REFERER`、`YOUTUBE_DOWNLOAD_FORMAT`、`YOUTUBE_EXTRACTOR_ARGS`、`MOOC_DOWNLOAD_COOKIE`、`MOOC_DOWNLOAD_USER_AGENT`、`MOOC_DOWNLOAD_REFERER` 配置项（默认空字符串）。
+- **config**：更新 `.env.example`，同步新增上述配置模板行及注释说明；修正原有 YouTube/MOOC 配置注释使其更准确。
+- **tests**：更新 `tests/api/test_video_api.py`，将原 `test_upload_video_url_allows_youtube_and_mooc_sources` 拆分为 `test_upload_video_url_allows_youtube_source`（验证 YouTube 返回 200）和 `test_upload_video_url_rejects_mooc_direct_import`（验证慕课返回 422 且不提交任务）。
+- **tests**：新增 `tests/unit/test_video_url_import.py`，覆盖慕课 URL 识别（含 `icourse163.org`、`www.icourse163.org`、`study.icourse163.org`）和慕课直导 422 拦截。
+- **tests**：更新 `tests/unit/test_video_download.py`，新增 `test_parse_browser_cookie_spec`、`test_build_youtube_ydl_options_includes_runtime_config`、`test_build_youtube_ydl_options_uses_default_format`、`test_invalid_youtube_extractor_args_is_logged_and_ignored`、`test_youtube_forbidden_error_detection`、`test_youtube_403_task_marks_failed_and_cleans_residue`（后者在 yt-dlp 未安装时自动跳过）；更新现有错误提示断言以匹配新文案。
+- **tests**：新增 `tests/integration/test_remote_video_e2e.py`，默认跳过（需设置 `RUN_REMOTE_VIDEO_E2E=1`），覆盖慕课直导拦截和 YouTube 完整下载链路。
+- **impact**：YouTube 链接正常进入下载流水线，配置可按部署环境灵活调整（代理、Cookie、格式、UA、Referer、extractor args）；慕课链接在入口和下载任务两层拦截，明确提示当前不支持课程页直导；下载失败时错误信息包含详细配置检查指引；日志不再泄露 Cookie 等敏感信息。
+
+---
+
 ## 2026-06-02
 
 ### Ollama 本地运行时状态探测代理隔离

@@ -572,6 +572,28 @@ class MoocExternalCandidateAdapter(ExternalCandidateAdapter):
     search_url = "https://www.icourse163.org/search.htm"
     course_search_url = "https://html.duckduckgo.com/html/"
 
+    @staticmethod
+    def _check_mooc_config_available() -> bool:
+        """检查中国大学慕课实验直导配置是否完整。"""
+        from app.core.config import settings
+        from app.services.video.icourse163_parser import has_mooc_auth_config
+
+        if not bool(getattr(settings, "MOOC_DIRECT_IMPORT_ENABLED", False)):
+            return False
+        cookie_file = str(getattr(settings, "MOOC_DOWNLOAD_COOKIE_FILE", "") or "").strip()
+        cookie_header = str(getattr(settings, "MOOC_DOWNLOAD_COOKIE", "") or "").strip()
+        return has_mooc_auth_config(cookie_file, cookie_header)
+
+    @classmethod
+    def _build_import_hint(cls) -> str:
+        """根据当前配置生成慕课候选导入提示。"""
+        if cls._check_mooc_config_available():
+            return "已启用中国大学慕课实验直导；若平台接口、登录态或 DRM 限制导致失败，" "请上传本地视频/音频文件。"
+        return (
+            "当前未启用中国大学慕课直导；需配置 MOOC_DIRECT_IMPORT_ENABLED=true 以及 "
+            "MOOC_DOWNLOAD_COOKIE_FILE 或 MOOC_DOWNLOAD_COOKIE，或上传本地视频/音频。"
+        )
+
     def search_course_pages(
         self,
         query_text: str,
@@ -601,10 +623,11 @@ class MoocExternalCandidateAdapter(ExternalCandidateAdapter):
                 raw_id=external_url.rstrip("/").split("/")[-1].split("?")[0] or quote_plus(query_text),
                 title=title,
                 external_url=external_url,
-                summary=f"来自中国大学慕课的 {query_text} 相关课程，可直接进入课程页后导入学习。",
+                summary=f"来自中国大学慕课的 {query_text} 相关课程，可打开课程页继续学习。",
                 tags=list(preferred_tags or []),
                 subject_hint=subject_hint,
-                can_import=True,
+                can_import=self._check_mooc_config_available(),
+                import_hint=self._build_import_hint(),
             )
             candidates.append(candidate)
             if len(candidates) >= max(1, limit):

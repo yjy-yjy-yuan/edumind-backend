@@ -7,17 +7,24 @@ import logging
 import re
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import urlparse
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.video import Video, VideoStatus
 from app.services.video.content import build_subject_enriched_tags
+from app.services.video.icourse163_parser import has_mooc_auth_config, parse_mooc_url
 from app.services.video.processing_registry import remember_video_processing_request
 
 logger = logging.getLogger(__name__)
 
 DISABLED_REMOTE_VIDEO_SOURCE_MESSAGE = "暂不支持通过链接上传 YouTube 或中国大学慕课视频，请使用本地视频上传。"
+MOOC_UNSUPPORTED_DIRECT_IMPORT_MESSAGE = (
+    "当前默认不支持中国大学慕课课程页直接视频处理；如需实验性直导，请配置 MOOC_DIRECT_IMPORT_ENABLED=true "
+    "以及 MOOC_DOWNLOAD_COOKIE_FILE 或 MOOC_DOWNLOAD_COOKIE。也可以上传本地视频/音频文件。"
+)
 
 
 @dataclass
@@ -43,11 +50,21 @@ def detect_remote_video_source(video_url: str) -> tuple[str, str]:
     normalized_url = str(video_url or "").strip()
     is_bilibili = "bilibili.com" in normalized_url or "b23.tv" in normalized_url
     is_youtube = "youtube.com" in normalized_url or "youtu.be" in normalized_url
-    is_mooc = "icourse163.org" in normalized_url
+    is_mooc = is_mooc_video_url(normalized_url)
 
-    if is_youtube or is_mooc:
-        # YouTube / 中国大学慕课链接上传链路暂时下线，避免进入下载和处理任务。
-        raise HTTPException(status_code=400, detail=DISABLED_REMOTE_VIDEO_SOURCE_MESSAGE)
+    if is_youtube:
+        video_id = ""
+        watch_match = re.search(r"[?&]v=([0-9A-Za-z_-]+)", normalized_url)
+        short_match = re.search(r"youtu\.be/([0-9A-Za-z_-]+)", normalized_url)
+        if watch_match:
+            video_id = watch_match.group(1)
+        elif short_match:
+            video_id = short_match.group(1)
+        return "youtube", f"youtube-{video_id or 'remote-video'}"
+
+    if is_mooc:
+        course_id = extract_mooc_course_id(normalized_url) or "remote-course"
+        return "mooc", f"mooc-{course_id}"
 
     if is_bilibili:
         bv_match = re.search(r"BV[0-9A-Za-z]+", normalized_url)
@@ -60,7 +77,37 @@ def detect_remote_video_source(video_url: str) -> tuple[str, str]:
             return "bilibili", f"bilibili-{video_id}"
         raise HTTPException(status_code=400, detail="无效的B站视频链接")
 
-    raise HTTPException(status_code=400, detail="目前仅支持B站视频链接")
+    raise HTTPException(status_code=400, detail="目前仅支持B站、YouTube 和中国大学慕课视频链接")
+
+
+def is_mooc_video_url(video_url: str) -> bool:
+    """识别中国大学慕课 URL。"""
+    parsed = urlparse(str(video_url or "").strip())
+    hostname = str(parsed.hostname or "").lower()
+    return hostname == "icourse163.org" or hostname.endswith(".icourse163.org")
+
+
+def extract_mooc_course_id(video_url: str) -> str:
+    """从中国大学慕课 course/learn URL 中提取课程 ID。"""
+    return parse_mooc_url(video_url).course_id
+
+
+def mooc_direct_import_configured() -> bool:
+    """判断中国大学慕课实验直导配置是否完整。"""
+    if not bool(getattr(settings, "MOOC_DIRECT_IMPORT_ENABLED", False)):
+        return False
+    cookie_file = str(getattr(settings, "MOOC_DOWNLOAD_COOKIE_FILE", "") or "").strip()
+    cookie_header = str(getattr(settings, "MOOC_DOWNLOAD_COOKIE", "") or "").strip()
+    return has_mooc_auth_config(cookie_file, cookie_header)
+
+
+def reject_mooc_direct_import(video_url: str) -> None:
+    """中国大学慕课默认仅可作为推荐候选；实验配置完整时才进入专用解析链路。"""
+    if not is_mooc_video_url(video_url):
+        return
+    if mooc_direct_import_configured():
+        return
+    raise HTTPException(status_code=422, detail=MOOC_UNSUPPORTED_DIRECT_IMPORT_MESSAGE)
 
 
 def find_existing_remote_video(db: Session, video_url: str, user_id: int) -> Optional[Video]:
@@ -153,6 +200,7 @@ def import_remote_video_from_url(
 ) -> VideoURLImportResult:
     """通过共享导入链路提交远程视频下载并入库。"""
     normalized_url = str(video_url or "").strip()
+    reject_mooc_direct_import(normalized_url)
     source_type, placeholder_title = detect_remote_video_source(normalized_url)
     existing_video = find_existing_remote_video(db, normalized_url, user_id)
     if existing_video:
