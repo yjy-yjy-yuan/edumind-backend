@@ -11,6 +11,10 @@
 
 ---
 
+### 2026-06-10
+
+- `8dfa133` feat(video): add icourse163 parser skeleton and experimental MOOC direct import gate
+
 ### 2026-06-09
 
 - `b89b522` chore(deps): add curl-cffi for yt-dlp impersonate support
